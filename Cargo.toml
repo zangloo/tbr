@@ -1,0 +1,28 @@
+[package]
+name = "ter"
+description = "Terminal ebook reader"
+authors = ["zang.loo"]
+version = "1.0.0"
+homepage = "https://github.com/zangloo/ter"
+repository = "https://github.com/zangloo/ter.git"
+keywords = ["terminal", "ebook"]
+license = "GPL-2.0-only"
+readme = "README.md"
+categories = ["command-line-utilities"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.53"
+clap = { version = "3.0.13", features = ["derive"] }
+dirs = "4.0.0"
+serde = { version = "1.0.136", features = ["derive"] }
+serde_derive = "1.0.136"
+toml = "0.5.8"
+rust-embed = "6.3.0"
+epub = "1.2.3"
+html2text = "0.2.1"
+cursive = { version = "0.17.0", features = ["toml"] }
+unicode-width = "0.1.9"
+regex = "1.5.4"
