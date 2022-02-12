@@ -1,5 +1,5 @@
 [package]
-name = "ter"
+name = "tbr"
 description = "Terminal ebook reader"
 authors = ["zang.loo"]
 version = "1.0.0"
