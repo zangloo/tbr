@@ -1,4 +1,4 @@
-# ter(terminal ebook reader)
+# tbr(terminal ebook reader)
 
 ## About
 
