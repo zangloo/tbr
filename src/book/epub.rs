@@ -49,8 +49,8 @@ impl Book for EpubBook {
 		self.chapter
 	}
 
-	fn title(&self) -> &String {
-		&self.title
+	fn title(&self) -> Option<&String> {
+		Some(&self.title)
 	}
 
 	fn chapter_title(&self, chapter: usize) -> Option<&String> {

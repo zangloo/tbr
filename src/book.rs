@@ -2,17 +2,24 @@ use anyhow::anyhow;
 use anyhow::Result;
 
 use crate::book::epub::EpubLoader;
+use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
 
 mod epub;
 mod txt;
+mod html;
 
 pub trait Book {
-	fn chapter_count(&self) -> usize;
-	fn set_chapter(&mut self, chapter: usize) -> Result<()>;
-	fn current_chapter(&self) -> usize;
-	fn title(&self) -> &String;
-	fn chapter_title(&self, chapter: usize) -> Option<&String>;
+	fn chapter_count(&self) -> usize { 1 }
+	fn set_chapter(&mut self, chapter: usize) -> Result<()> {
+		if chapter >= self.chapter_count() {
+			return Err(anyhow!("Invalid chapter: {}", chapter));
+		}
+		Ok(())
+	}
+	fn current_chapter(&self) -> usize { 0 }
+	fn title(&self) -> Option<&String> { None }
+	fn chapter_title(&self, _chapter: usize) -> Option<&String> { None }
 	fn lines(&self) -> &Vec<String>;
 	fn leading_space(&self) -> usize { 2 }
 }
@@ -44,6 +51,7 @@ impl Default for BookLoader {
 		let mut loaders: Vec<Box<dyn Loader>> = Vec::new();
 		loaders.push(Box::new(TxtLoader {}));
 		loaders.push(Box::new(EpubLoader {}));
+		loaders.push(Box::new(HtmlLoader {}));
 		BookLoader { loaders }
 	}
 }

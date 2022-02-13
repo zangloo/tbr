@@ -213,7 +213,11 @@ impl ReadingView {
 	}
 
 	pub(crate) fn status_msg(&self) -> String {
-		format!("{}({}:{})", self.book.title(), self.book.lines().len(), self.reading.line)
+		let title = match self.book.title() {
+			Some(t) => t,
+			None => &self.reading.filename,
+		};
+		format!("{}({}:{})", title, self.book.lines().len(), self.reading.line)
 	}
 
 	pub(crate) fn reading_info(&self) -> ReadingInfo {

@@ -1139,6 +1139,7 @@ dependencies = [
  "serde_derive",
  "toml",
  "unicode-width",
+ "zip",
 ]
 
 [[package]]

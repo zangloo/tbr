@@ -1,40 +1,15 @@
 use std::fs::OpenOptions;
 use std::io::Read;
 
-use anyhow::{anyhow, Result};
 use crate::book::{Book, Loader};
 use crate::common::plain_text_lines;
 
 pub struct TxtBook {
 	lines: Vec<String>,
-	filename: String,
 	leading_space: usize,
 }
 
 impl Book for TxtBook {
-	fn chapter_count(&self) -> usize {
-		1
-	}
-
-	fn set_chapter(&mut self, chapter: usize) -> Result<()> {
-		if chapter != 0 {
-			return Err(anyhow!("Invalid chapter: {}", chapter));
-		}
-		Ok(())
-	}
-
-	fn current_chapter(&self) -> usize {
-		0
-	}
-
-	fn title(&self) -> &String {
-		&self.filename
-	}
-
-	fn chapter_title(&self, _chapter: usize) -> Option<&String> {
-		Some(&self.filename)
-	}
-
 	fn lines(&self) -> &Vec<String> {
 		&self.lines
 	}
@@ -67,7 +42,7 @@ impl Loader for TxtLoader {
 		} else {
 			2
 		};
-		let book = TxtBook { filename: filename.clone(), lines, leading_space };
+		let book = TxtBook { lines, leading_space };
 		Ok(Box::new(book))
 	}
 }
