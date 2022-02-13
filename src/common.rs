@@ -24,12 +24,13 @@ pub fn length_with_leading(text: &String, leading_space: usize) -> usize {
 	};
 }
 
-pub(crate) fn html_lines(content: &Vec<u8>) -> Result<Vec<String>> {
-	let text = from_read(&content[..], usize::MAX);
+pub(crate) fn html_lines(content: Vec<u8>) -> Result<Vec<String>> {
+	let html = plain_text(content)?;
+	let text = from_read(&mut html.as_bytes(), usize::MAX);
 	Ok(txt_lines(&text))
 }
 
-pub(crate) fn plain_text_lines(content: Vec<u8>) -> Result<Vec<String>> {
+pub(crate) fn plain_text(content: Vec<u8>) -> Result<String> {
 	let result = detect(&content);
 	let coder = encoding_from_whatwg_label(charset2encoding(&result.0));
 	let text = match coder {
@@ -41,6 +42,11 @@ pub(crate) fn plain_text_lines(content: Vec<u8>) -> Result<Vec<String>> {
 		}
 		None => String::from_utf8(content)?
 	};
+	Ok(text)
+}
+
+pub(crate) fn plain_text_lines(content: Vec<u8>) -> Result<Vec<String>> {
+	let text = plain_text(content)?;
 	Ok(txt_lines(&text))
 }
 

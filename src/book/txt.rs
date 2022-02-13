@@ -21,8 +21,8 @@ impl Book for TxtBook {
 
 pub struct TxtLoader {}
 
-impl Loader for TxtLoader {
-	fn support(&self, filename: &String) -> bool {
+impl TxtLoader {
+	pub(crate) fn support(filename: &str) -> bool {
 		let filename = filename.to_lowercase();
 		filename.ends_with(".txt")
 			|| filename.ends_with(".log")
@@ -31,8 +31,14 @@ impl Loader for TxtLoader {
 			|| filename.ends_with(".yml")
 			|| filename.ends_with(".js")
 	}
+}
 
-	fn load(&self, filename: &String) -> anyhow::Result<Box<dyn Book>> {
+impl Loader for TxtLoader {
+	fn support(&self, filename: &str) -> bool {
+		Self::support(filename)
+	}
+
+	fn load(&self, filename: &String, _chapter: usize) -> anyhow::Result<Box<dyn Book>> {
 		let mut file = OpenOptions::new().read(true).open(filename)?;
 		let mut reader: Vec<u8> = Vec::new();
 		file.read_to_end(&mut reader)?;

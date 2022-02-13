@@ -94,7 +94,11 @@ pub(crate) fn start(mut configuration: Configuration) -> Result<Configuration> {
 					return;
 				}
 				let li = ListIterator::new(&book, |book, position| {
-					Some(ListEntry::new(book.chapter_title(position)?, position))
+					if position >= book.chapter_count() {
+						None
+					} else {
+						Some(ListEntry::new(book.chapter_title(position)?, position))
+					}
 				});
 				let current_chapter = reading_view.reading_info().chapter;
 				let dialog = list_dialog("Select chapter", li, current_chapter, |s, chapter| {

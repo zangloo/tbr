@@ -4,9 +4,11 @@ use anyhow::Result;
 use crate::book::epub::EpubLoader;
 use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
+use crate::book::zip::ZipLoader;
 
 mod epub;
 mod txt;
+mod zip;
 mod html;
 
 pub trait Book {
@@ -29,16 +31,15 @@ pub(crate) struct BookLoader {
 }
 
 pub(crate) trait Loader {
-	fn support(&self, filename: &String) -> bool;
-	fn load(&self, filename: &String) -> Result<Box<dyn Book>>;
+	fn support(&self, filename: &str) -> bool;
+	fn load(&self, filename: &String, chapter: usize) -> Result<Box<dyn Book>>;
 }
 
 impl BookLoader {
 	pub fn load(&self, filename: &String, chapter: usize) -> Result<Box<dyn Book>> {
 		for loader in self.loaders.iter() {
 			if loader.support(filename) {
-				let mut book = loader.load(filename)?;
-				book.set_chapter(chapter)?;
+				let book = loader.load(filename, chapter)?;
 				return Ok(book);
 			}
 		}
@@ -52,6 +53,7 @@ impl Default for BookLoader {
 		loaders.push(Box::new(TxtLoader {}));
 		loaders.push(Box::new(EpubLoader {}));
 		loaders.push(Box::new(HtmlLoader {}));
+		loaders.push(Box::new(ZipLoader::default()));
 		BookLoader { loaders }
 	}
 }

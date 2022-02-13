@@ -11,17 +11,23 @@ pub(crate) struct HtmlBook {
 	lines: Vec<String>,
 }
 
-impl Loader for HtmlLoader {
-	fn support(&self, filename: &String) -> bool {
+impl HtmlLoader {
+	pub(crate) fn support(filename: &str) -> bool {
 		let filename = filename.to_lowercase();
 		filename.ends_with(".html") || filename.ends_with(".htm")
 	}
+}
 
-	fn load(&self, filename: &String) -> Result<Box<dyn Book>> {
+impl Loader for HtmlLoader {
+	fn support(&self, filename: &str) -> bool {
+		Self::support(filename)
+	}
+
+	fn load(&self, filename: &String, _chapter: usize) -> Result<Box<dyn Book>> {
 		let mut file = OpenOptions::new().read(true).open(filename)?;
 		let mut reader: Vec<u8> = Vec::new();
 		file.read_to_end(&mut reader)?;
-		let lines = html_lines(&reader)?;
+		let lines = html_lines(reader)?;
 		Ok(Box::new(HtmlBook { lines }))
 	}
 }
