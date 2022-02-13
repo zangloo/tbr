@@ -9,6 +9,7 @@ use cursive::view::{Nameable, SizeConstraint};
 use cursive::views::{EditView, LinearLayout, OnEventView, TextView, ViewRef};
 
 use crate::{Configuration, ReadingInfo, ThemeEntry};
+use crate::book::Book;
 use crate::list::{list_dialog, ListEntry, ListIterator};
 use crate::view::ReadingView;
 
@@ -63,10 +64,28 @@ fn get_theme<'a>(theme_name: &String, theme_entries: &'a Vec<ThemeEntry>) -> Res
 	Err(anyhow!("No theme defined: {}",theme_name))
 }
 
+fn load_book(configuration: &Configuration, reading: &mut ReadingInfo) -> Result<Box<dyn Book>> {
+	let book = configuration.book_loader.load(&configuration.current, reading.chapter)?;
+	let lines = &mut book.lines();
+	let line_count = lines.len();
+	if line_count == 0 {
+		return Err(anyhow!("No content.".to_string()));
+	} else {
+		if reading.line >= lines.len() {
+			reading.line = lines.len() - 1;
+		}
+		let text = &lines[reading.line];
+		if reading.position >= text.chars().count() {
+			reading.position = 0;
+		}
+	}
+	Ok(book)
+}
+
 pub(crate) fn start(mut configuration: Configuration) -> Result<Configuration> {
 	println!("Loading {} ...", configuration.current);
-	let reading = reading_info(&mut configuration.history, &configuration.current);
-	let book = configuration.book_loader.load(&configuration.current, reading.chapter)?;
+	let mut reading = reading_info(&mut configuration.history, &configuration.current);
+	let book = load_book(&configuration, &mut reading)?;
 	let mut app = Cursive::new();
 	let theme = get_theme(&configuration.theme_name, &configuration.theme_entries)?;
 	app.set_theme(theme.clone());

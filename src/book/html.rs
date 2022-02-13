@@ -3,7 +3,7 @@ use std::io::Read;
 use anyhow::Result;
 
 use crate::book::{Book, Loader};
-use crate::common::html_lines;
+use crate::html_convertor::html_lines;
 
 pub(crate) struct HtmlLoader {}
 

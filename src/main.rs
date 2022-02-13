@@ -21,6 +21,10 @@ mod view;
 mod common;
 mod list;
 mod book;
+mod html_convertor;
+
+#[macro_use]
+extern crate markup5ever;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]

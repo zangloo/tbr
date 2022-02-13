@@ -1,13 +1,14 @@
 use std::borrow::Borrow;
-use anyhow::{anyhow, Result};
+use anyhow::{Error, Result};
 use std::fs::{File, OpenOptions};
 use std::io::Read;
 use lexical_sort::{natural_lexical_cmp, StringSort};
 use zip::ZipArchive;
-use crate::book::{Book, Loader};
+use crate::book::{Book, InvalidChapterError, Loader};
 use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
-use crate::common::{html_lines, plain_text_lines};
+use crate::common::plain_text_lines;
+use crate::html_convertor::html_lines;
 
 pub struct ZipLoader {}
 
@@ -32,7 +33,7 @@ impl Loader for ZipLoader {
 		}
 		toc.string_sort_unstable(natural_lexical_cmp);
 		if chapter >= toc.len() {
-			return Err(anyhow!("invalid chapter: {}", chapter));
+			return Err(Error::new(InvalidChapterError {}));
 		}
 		let title = toc[chapter].clone();
 		let lines = load_chapter(&mut zip, title.borrow())?;

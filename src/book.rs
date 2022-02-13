@@ -1,5 +1,6 @@
-use anyhow::anyhow;
-use anyhow::Result;
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
+use anyhow::{anyhow, Result};
 
 use crate::book::epub::EpubLoader;
 use crate::book::html::HtmlLoader;
@@ -57,3 +58,21 @@ impl Default for BookLoader {
 		BookLoader { loaders }
 	}
 }
+
+pub(crate) struct InvalidChapterError {}
+
+const INVALID_CHAPTER_ERROR_MESSAGE: &str = "invalid chapter";
+
+impl Debug for InvalidChapterError {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		f.write_str(INVALID_CHAPTER_ERROR_MESSAGE)
+	}
+}
+
+impl Display for InvalidChapterError {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		f.write_str(INVALID_CHAPTER_ERROR_MESSAGE)
+	}
+}
+
+impl Error for InvalidChapterError {}

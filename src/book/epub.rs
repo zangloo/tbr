@@ -1,10 +1,10 @@
 use std::fs::File;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Error, Result};
 use epub::doc::{EpubDoc, NavPoint};
 
-use crate::book::{Book, Loader};
-use crate::common::html_lines;
+use crate::book::{Book, InvalidChapterError, Loader};
+use crate::html_convertor::html_lines;
 
 pub struct EpubBook {
 	doc: EpubDoc<File>,
@@ -22,7 +22,7 @@ fn get_nav_point(epub_doc: &EpubDoc<File>, chapter: usize) -> Option<&NavPoint> 
 fn load_chapter(epub_doc: &mut EpubDoc<File>, chapter: usize) -> Result<(String, Vec<String>)> {
 	let single = match get_nav_point(epub_doc, chapter) {
 		Some(s) => s,
-		None => return Err(anyhow!("Invalid chapter: {}", chapter)),
+		None => return Err(Error::new(InvalidChapterError{})),
 	};
 	let resource_path = single.content.clone();
 	let title = single.label.clone();
