@@ -1,4 +1,7 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use chardet::{charset2encoding, detect};
+use encoding::DecoderTrap;
+use encoding::label::encoding_from_whatwg_label;
 use html2text::from_read;
 use unicode_width::UnicodeWidthChar;
 
@@ -23,6 +26,21 @@ pub fn length_with_leading(text: &String, leading_space: usize) -> usize {
 
 pub(crate) fn html_lines(content: &Vec<u8>) -> Result<Vec<String>> {
 	let text = from_read(&content[..], usize::MAX);
+	Ok(txt_lines(&text))
+}
+
+pub(crate) fn plain_text_lines(content: Vec<u8>) -> Result<Vec<String>> {
+	let result = detect(&content);
+	let coder = encoding_from_whatwg_label(charset2encoding(&result.0));
+	let text = match coder {
+		Some(coder) => {
+			match coder.decode(&content, DecoderTrap::Ignore) {
+				Ok(text) => text,
+				Err(e) => return Err(anyhow!(e.to_string())),
+			}
+		}
+		None => String::from_utf8(content)?
+	};
 	Ok(txt_lines(&text))
 }
 

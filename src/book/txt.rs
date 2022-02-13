@@ -1,9 +1,9 @@
-use std::fs;
+use std::fs::OpenOptions;
+use std::io::Read;
 
 use anyhow::{anyhow, Result};
-
 use crate::book::{Book, Loader};
-use crate::common::txt_lines;
+use crate::common::plain_text_lines;
 
 pub struct TxtBook {
 	lines: Vec<String>,
@@ -58,9 +58,10 @@ impl Loader for TxtLoader {
 	}
 
 	fn load(&self, filename: &String) -> anyhow::Result<Box<dyn Book>> {
-		let content = fs::read(filename)?;
-		let text = String::from_utf8(content)?;
-		let lines = txt_lines(&text);
+		let mut file = OpenOptions::new().read(true).open(filename)?;
+		let mut reader: Vec<u8> = Vec::new();
+		file.read_to_end(&mut reader)?;
+		let lines = plain_text_lines(reader)?;
 		let leading_space = if filename.to_lowercase().ends_with(".log") {
 			0
 		} else {
