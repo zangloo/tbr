@@ -24,11 +24,18 @@ impl Loader for ZipLoader {
 	fn load(&self, filename: &String, chapter: usize) -> Result<Box<dyn Book>> {
 		let file = OpenOptions::new().read(true).open(filename)?;
 		let mut zip = zip::ZipArchive::new(file)?;
-		let mut toc = vec![];
+		let mut buf = vec![];
 		for i in 0..zip.len() {
 			let zip_file = zip.by_index(i)?;
-			let raw_name = zip_file.name_raw().to_vec();
-			let name = plain_text(raw_name, true)?;
+			if buf.len() > 0 {
+				buf.push(b'\n');
+			}
+			buf.extend(zip_file.name_raw().to_vec());
+		}
+		let names = plain_text(buf, true)?;
+		let names = names.split('\n');
+		let mut toc = vec![];
+		for (i, name) in names.enumerate() {
 			if TxtLoader::support(&name) || HtmlLoader::support(&name) {
 				toc.push(ZipTocEntry { name: String::from(name), index: i });
 			}
