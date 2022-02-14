@@ -1,25 +1,13 @@
 use anyhow::Result;
-use std::io;
-use std::io::Write;
 use html5ever::{parse_document, ParseOpts};
 use html5ever::tendril::TendrilSink;
 use html5ever::tree_builder::TreeBuilderOpts;
-use markup5ever_rcdom::NodeData::{Document, Element, Text};
 use markup5ever_rcdom::{Handle, RcDom};
+use markup5ever_rcdom::NodeData::{Document, Element, Text};
+
 use crate::common::plain_text;
 
-struct Discard {}
-
 // reference https://gitlab.com/spacecowboy/html2runes/-/blob/master/src/markdown.rs
-impl Write for Discard {
-	fn write(&mut self, bytes: &[u8]) -> std::result::Result<usize, io::Error> {
-		Ok(bytes.len())
-	}
-	fn flush(&mut self) -> std::result::Result<(), io::Error> {
-		Ok(())
-	}
-}
-
 pub(crate) fn html_lines(text: Vec<u8>) -> Result<Vec<String>> {
 	let opts = ParseOpts {
 		tree_builder: TreeBuilderOpts {
