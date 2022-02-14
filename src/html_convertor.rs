@@ -28,7 +28,7 @@ pub(crate) fn html_lines(text: Vec<u8>) -> Result<Vec<String>> {
 		},
 		..Default::default()
 	};
-	let text = plain_text(text)?;
+	let text = plain_text(text, false)?;
 	let dom = parse_document(RcDom::default(), opts)
 		.from_utf8()
 		.read_from(&mut text.as_bytes())

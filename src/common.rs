@@ -1,7 +1,6 @@
-use anyhow::{anyhow, Result};
-use chardet::{charset2encoding, detect};
-use encoding::DecoderTrap;
-use encoding::label::encoding_from_whatwg_label;
+use std::borrow::Borrow;
+use anyhow::{Result};
+use chardetng::EncodingDetector;
 use unicode_width::UnicodeWidthChar;
 
 pub fn with_leading(text: &String) -> bool {
@@ -23,23 +22,20 @@ pub fn length_with_leading(text: &String, leading_space: usize) -> usize {
 	};
 }
 
-pub(crate) fn plain_text(content: Vec<u8>) -> Result<String> {
-	let result = detect(&content);
-	let coder = encoding_from_whatwg_label(charset2encoding(&result.0));
-	let text = match coder {
-		Some(coder) => {
-			match coder.decode(&content, DecoderTrap::Ignore) {
-				Ok(text) => text,
-				Err(e) => return Err(anyhow!(e.to_string())),
-			}
-		}
-		None => String::from_utf8(content)?
+pub(crate) fn plain_text(content: Vec<u8>, full_scan: bool) -> Result<String> {
+	let mut detector = EncodingDetector::new();
+	let text = if detector.feed(content.borrow(), full_scan) {
+		let encoding = detector.guess(None, false);
+		let (cow, ..) = encoding.decode(content.borrow());
+		String::from(cow)
+	} else {
+		String::from_utf8(content)?
 	};
 	Ok(text)
 }
 
 pub(crate) fn plain_text_lines(content: Vec<u8>) -> Result<Vec<String>> {
-	let text = plain_text(content)?;
+	let text = plain_text(content, false)?;
 	Ok(txt_lines(&text))
 }
 
