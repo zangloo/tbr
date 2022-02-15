@@ -25,7 +25,7 @@ pub fn length_with_leading(text: &String, leading_space: usize) -> usize {
 pub(crate) fn plain_text(content: Vec<u8>, full_scan: bool) -> Result<String> {
 	let mut detector = EncodingDetector::new();
 	let text = if detector.feed(content.borrow(), full_scan) {
-		let encoding = detector.guess(None, false);
+		let encoding = detector.guess(None, true);
 		let (cow, ..) = encoding.decode(content.borrow());
 		String::from(cow)
 	} else {
