@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 use anyhow::{Result};
 use chardetng::EncodingDetector;
+use encoding_rs::UTF_8;
 use unicode_width::UnicodeWidthChar;
 
 pub fn with_leading(text: &String) -> bool {
@@ -26,8 +27,12 @@ pub(crate) fn plain_text(content: Vec<u8>, full_scan: bool) -> Result<String> {
 	let mut detector = EncodingDetector::new();
 	let text = if detector.feed(content.borrow(), full_scan) {
 		let encoding = detector.guess(None, true);
-		let (cow, ..) = encoding.decode(content.borrow());
-		String::from(cow)
+		if encoding.eq(UTF_8) {
+			String::from_utf8(content)?
+		} else {
+			let (cow, ..) = encoding.decode(content.borrow());
+			String::from(cow)
+		}
 	} else {
 		String::from_utf8(content)?
 	};
