@@ -133,9 +133,9 @@ fn fill_print_line(print_line: &mut String, chars: usize) {
 	}
 }
 
-fn wrap_line(text: &String, line: usize, mut position: usize, end_position: usize, width: usize, context: &mut RenderContext, reverse: &Option<ReverseInfo>) -> Vec<usize> {
+fn wrap_line(text: &String, line: usize, start_position: usize, end_position: usize, width: usize, context: &mut RenderContext, reverse: &Option<ReverseInfo>) -> Vec<usize> {
 	let with_leading_space = if context.leading_space > 0 {
-		position == 0 && with_leading(text)
+		start_position == 0 && with_leading(text)
 	} else {
 		false
 	};
@@ -147,9 +147,10 @@ fn wrap_line(text: &String, line: usize, mut position: usize, end_position: usiz
 	let mut wrapped_breaks = vec![0];
 	let mut break_position = 0;
 	let mut chars = text.chars();
-	for _x in 0..position {
+	for _x in 0..start_position {
 		chars.next();
 	}
+	let mut position = start_position;
 	for char in chars {
 		if position == end_position {
 			break;
@@ -181,7 +182,7 @@ fn wrap_line(text: &String, line: usize, mut position: usize, end_position: usiz
 						break_position
 					}
 				} else {
-					break_position - prev_position
+					break_position
 				};
 				let mut print_chars = print_line.chars();
 				let mut line = String::from("");
@@ -216,7 +217,7 @@ fn wrap_line(text: &String, line: usize, mut position: usize, end_position: usiz
 		position += 1;
 		x += cw;
 		if can_break {
-			break_position = position;
+			break_position += 1;
 			print_line.push(' ');
 			if char == '\t' {
 				let tab_chars_left = TAB_SIZE - (x % TAB_SIZE);
@@ -232,7 +233,16 @@ fn wrap_line(text: &String, line: usize, mut position: usize, end_position: usiz
 			print_line.push(char);
 		}
 	}
-	fill_print_line(&mut print_line, width - x);
-	context.print_lines.push(print_line);
+	if start_position != position {
+		if x > 0 {
+			fill_print_line(&mut print_line, width - x);
+			context.print_lines.push(print_line);
+		} else {
+			wrapped_breaks.pop();
+		}
+	} else {
+		fill_print_line(&mut print_line, width - x);
+		context.print_lines.push(print_line);
+	}
 	return wrapped_breaks;
 }
