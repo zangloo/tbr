@@ -16,12 +16,13 @@ generated if not exists.
 ## Key binding
 
 | Function                  | Key mappings    |
-| ------------------------- |-----------------|
+|---------------------------|-----------------|
 | Next page                 | space,page down |
 | Previous page             | page up         |
 | Search                    | '/'             |
 | Search Next               | 'n'             |
 | Search backward           | 'N'             |
+| Inner book dialog         | 'b'             |
 | History dialog            | 'h'             |
 | Select chapter            | 'c'             |
 | Select theme              | 't'             |

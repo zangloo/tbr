@@ -1,13 +1,13 @@
-use std::fs::File;
+use std::io::{Cursor, Read, Seek};
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{Error, Result};
 use epub::doc::{EpubDoc, NavPoint};
 
 use crate::book::{Book, InvalidChapterError, Loader};
 use crate::html_convertor::html_lines;
 
-pub struct EpubBook {
-	doc: EpubDoc<File>,
+pub struct EpubBook<R: Read + Seek> {
+	doc: EpubDoc<R>,
 	chapter: usize,
 	title: String,
 	lines: Vec<String>,
@@ -15,14 +15,14 @@ pub struct EpubBook {
 
 pub struct EpubLoader {}
 
-fn get_nav_point(epub_doc: &EpubDoc<File>, chapter: usize) -> Option<&NavPoint> {
+fn get_nav_point<R: Read + Seek>(epub_doc: &EpubDoc<R>, chapter: usize) -> Option<&NavPoint> {
 	epub_doc.toc.get(chapter)
 }
 
-fn load_chapter(epub_doc: &mut EpubDoc<File>, chapter: usize) -> Result<(String, Vec<String>)> {
+fn load_chapter<R: Read + Seek>(epub_doc: &mut EpubDoc<R>, chapter: usize) -> Result<(String, Vec<String>)> {
 	let single = match get_nav_point(epub_doc, chapter) {
 		Some(s) => s,
-		None => return Err(Error::new(InvalidChapterError{})),
+		None => return Err(Error::new(InvalidChapterError {})),
 	};
 	let resource_path = single.content.clone();
 	let title = single.label.clone();
@@ -36,29 +36,40 @@ impl Loader for EpubLoader {
 		filename.to_lowercase().ends_with(".epub")
 	}
 
-	fn load(&self, filename: &String, chapter: usize) -> Result<Box<dyn Book>> {
-		let mut doc = EpubDoc::new(filename)?;
+	fn load_file(&self, filename: &str, chapter: usize) -> Result<Box<dyn Book>> {
+		let doc = EpubDoc::new(filename)?;
+		self.do_load(doc, chapter)
+	}
+
+	fn load_buf(&self, _filename: &str, content: Vec<u8>, chapter: usize) -> Result<Box<dyn Book>>
+	{
+		let doc = EpubDoc::from_reader(Cursor::new(content))?;
+		self.do_load(doc, chapter)
+	}
+}
+
+impl EpubLoader {
+	fn do_load<R: 'static + Read + Seek>(&self, mut doc: EpubDoc<R>, mut chapter: usize) -> Result<Box<dyn Book>> {
+		let chapters = doc.toc.len();
+		if chapter >= chapters {
+			chapter = chapters - 1;
+		}
 		let (title, lines) = load_chapter(&mut doc, chapter)?;
 		let book = EpubBook { doc, chapter, title, lines };
 		Result::Ok(Box::new(book))
 	}
 }
 
-impl Book for EpubBook {
+impl<R: Read + Seek> Book for EpubBook<R> {
 	fn chapter_count(&self) -> usize {
 		self.doc.toc.len()
 	}
 
 	fn set_chapter(&mut self, chapter: usize) -> Result<()> {
-		let single = match get_nav_point(&self.doc, chapter) {
-			Some(s) => s,
-			None => return Err(anyhow!("Invalid chapter: {}", chapter)),
-		};
-		let resource_path = single.content.clone();
-		self.title = single.label.clone();
-		let content = self.doc.get_resource_by_path(resource_path)?;
-		self.lines = html_lines(content)?;
+		let (title, lines) = load_chapter(&mut self.doc, chapter)?;
 		self.chapter = chapter;
+		self.title = title;
+		self.lines = lines;
 		Ok(())
 	}
 

@@ -9,7 +9,6 @@ use cursive::view::{Nameable, SizeConstraint};
 use cursive::views::{EditView, LinearLayout, OnEventView, TextView, ViewRef};
 
 use crate::{Configuration, ReadingInfo, ThemeEntry};
-use crate::book::Book;
 use crate::list::{list_dialog, ListEntry, ListIterator};
 use crate::view::ReadingView;
 
@@ -37,6 +36,11 @@ pub struct ReverseInfo {
 	pub end: usize,
 }
 
+struct ControllerContext {
+	configuration: Configuration,
+	theme_entries: Vec<ThemeEntry>,
+}
+
 fn reading_info(history: &mut Vec<ReadingInfo>, current: &String) -> ReadingInfo {
 	let mut i = 0;
 	while i < history.len() {
@@ -47,6 +51,7 @@ fn reading_info(history: &mut Vec<ReadingInfo>, current: &String) -> ReadingInfo
 	}
 	return ReadingInfo {
 		filename: current.clone(),
+		inner_book: 0,
 		chapter: 0,
 		line: 0,
 		position: 0,
@@ -64,33 +69,14 @@ fn get_theme<'a>(theme_name: &String, theme_entries: &'a Vec<ThemeEntry>) -> Res
 	Err(anyhow!("No theme defined: {}",theme_name))
 }
 
-fn load_book(configuration: &Configuration, reading: &mut ReadingInfo) -> Result<Box<dyn Book>> {
-	let book = configuration.book_loader.load(&configuration.current, reading.chapter)?;
-	let lines = &mut book.lines();
-	let line_count = lines.len();
-	if line_count == 0 {
-		return Err(anyhow!("No content.".to_string()));
-	} else {
-		if reading.line >= lines.len() {
-			reading.line = lines.len() - 1;
-		}
-		let text = &lines[reading.line];
-		if reading.position >= text.chars().count() {
-			reading.position = 0;
-		}
-	}
-	Ok(book)
-}
-
-pub(crate) fn start(mut configuration: Configuration) -> Result<Configuration> {
+pub(crate) fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -> Result<Configuration> {
 	println!("Loading {} ...", configuration.current);
-	let mut reading = reading_info(&mut configuration.history, &configuration.current);
-	let book = load_book(&configuration, &mut reading)?;
+	let reading = reading_info(&mut configuration.history, &configuration.current);
 	let mut app = Cursive::new();
-	let theme = get_theme(&configuration.theme_name, &configuration.theme_entries)?;
+	let theme = get_theme(&configuration.theme_name, &theme_entries)?;
 	app.set_theme(theme.clone());
-	let reading_view = ReadingView::new(book, &configuration.render_type, reading.clone(), &configuration.search_pattern)?;
-	app.set_user_data(configuration);
+	let reading_view = ReadingView::new(&configuration.render_type, reading.clone(), &configuration.search_pattern)?;
+	app.set_user_data(ControllerContext { configuration, theme_entries });
 	let status_view = LinearLayout::horizontal()
 		.child(TextView::new(&reading_view.status_msg())
 			.no_wrap()
@@ -104,12 +90,15 @@ pub(crate) fn start(mut configuration: Configuration) -> Result<Configuration> {
 			.on_event('q', |s| s.quit())
 			.on_event('v', |s| update_status(s, version_string!()))
 			.on_event('g', |s| goto_line(s))
+			.on_event('b', |s| select_book(s))
 			.on_event('h', |s| select_history(s))
 			.on_event('t', |s| select_theme(s))
 			.on_event('c', move |s| {
 				let reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
 				let book = reading_view.reading_book();
 				if book.chapter_count() == 1 {
+					drop(reading_view);
+					select_book(s);
 					return;
 				}
 				let li = ListIterator::new(&book, |book, position| {
@@ -134,7 +123,8 @@ pub(crate) fn start(mut configuration: Configuration) -> Result<Configuration> {
 	app.run();
 	let reading_view: ViewRef<ReadingView> = app.find_name(TEXT_VIEW_NAME).unwrap();
 	let reading_now = reading_view.reading_info();
-	let mut configuration: Configuration = app.take_user_data().unwrap();
+	let controller_context: ControllerContext = app.take_user_data().unwrap();
+	configuration = controller_context.configuration;
 	configuration.current = reading_now.filename.clone();
 	configuration.search_pattern = reading_view.search_pattern().clone();
 	configuration.history.push(reading_now);
@@ -149,7 +139,8 @@ pub(crate) fn update_status_callback(status: String) -> Callback {
 
 fn switch_render(s: &mut Cursive) {
 	let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
-	s.with_user_data(|configuration: &mut Configuration| {
+	s.with_user_data(|controller_context: &mut ControllerContext| {
+		let configuration = &mut controller_context.configuration;
 		configuration.render_type = String::from(match configuration.render_type.as_str() {
 			"han" => "xi",
 			_ => "han",
@@ -158,9 +149,46 @@ fn switch_render(s: &mut Cursive) {
 	});
 }
 
+fn select_book(s: &mut Cursive) {
+	let reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
+	let container = reading_view.reading_container();
+	let size = container.inner_book_names().len();
+	if size == 1 {
+		return;
+	}
+	let li = ListIterator::new(container.inner_book_names(), |names, position| {
+		let option = names.get(position);
+		match option {
+			Some(name) => Some(ListEntry::new(&name.name(), position)),
+			None => None,
+		}
+	});
+	let reading = &reading_view.reading_info();
+	let dialog = list_dialog("Select inner book", li, reading.inner_book, |s, selected| {
+		let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
+		let reading_now = reading_view.reading_info();
+		if reading_now.inner_book == selected {
+			return;
+		}
+		let new_reading = ReadingInfo {
+			filename: reading_now.filename.clone(),
+			inner_book: selected,
+			chapter: 0,
+			line: 0,
+			position: 0,
+			ts: 0,
+			reverse: None,
+		};
+		let msg = reading_view.switch_book(new_reading);
+		update_status(s, &msg);
+	});
+	s.add_layer(dialog);
+}
+
 fn select_history(s: &mut Cursive)
 {
-	let option = s.with_user_data(|configuration: &mut Configuration| {
+	let option = s.with_user_data(|controller_context: &mut ControllerContext| {
+		let configuration = &mut controller_context.configuration;
 		let history = &configuration.history;
 		let size = history.len();
 		if size == 0 {
@@ -176,26 +204,23 @@ fn select_history(s: &mut Cursive)
 				None => None,
 			}
 		});
-		let dialog = list_dialog("Select theme", li, 0, |s, selected| {
+		let dialog = list_dialog("Reopen", li, 0, |s, selected| {
 			let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
 			let reading_now = reading_view.reading_info();
-			let result = s.with_user_data(|configuration: &mut Configuration| {
+			let msg = s.with_user_data(|controller_context: &mut ControllerContext| {
+				let configuration = &mut controller_context.configuration;
 				let history = &mut configuration.history;
 				let position = history.len() - selected - 1;
-				let reading = &history[position];
-				match configuration.book_loader.load(&reading.filename, reading.chapter) {
-					Ok(book) => {
-						let reading = history.remove(position);
+				let reading = &mut history[position];
+				match reading_view.switch_container(reading.clone()) {
+					Ok(msg) => {
+						history.remove(position);
 						history.push(reading_now);
-						Ok((book, reading))
+						msg
 					}
-					Err(e) => Err(e),
+					Err(e) => e.to_string(),
 				}
 			}).unwrap();
-			let msg = match result {
-				Ok((book, reading)) => reading_view.switch_book(book, reading),
-				Err(e) => e.to_string(),
-			};
 			update_status(s, &msg);
 		});
 		Some(dialog)
@@ -207,8 +232,9 @@ fn select_history(s: &mut Cursive)
 }
 
 fn select_theme(s: &mut Cursive) {
-	let option = s.with_user_data(|configuration: &mut Configuration| {
-		let theme_entries = &configuration.theme_entries;
+	let option = s.with_user_data(|controller_context: &mut ControllerContext| {
+		let configuration = &mut controller_context.configuration;
+		let theme_entries = &controller_context.theme_entries;
 		if theme_entries.len() <= 1 {
 			return None;
 		}
@@ -221,9 +247,9 @@ fn select_theme(s: &mut Cursive) {
 		}
 		themes.sort();
 		let dialog = list_dialog("Select theme", themes.into_iter(), 0, |s, selected| {
-			let theme = s.with_user_data(|configuration: &mut Configuration| {
-				let theme_entries = &configuration.theme_entries;
-				configuration.theme_name = theme_entries[selected].0.clone();
+			let theme = s.with_user_data(|controller_context: &mut ControllerContext| {
+				let theme_entries = &controller_context.theme_entries;
+				controller_context.configuration.theme_name = theme_entries[selected].0.clone();
 				let theme = &theme_entries[selected].1;
 				theme.clone()
 			}).unwrap();
@@ -315,4 +341,3 @@ fn setup_input_view<F>(app: &mut Cursive, prefix: &str, preset: &Option<String>,
 	drop(status_layout);
 	app.focus_name(INPUT_VIEW_NAME).unwrap();
 }
-

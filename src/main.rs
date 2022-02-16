@@ -1,4 +1,6 @@
 extern crate core;
+#[macro_use]
+extern crate markup5ever;
 
 use std::collections::HashMap;
 use std::fs;
@@ -14,6 +16,7 @@ use serde_derive::{Deserialize, Serialize};
 use toml;
 
 use crate::book::BookLoader;
+use crate::container::ContainerManager;
 use crate::controller::ReverseInfo;
 
 mod controller;
@@ -22,9 +25,7 @@ mod common;
 mod list;
 mod book;
 mod html_convertor;
-
-#[macro_use]
-extern crate markup5ever;
+mod container;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -45,6 +46,7 @@ struct ThemeEntry(String, Theme);
 #[derive(Serialize, Deserialize)]
 pub struct ReadingInfo {
 	filename: String,
+	inner_book: usize,
 	chapter: usize,
 	line: usize,
 	position: usize,
@@ -66,6 +68,7 @@ impl Clone for ReadingInfo {
 	fn clone(&self) -> Self {
 		ReadingInfo {
 			filename: self.filename.clone(),
+			inner_book: self.inner_book,
 			chapter: self.chapter,
 			line: self.line,
 			position: self.position,
@@ -83,10 +86,6 @@ pub struct Configuration {
 	theme_name: String,
 	history: Vec<ReadingInfo>,
 	themes: HashMap<String, PathBuf>,
-	#[serde(skip)]
-	theme_entries: Vec<ThemeEntry>,
-	#[serde(skip)]
-	book_loader: BookLoader,
 }
 
 fn main() -> Result<()> {
@@ -105,8 +104,8 @@ fn main() -> Result<()> {
 	cache_dir.push("ter");
 	let mut themes_dir = config_dir.clone();
 	themes_dir.push("themes");
-	let configuration = load_config(cli.filename, &config_file, &themes_dir, &cache_dir)?;
-	let configuration = controller::start(configuration)?;
+	let (configuration, theme_entries) = load_config(cli.filename, &config_file, &themes_dir, &cache_dir)?;
+	let configuration = controller::start(configuration, theme_entries)?;
 	save_config(configuration, config_file)?;
 	Ok(())
 }
@@ -124,8 +123,8 @@ fn file_path(filename: String) -> Result<String> {
 	Ok(filename)
 }
 
-fn load_config(filename: Option<String>, config_file: &PathBuf, themes_dir: &PathBuf, cache_dir: &PathBuf) -> Result<Configuration> {
-	let configuration: Configuration =
+fn load_config(filename: Option<String>, config_file: &PathBuf, themes_dir: &PathBuf, cache_dir: &PathBuf) -> Result<(Configuration, Vec<ThemeEntry>)> {
+	let (configuration, theme_entries) =
 		if config_file.as_path().is_file() {
 			let string = fs::read_to_string(config_file)?;
 			let mut configuration: Configuration = toml::from_str(&string)?;
@@ -160,13 +159,14 @@ fn load_config(filename: Option<String>, config_file: &PathBuf, themes_dir: &Pat
 					configuration.current = ri.filename.clone();
 				}
 			}
+			let mut theme_entries = vec![];
 			for (name, path) in &configuration.themes {
 				let mut theme_file = themes_dir.clone();
 				theme_file.push(path);
 				let theme = process_theme_result(load_theme_file(theme_file))?;
-				configuration.theme_entries.push(ThemeEntry(name.clone(), theme));
+				theme_entries.push(ThemeEntry(name.clone(), theme));
 			}
-			configuration
+			(configuration, theme_entries)
 		} else {
 			if filename.is_none() {
 				return Err(anyhow!("No file to open."));
@@ -179,18 +179,16 @@ fn load_config(filename: Option<String>, config_file: &PathBuf, themes_dir: &Pat
 			fs::create_dir_all(cache_dir)?;
 			let filename = filename.unwrap();
 			let filepath = file_path(filename)?;
-			Configuration {
+			(Configuration {
 				render_type: String::from("xi"),
 				search_pattern: Option::None,
 				current: filepath,
 				history: vec![],
 				theme_name: String::from("dark"),
 				themes: themes_map,
-				theme_entries,
-				book_loader: Default::default(),
-			}
+			}, theme_entries)
 		};
-	return Ok(configuration);
+	return Ok((configuration, theme_entries));
 }
 
 fn process_theme_result(result: Result<Theme, Error>) -> Result<Theme> {

@@ -1,6 +1,3 @@
-use std::fs::OpenOptions;
-use std::io::Read;
-
 use crate::book::{Book, Loader};
 use crate::common::plain_text_lines;
 
@@ -38,11 +35,8 @@ impl Loader for TxtLoader {
 		Self::support(filename)
 	}
 
-	fn load(&self, filename: &String, _chapter: usize) -> anyhow::Result<Box<dyn Book>> {
-		let mut file = OpenOptions::new().read(true).open(filename)?;
-		let mut reader: Vec<u8> = Vec::new();
-		file.read_to_end(&mut reader)?;
-		let lines = plain_text_lines(reader)?;
+	fn load_buf(&self, filename: &str, content: Vec<u8>, _chapter: usize) -> anyhow::Result<Box<dyn Book>> {
+		let lines = plain_text_lines(content)?;
 		let leading_space = if filename.to_lowercase().ends_with(".log") {
 			0
 		} else {

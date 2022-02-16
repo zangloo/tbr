@@ -1,5 +1,3 @@
-use std::fs::OpenOptions;
-use std::io::Read;
 use anyhow::Result;
 
 use crate::book::{Book, Loader};
@@ -23,11 +21,8 @@ impl Loader for HtmlLoader {
 		Self::support(filename)
 	}
 
-	fn load(&self, filename: &String, _chapter: usize) -> Result<Box<dyn Book>> {
-		let mut file = OpenOptions::new().read(true).open(filename)?;
-		let mut reader: Vec<u8> = Vec::new();
-		file.read_to_end(&mut reader)?;
-		let lines = html_lines(reader)?;
+	fn load_buf(&self, _filename: &str, content: Vec<u8>, _chapter: usize) -> Result<Box<dyn Book>> {
+		let lines = html_lines(content)?;
 		Ok(Box::new(HtmlBook { lines }))
 	}
 }
