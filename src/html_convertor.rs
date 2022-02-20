@@ -9,6 +9,11 @@ use crate::common::plain_text;
 
 // reference https://gitlab.com/spacecowboy/html2runes/-/blob/master/src/markdown.rs
 pub(crate) fn html_lines(text: Vec<u8>) -> Result<Vec<String>> {
+	let text = plain_text(text, false)?;
+	html_str_lines(text)
+}
+
+pub(crate) fn html_str_lines(str: String) -> Result<Vec<String>> {
 	let opts = ParseOpts {
 		tree_builder: TreeBuilderOpts {
 			drop_doctype: true,
@@ -16,10 +21,9 @@ pub(crate) fn html_lines(text: Vec<u8>) -> Result<Vec<String>> {
 		},
 		..Default::default()
 	};
-	let text = plain_text(text, false)?;
 	let dom = parse_document(RcDom::default(), opts)
 		.from_utf8()
-		.read_from(&mut text.as_bytes())
+		.read_from(&mut str.as_bytes())
 		.unwrap();
 	let mut lines = vec![];
 	let mut buf = String::from("");
