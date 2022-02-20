@@ -14,7 +14,7 @@ pub(crate) struct ZipLoader {}
 impl ContainerLoader for ZipLoader {
 	fn accept(&self, filename: &str) -> bool {
 		let filename = filename.to_lowercase();
-		filename.ends_with(".zip") || filename.ends_with(".bzip2")
+		filename.ends_with(".zip")
 	}
 
 	fn open(&self, filename: &str, book_loader: &BookLoader) -> Result<Box<dyn Container>>
