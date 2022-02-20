@@ -12,9 +12,11 @@ use crate::html_convertor::html_str_lines;
 pub struct ChapterInfo(pub String, pub Vec<String>);
 
 pub struct ManifestItem {
+	#[allow(dead_code)]
 	id: String,
 	href: String,
 	media_type: String,
+	#[allow(dead_code)]
 	properties: Option<String>,
 }
 
@@ -41,8 +43,10 @@ pub struct NavPoint {
 
 pub struct EpubArchive<R: Read + Seek> {
 	zip: ZipArchive<R>,
+	#[allow(dead_code)]
 	manifest_html_files: HashMap<String, String>,
 	content_opf_dir: PathBuf,
+	#[allow(dead_code)]
 	content_opf: ContentOPF,
 	pub toc: Vec<NavPoint>,
 }
