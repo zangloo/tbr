@@ -1,4 +1,5 @@
 use std::{collections::HashMap, path::PathBuf};
+use std::collections::hash_map::Entry;
 use std::io::{Read, Seek};
 
 use anyhow::{anyhow, Error, Result};
@@ -15,6 +16,7 @@ pub struct ManifestItem {
 	#[allow(dead_code)]
 	id: String,
 	href: String,
+	#[allow(dead_code)]
 	media_type: String,
 	#[allow(dead_code)]
 	properties: Option<String>,
@@ -43,8 +45,8 @@ pub struct NavPoint {
 
 pub struct EpubArchive<R: Read + Seek> {
 	zip: ZipArchive<R>,
-	#[allow(dead_code)]
 	manifest_html_files: HashMap<String, String>,
+	#[allow(dead_code)]
 	content_opf_dir: PathBuf,
 	#[allow(dead_code)]
 	content_opf: ContentOPF,
@@ -89,25 +91,7 @@ impl<R: Read + Seek> EpubArchive<R> {
 		let toc = parse_ncx(&ncx_text)?;
 
 		// construct map filename -> content for all html files declared in manifest
-		// let manifest_html_files: HashMap<String, String> = HashMap::new();
-		let manifest_html_files: HashMap<String, String> = content_opf
-			.manifest
-			.values()
-			.filter_map(|manifest_item| {
-				if manifest_item.media_type == "application/xhtml+xml" {
-					Some(manifest_item.href.to_string())
-				} else {
-					None
-				}
-			})
-			.map(|filepath| {
-				let mut full_path = content_opf_dir.clone();
-				full_path.push(filepath.clone());
-				let full_path = full_path.into_os_string().into_string().unwrap();
-				zip_content(&mut zip, &full_path)
-					.map(|content| (filepath, content))
-			})
-			.collect::<Result<HashMap<_, _>>>()?;
+		let manifest_html_files: HashMap<String, String> = HashMap::new();
 
 		Ok(EpubArchive {
 			zip,
@@ -120,16 +104,36 @@ impl<R: Read + Seek> EpubArchive<R> {
 
 	pub fn load_chapter(&mut self, chapter: usize) -> Result<ChapterInfo> {
 		let np = self.toc.get(chapter).ok_or(Error::new(InvalidChapterError {}))?;
-		let resource_path = &np.src;
-
-		let mut filepath = self.content_opf_dir.clone();
-		filepath.push(resource_path.as_str());
-		let text = zip_content(&mut self.zip, filepath.to_str().unwrap())?;
+		let mut src_split = np.src.split('#');
+		let src_file = src_split.next().unwrap();
+		let src_anchor = src_split.next();
+		let html = match self.manifest_html_files.entry(String::from(src_file)) {
+			Entry::Occupied(o) => o.into_mut(),
+			Entry::Vacant(v) => {
+				let mut full_path = self.content_opf_dir.clone();
+				full_path.push(src_file.clone());
+				let full_path = full_path.into_os_string().into_string().unwrap();
+				let content = zip_content(&mut self.zip, &full_path)?;
+				v.insert(content)
+			}
+		};
+		let stop_anchor = if let Some(np2) = self.toc.get(chapter + 1) {
+			let next_src = &np2.src;
+			if next_src.starts_with(src_file) {
+				let mut next_src_split = next_src.split('#');
+				let _next_src_file = next_src_split.next();
+				next_src_split.next()
+			} else {
+				None
+			}
+		} else {
+			None
+		};
+		let lines = html_str_lines(html.as_str(), src_anchor, stop_anchor)?;
 		let title = match &np.label {
 			Some(label) => label.clone(),
 			None => np.src.clone(),
 		};
-		let lines = html_str_lines(text)?;
 		Ok(ChapterInfo(title, lines))
 	}
 }
