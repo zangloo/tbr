@@ -51,9 +51,13 @@ pub struct EpubArchive<R: Read + Seek> {
 	pub toc: Vec<NavPoint>,
 }
 
+
 impl<R: Read + Seek> EpubArchive<R> {
 	pub fn new(reader: R) -> Result<Self> {
 		let mut zip = ZipArchive::new(reader)?;
+		if is_encrypted(&zip) {
+			return Err(anyhow!("Encrypted epub."));
+		}
 		let container_text = zip_content(&mut zip, "META-INF/container.xml")?;
 		// TODO: make this more robust
 		let content_opf_re = Regex::new(r#"rootfile full-path="(\S*)""#).unwrap();
@@ -254,4 +258,8 @@ fn parse_content_opf(text: &str) -> Option<ContentOPF> {
 		manifest,
 		spine,
 	})
+}
+
+fn is_encrypted<R: Read + Seek>(zip: &ZipArchive<R>) -> bool {
+	zip.file_names().find(|f| *f == "META-INF/encryption.xml").is_some()
 }
