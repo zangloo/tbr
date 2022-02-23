@@ -25,7 +25,7 @@ view = "111"
 
 # An array with a single value has the same effect as a simple value.
 primary = ["black"]
-secondary = "#EEEEEE"
+secondary = "navy"
 tertiary = "#252521"
 
 # Hex values can use lower or uppercase.

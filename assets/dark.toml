@@ -24,8 +24,8 @@ shadow = ["#222288", "blue"]
 view = "111"
 
 # An array with a single value has the same effect as a simple value.
-primary = ["white"]
-secondary = "#EEEEEE"
+primary = ["#7fff00"]
+secondary = "#00FFFF"
 tertiary = "#252521"
 
 # Hex values can use lower or uppercase.
