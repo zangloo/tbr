@@ -30,12 +30,6 @@ macro_rules! version_string {
     () => ( concat!(description!(), " v", version!()) )
 }
 
-pub struct ReverseInfo {
-	pub line: usize,
-	pub start: usize,
-	pub end: usize,
-}
-
 struct ControllerContext {
 	configuration: Configuration,
 	theme_entries: Vec<ThemeEntry>,

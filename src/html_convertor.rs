@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::mem;
 
 use anyhow::Result;
 use html5ever::{parse_document, ParseOpts};
@@ -7,6 +8,7 @@ use html5ever::tree_builder::TreeBuilderOpts;
 use markup5ever::Attribute;
 use markup5ever_rcdom::{Handle, RcDom};
 use markup5ever_rcdom::NodeData::{Document, Element, Text};
+use crate::book::Line;
 
 use crate::common::plain_text;
 
@@ -14,16 +16,16 @@ struct ParseContext<'a> {
 	start_id: Option<&'a str>,
 	started: bool,
 	stop_id: Option<&'a str>,
-	buf: String,
-	lines: Vec<String>,
+	buf: Line,
+	lines: Vec<Line>,
 }
 
-pub(crate) fn html_lines(text: Vec<u8>) -> Result<Vec<String>> {
+pub(crate) fn html_lines(text: Vec<u8>) -> Result<Vec<Line>> {
 	let text = plain_text(text, false)?;
 	html_str_lines(text.as_str(), None, None)
 }
 
-pub(crate) fn html_str_lines(str: &str, start_id: Option<&str>, stop_id: Option<&str>) -> Result<Vec<String>> {
+pub(crate) fn html_str_lines(str: &str, start_id: Option<&str>, stop_id: Option<&str>) -> Result<Vec<Line>> {
 	let opts = ParseOpts {
 		tree_builder: TreeBuilderOpts {
 			drop_doctype: true,
@@ -39,29 +41,30 @@ pub(crate) fn html_str_lines(str: &str, start_id: Option<&str>, stop_id: Option<
 		start_id,
 		started: start_id.is_none(),
 		stop_id,
-		buf: String::from(""),
+		buf: Default::default(),
 		lines: vec![],
 	};
 	convert_dom_to_lines(&dom.document, &mut context);
-	if context.buf.len() > 0 {
+	if !context.buf.is_empty() {
 		context.lines.push(context.buf);
 	}
-	if context.lines.len() == 0 {
-		context.lines.push("No content.".to_string());
+	if context.lines.is_empty() {
+		context.lines.push(Line::from("No content."));
 	}
 	Ok(context.lines)
 }
 
 fn push_buf(context: &mut ParseContext) {
 	// ignore empty line if prev line is empty too.
-	if context.buf.trim().len() == 0 {
+	context.buf.trim();
+	if context.buf.is_empty() {
 		let line_count = context.lines.len();
-		if line_count == 0 || context.lines[line_count - 1].len() == 0 {
+		if line_count == 0 || context.lines[line_count - 1].is_empty() {
 			return;
 		}
 	}
-	context.lines.push(context.buf.clone());
-	context.buf.clear();
+	let buf = mem::take(&mut context.buf);
+	context.lines.push(buf);
 }
 
 fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) -> bool {

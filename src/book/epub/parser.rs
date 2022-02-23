@@ -7,10 +7,8 @@ use regex::Regex;
 use xmltree::Element;
 use zip::ZipArchive;
 
-use crate::book::InvalidChapterError;
+use crate::book::{Chapter, InvalidChapterError};
 use crate::html_convertor::html_str_lines;
-
-pub struct ChapterInfo(pub String, pub Vec<String>);
 
 pub struct ManifestItem {
 	#[allow(dead_code)]
@@ -102,8 +100,8 @@ impl<R: Read + Seek> EpubArchive<R> {
 		})
 	}
 
-	pub fn load_chapter(&mut self, chapter: usize) -> Result<ChapterInfo> {
-		let np = self.toc.get(chapter).ok_or(Error::new(InvalidChapterError {}))?;
+	pub fn load_chapter(&mut self, chapter_index: usize) -> Result<Chapter> {
+		let np = self.toc.get(chapter_index).ok_or(Error::new(InvalidChapterError {}))?;
 		let mut src_split = np.src.split('#');
 		let src_file = src_split.next().unwrap();
 		let src_anchor = src_split.next();
@@ -117,7 +115,7 @@ impl<R: Read + Seek> EpubArchive<R> {
 				v.insert(content)
 			}
 		};
-		let stop_anchor = if let Some(np2) = self.toc.get(chapter + 1) {
+		let stop_anchor = if let Some(np2) = self.toc.get(chapter_index + 1) {
 			let next_src = &np2.src;
 			if next_src.starts_with(src_file) {
 				let mut next_src_split = next_src.split('#');
@@ -131,10 +129,10 @@ impl<R: Read + Seek> EpubArchive<R> {
 		};
 		let lines = html_str_lines(html.as_str(), src_anchor, stop_anchor)?;
 		let title = match &np.label {
-			Some(label) => label.clone(),
-			None => np.src.clone(),
+			Some(label) => label,
+			None => &np.src,
 		};
-		Ok(ChapterInfo(title, lines))
+		Ok(Chapter::new(chapter_index, title.as_str(), lines))
 	}
 }
 

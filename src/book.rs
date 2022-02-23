@@ -2,18 +2,144 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::OpenOptions;
 use std::io::Read;
+use std::ops::Range;
+use std::slice::Iter;
 
 use anyhow::{anyhow, Result};
+use regex::Regex;
 
 use crate::book::epub::EpubLoader;
 use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
+use crate::common::char_index_for_byte;
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
 
 mod epub;
 mod txt;
 mod html;
+
+pub struct Line {
+	chars: Vec<char>,
+}
+
+impl Line {
+	pub fn push(&mut self, ch: char) {
+		self.chars.push(ch);
+	}
+
+	pub fn len(&self) -> usize {
+		self.chars.len()
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.chars.is_empty()
+	}
+
+	pub fn char_at(&self, index: usize) -> Option<char> {
+		match self.chars.get(index) {
+			Some(ch) => Some(ch.clone()),
+			None => None,
+		}
+	}
+
+	pub fn iter(&self) -> Iter<char> {
+		self.chars.iter()
+	}
+
+	pub fn trim(&mut self) {
+		for index in (0..self.chars.len()).rev() {
+			if self.chars[index].is_whitespace() {
+				self.chars.pop();
+			} else {
+				break;
+			}
+		}
+		let mut trim_start = 0;
+		for (index, ch) in self.chars.iter().enumerate() {
+			if ch.is_whitespace() {
+				trim_start = index + 1;
+			} else {
+				break;
+			}
+		}
+		if trim_start == 0 {
+			return;
+		}
+		if trim_start == self.chars.len() {
+			self.chars.clear();
+			return;
+		}
+		self.chars.drain(0..trim_start);
+	}
+
+	pub fn search_pattern(&self, regex: &Regex, start: Option<usize>, stop: Option<usize>, rev: bool) -> Option<Range<usize>> {
+		let mut line = String::new();
+		let start = start.unwrap_or(0);
+		let stop = stop.unwrap_or(self.len());
+		for index in start..stop {
+			line.push(self.chars[index])
+		}
+		let m = if rev {
+			regex.find_iter(&line).last()
+		} else {
+			regex.find_at(&line, 0)
+		}?;
+		let match_start = char_index_for_byte(&line, m.start()).unwrap();
+		let match_end = char_index_for_byte(&line, m.end()).unwrap();
+		Some(Range { start: match_start + start, end: match_end + start })
+	}
+}
+
+impl Default for Line {
+	fn default() -> Self {
+		Line { chars: vec![] }
+	}
+}
+
+impl From<&str> for Line {
+	fn from(str: &str) -> Self {
+		let mut chars = vec![];
+		for ch in str.chars() {
+			chars.push(ch);
+		}
+		Line { chars }
+	}
+}
+
+impl PartialEq for Line {
+	fn eq(&self, other: &Self) -> bool {
+		let len = self.len();
+		if len != other.len() {
+			return false;
+		}
+		let mut iter1 = self.chars.iter();
+		let mut iter2 = self.chars.iter();
+		loop {
+			if let Some(ch1) = iter1.next() {
+				let ch2 = iter2.next().unwrap();
+				if ch1 != ch2 {
+					return false;
+				}
+			} else {
+				break;
+			}
+		}
+		return true;
+	}
+}
+
+pub struct Chapter {
+	index: usize,
+	title: String,
+	lines: Vec<Line>,
+}
+
+impl Chapter {
+	pub fn new(index: usize, title: &str, lines: Vec<Line>) -> Self {
+		Chapter { index, title: String::from(title), lines }
+	}
+}
 
 pub trait Book {
 	fn chapter_count(&self) -> usize { 1 }
@@ -26,7 +152,7 @@ pub trait Book {
 	fn current_chapter(&self) -> usize { 0 }
 	fn title(&self) -> Option<&String> { None }
 	fn chapter_title(&self, _chapter: usize) -> Option<&String> { None }
-	fn lines(&self) -> &Vec<String>;
+	fn lines(&self) -> &Vec<Line>;
 	fn leading_space(&self) -> usize { 2 }
 }
 
@@ -95,3 +221,31 @@ impl Display for InvalidChapterError {
 }
 
 impl Error for InvalidChapterError {}
+
+#[cfg(test)]
+mod tests {
+	use crate::book::Line;
+
+	#[test]
+	fn test_trim() {
+		let result = Line::from("测 \t试");
+		let mut s = Line::from(" \t 测 \t试  ");
+		s.trim();
+		assert_eq!(s == result, true);
+		let mut s = Line::from("\t测 \t试  ");
+		s.trim();
+		assert_eq!(s == result, true);
+		let mut s = Line::from("测 \t试  ");
+		s.trim();
+		assert_eq!(s == result, true);
+		let mut s = Line::from(" \t 测 \t试");
+		s.trim();
+		assert_eq!(s == result, true);
+		let mut s = Line::from("测 \t试");
+		s.trim();
+		assert_eq!(s == result, true);
+		let mut s = Line::from("   \t    ");
+		s.trim();
+		assert_eq!(s == Line::from(""), true);
+	}
+}

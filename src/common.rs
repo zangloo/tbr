@@ -3,9 +3,10 @@ use anyhow::{Result};
 use chardetng::EncodingDetector;
 use encoding_rs::UTF_8;
 use unicode_width::UnicodeWidthChar;
+use crate::book::Line;
 
-pub fn with_leading(text: &String) -> bool {
-	let leader = text.chars().nth(0);
+pub fn with_leading(text: &Line) -> bool {
+	let leader = text.char_at(0);
 	{
 		match leader {
 			Some(leader) => leader != ' ' && leader != '\t' && leader != '　',
@@ -14,8 +15,8 @@ pub fn with_leading(text: &String) -> bool {
 	}
 }
 
-pub fn length_with_leading(text: &String, leading_space: usize) -> usize {
-	let length = text.chars().count();
+pub fn length_with_leading(text: &Line, leading_space: usize) -> usize {
+	let length = text.len();
 	return if with_leading(text) {
 		length + leading_space
 	} else {
@@ -39,21 +40,21 @@ pub(crate) fn plain_text(content: Vec<u8>, full_scan: bool) -> Result<String> {
 	Ok(text)
 }
 
-pub(crate) fn plain_text_lines(content: Vec<u8>) -> Result<Vec<String>> {
+pub(crate) fn plain_text_lines(content: Vec<u8>) -> Result<Vec<Line>> {
 	let text = plain_text(content, false)?;
 	Ok(txt_lines(&text))
 }
 
-pub(crate) fn txt_lines(txt: &String) -> Vec<String> {
-	let mut lines: Vec<String> = vec![];
-	let mut line = "".to_string();
+pub(crate) fn txt_lines(txt: &String) -> Vec<Line> {
+	let mut lines: Vec<Line> = vec![];
+	let mut line = Line::default();
 	for c in txt.chars() {
 		if c == '\r' {
 			continue;
 		}
 		if c == '\n' {
 			lines.push(line);
-			line = "".to_string();
+			line = Line::default();
 		} else {
 			line.push(c);
 		}
@@ -62,6 +63,7 @@ pub(crate) fn txt_lines(txt: &String) -> Vec<String> {
 	lines
 }
 
+#[allow(dead_code)]
 pub(crate) fn byte_index_for_char(text: &str, char_index: usize) -> Option<usize> {
 	if char_index == 0 {
 		return Some(0);

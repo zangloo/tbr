@@ -3,16 +3,14 @@ use std::io::{Cursor, Read, Seek};
 
 use anyhow::Result;
 
-use crate::book::{Book, Loader};
-use crate::book::epub::parser::{ChapterInfo, EpubArchive};
+use crate::book::{Book, Chapter, Line, Loader};
+use crate::book::epub::parser::EpubArchive;
 
 mod parser;
 
 pub struct EpubBook<R: Read + Seek> {
 	doc: EpubArchive<R>,
-	chapter: usize,
-	title: String,
-	lines: Vec<String>,
+	chapter: Chapter,
 }
 
 pub struct EpubLoader {}
@@ -41,8 +39,8 @@ impl EpubLoader {
 		if chapter >= chapters {
 			chapter = chapters - 1;
 		}
-		let ci = doc.load_chapter(chapter)?;
-		let book = EpubBook { doc, chapter, title: ci.0, lines: ci.1 };
+		let chapter = doc.load_chapter(chapter)?;
+		let book = EpubBook { doc, chapter };
 		Result::Ok(Box::new(book))
 	}
 }
@@ -52,20 +50,17 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 		self.doc.toc.len()
 	}
 
-	fn set_chapter(&mut self, chapter: usize) -> Result<()> {
-		let ci: ChapterInfo = self.doc.load_chapter(chapter)?;
-		self.chapter = chapter;
-		self.title = ci.0;
-		self.lines = ci.1;
+	fn set_chapter(&mut self, chapter_index: usize) -> Result<()> {
+		self.chapter = self.doc.load_chapter(chapter_index)?;
 		Ok(())
 	}
 
 	fn current_chapter(&self) -> usize {
-		self.chapter
+		self.chapter.index
 	}
 
 	fn title(&self) -> Option<&String> {
-		Some(&self.title)
+		Some(&self.chapter.title)
 	}
 
 	fn chapter_title(&self, chapter: usize) -> Option<&String> {
@@ -77,7 +72,7 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 		Some(&label)
 	}
 
-	fn lines(&self) -> &Vec<String> {
-		&self.lines
+	fn lines(&self) -> &Vec<Line> {
+		&self.chapter.lines
 	}
 }

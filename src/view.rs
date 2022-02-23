@@ -2,13 +2,12 @@ use anyhow::{anyhow, Result};
 use cursive::{Printer, Vec2, View, XY};
 use cursive::event::{Event, EventResult, Key};
 use cursive::theme::{ColorStyle, PaletteColor};
-use regex::{Match, Regex};
+use regex::{Regex};
 
 use crate::{ContainerManager, ReadingInfo};
-use crate::book::Book;
-use crate::common::{byte_index_for_char, char_index_for_byte};
+use crate::book::{Book, Line};
 use crate::container::Container;
-use crate::controller::{ReverseInfo, update_status_callback};
+use crate::controller::update_status_callback;
 use crate::view::han::Han;
 use crate::view::xi::Xi;
 
@@ -16,6 +15,12 @@ mod han;
 mod xi;
 
 const TRACE_SIZE: usize = 100;
+
+pub struct ReverseInfo {
+	pub line: usize,
+	pub start: usize,
+	pub end: usize,
+}
 
 pub struct NextPageInfo {
 	line: usize,
@@ -70,12 +75,12 @@ impl RenderContext {
 
 pub(crate) trait Render {
 	fn resized(&mut self, _context: &mut RenderContext) {}
-	fn redraw(&mut self, lines: &Vec<String>, reading: &ReadingInfo, context: &mut RenderContext);
-	fn prev(&mut self, lines: &Vec<String>, reading: &mut ReadingInfo, context: &mut RenderContext);
-	fn next_line(&mut self, lines: &Vec<String>, reading: &mut ReadingInfo, context: &mut RenderContext);
-	fn prev_line(&mut self, lines: &Vec<String>, reading: &mut ReadingInfo, context: &mut RenderContext);
+	fn redraw(&mut self, lines: &Vec<Line>, reading: &ReadingInfo, context: &mut RenderContext);
+	fn prev(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext);
+	fn next_line(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext);
+	fn prev_line(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext);
 	// move to reverse line if not displayed in current view
-	fn setup_reverse(&mut self, lines: &Vec<String>, reading: &mut ReadingInfo, context: &mut RenderContext);
+	fn setup_reverse(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext);
 }
 
 fn load_render(render_type: &String) -> Box<dyn Render> {
@@ -368,7 +373,7 @@ impl ReadingView {
 					self.book = load_book(&self.container_manager, &mut self.container, &mut new_reading)?;
 					new_reading.chapter = self.book.current_chapter();
 					new_reading.line = self.book.lines().len();
-					new_reading.position = self.book.lines()[new_reading.line - 1].chars().count();
+					new_reading.position = self.book.lines()[new_reading.line - 1].len();
 					self.reading = new_reading;
 					self.prev_page()?;
 					self.trace.clear();
@@ -386,20 +391,13 @@ impl ReadingView {
 		}
 	}
 
-	fn build_reverse(text: &str, line: usize, m: Match) -> Option<ReverseInfo> {
-		Some(ReverseInfo {
-			line,
-			start: char_index_for_byte(text, m.start()).unwrap(),
-			end: char_index_for_byte(text, m.end()).unwrap(),
-		})
-	}
-
 	pub(crate) fn switch_chapter(&mut self, chapter: usize) -> String {
 		match self.switch_chapter_internal(chapter) {
 			Ok(_) => self.status_msg(),
 			Err(e) => e.to_string(),
 		}
 	}
+
 	fn switch_chapter_internal(&mut self, chapter: usize) -> Result<bool> {
 		if chapter < self.book.chapter_count() {
 			self.book.set_chapter(chapter)?;
@@ -422,20 +420,21 @@ impl ReadingView {
 		let book = &self.book;
 		let lines = book.lines();
 		let regex = Regex::new(search_text.as_str())?;
-		let mut position = byte_index_for_char(&lines[start_line], start_position).unwrap();
+		let mut position = start_position;
 		for idx in start_line..lines.len() {
 			let line = &lines[idx];
-			match regex.find_at(line, position) {
-				Some(m) => {
-					self.reading.reverse = Self::build_reverse(line, idx, m);
-					if !is_reverse_displayed(&self.reading, &self.render_context) {
-						self.render.setup_reverse(lines, &mut self.reading, &mut self.render_context);
-					}
-					self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
-					self.push_trace(false);
-					return Ok(());
+			if let Some(range) = line.search_pattern(&regex, Some(position), None, false) {
+				self.reading.reverse = Some(ReverseInfo {
+					line: idx,
+					start: range.start,
+					end: range.end,
+				});
+				if !is_reverse_displayed(&self.reading, &self.render_context) {
+					self.render.setup_reverse(lines, &mut self.reading, &mut self.render_context);
 				}
-				None => (),
+				self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
+				self.push_trace(false);
+				return Ok(());
 			}
 			position = 0;
 		}
@@ -450,26 +449,27 @@ impl ReadingView {
 		let lines = self.book.lines();
 		let regex = Regex::new(search_text.as_str())?;
 		for idx in (0..=start_line).rev() {
-			let text = if idx == start_line {
+			let range = if idx == start_line {
 				if start_position == 0 {
 					continue;
 				} else {
-					let text = &lines[idx];
-					let byte_index = byte_index_for_char(text, start_position).unwrap();
-					&text[0..byte_index]
+					lines[idx].search_pattern(&regex, None, Some(start_position), true)
 				}
 			} else {
-				&lines[idx]
+				lines[idx].search_pattern(&regex, None, None, true)
 			};
-			match regex.find_iter(text).last() {
-				Some(m) => {
-					self.reading.reverse = Self::build_reverse(text, idx, m);
+			if let Some(range) = range {
+				self.reading.reverse = Some(ReverseInfo {
+					line: idx,
+					start: range.start,
+					end: range.end,
+				});
+				if !is_reverse_displayed(&self.reading, &self.render_context) {
 					self.render.setup_reverse(lines, &mut self.reading, &mut self.render_context);
-					self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
-					self.push_trace(false);
-					return Ok(());
 				}
-				None => (),
+				self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
+				self.push_trace(false);
+				return Ok(());
 			}
 		}
 		Ok(())
@@ -537,7 +537,7 @@ fn load_book(container_manager: &ContainerManager, container: &mut Box<dyn Conta
 	if reading.line >= lines.len() {
 		reading.line = lines.len() - 1;
 	}
-	let chars = lines[reading.line].chars().count();
+	let chars = lines[reading.line].len();
 	if reading.position >= chars {
 		reading.position = 0;
 	}

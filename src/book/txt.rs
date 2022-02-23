@@ -1,13 +1,13 @@
-use crate::book::{Book, Loader};
+use crate::book::{Book, Line, Loader};
 use crate::common::plain_text_lines;
 
 pub struct TxtBook {
-	lines: Vec<String>,
+	lines: Vec<Line>,
 	leading_space: usize,
 }
 
 impl Book for TxtBook {
-	fn lines(&self) -> &Vec<String> {
+	fn lines(&self) -> &Vec<Line> {
 		&self.lines
 	}
 

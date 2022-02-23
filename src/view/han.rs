@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use cursive::Vec2;
 use unicode_width::UnicodeWidthChar;
+use crate::book::Line;
 
 use crate::common::{char_width, length_with_leading, with_leading};
 use crate::ReadingInfo;
@@ -137,17 +138,13 @@ impl Render for Han {
 		self.line_count = if width % 3 == 2 { width / 3 + 1 } else { width / 3 };
 	}
 
-	fn redraw(&mut self, lines: &Vec<String>, reading: &ReadingInfo, context: &mut RenderContext) {
+	fn redraw(&mut self, lines: &Vec<Line>, reading: &ReadingInfo, context: &mut RenderContext) {
 		let height = context.height;
 		let mut line = reading.line;
 		let mut position = reading.position;
 		let leading_space = context.leading_space;
 		let mut text = &lines[line];
-		let mut chars = text.chars();
-		let mut line_length = text.chars().count();
-		if position > 0 {
-			chars.nth(position - 1);
-		}
+		let mut line_length = text.len();
 		let mut draw_lines: Vec<String> = vec![];
 		context.reverse_chars.clear();
 		for x in 0..self.line_count {
@@ -167,7 +164,7 @@ impl Render for Han {
 				}
 			}
 			for y in 0..charts_to_draw {
-				let ch = chars.next().unwrap();
+				let ch = text.char_at(position).unwrap();
 				draw_line.push(ch);
 				match &reading.reverse {
 					Some(reverse) => if reverse.line == line && reverse.start <= position && reverse.end > position {
@@ -191,8 +188,7 @@ impl Render for Han {
 					return;
 				}
 				text = &lines[line];
-				line_length = text.chars().count();
-				chars = text.chars();
+				line_length = text.len();
 				position = 0;
 			}
 		}
@@ -200,7 +196,7 @@ impl Render for Han {
 		context.next = Some(NextPageInfo { line, position });
 	}
 
-	fn prev(&mut self, lines: &Vec<String>, reading: &mut ReadingInfo, context: &mut RenderContext) {
+	fn prev(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
 		let height = context.height;
 		let mut line = reading.line;
 		let mut position = reading.position;
@@ -241,7 +237,7 @@ impl Render for Han {
 		self.redraw(lines, reading, context)
 	}
 
-	fn next_line(&mut self, lines: &Vec<String>, reading: &mut ReadingInfo, context: &mut RenderContext) {
+	fn next_line(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
 		let height = context.height;
 		let mut line = reading.line;
 		let text = &lines[line];
@@ -267,7 +263,7 @@ impl Render for Han {
 		self.redraw(lines, reading, context)
 	}
 
-	fn prev_line(&mut self, lines: &Vec<String>, reading: &mut ReadingInfo, context: &mut RenderContext) {
+	fn prev_line(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
 		let height = context.height;
 		let mut line = reading.line;
 		let mut position = reading.position;
@@ -301,7 +297,7 @@ impl Render for Han {
 		self.redraw(lines, reading, context)
 	}
 
-	fn setup_reverse(&mut self, lines: &Vec<String>, reading: &mut ReadingInfo, context: &mut RenderContext) {
+	fn setup_reverse(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
 		let reverse = &reading.reverse.as_ref().unwrap();
 		let revers_line = reverse.line;
 		let revers_start = reverse.start;

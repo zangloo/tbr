@@ -1,12 +1,12 @@
 use anyhow::Result;
 
-use crate::book::{Book, Loader};
+use crate::book::{Book, Line, Loader};
 use crate::html_convertor::html_lines;
 
 pub(crate) struct HtmlLoader {}
 
 pub(crate) struct HtmlBook {
-	lines: Vec<String>,
+	lines: Vec<Line>,
 }
 
 impl HtmlLoader {
@@ -28,7 +28,7 @@ impl Loader for HtmlLoader {
 }
 
 impl Book for HtmlBook {
-	fn lines(&self) -> &Vec<String> {
+	fn lines(&self) -> &Vec<Line> {
 		&self.lines
 	}
 }

@@ -17,7 +17,7 @@ use toml;
 
 use crate::book::BookLoader;
 use crate::container::ContainerManager;
-use crate::controller::ReverseInfo;
+use crate::view::ReverseInfo;
 
 mod controller;
 mod view;
