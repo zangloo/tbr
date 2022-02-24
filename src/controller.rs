@@ -43,15 +43,7 @@ fn reading_info(history: &mut Vec<ReadingInfo>, current: &String) -> ReadingInfo
 		}
 		i += 1;
 	}
-	return ReadingInfo {
-		filename: current.clone(),
-		inner_book: 0,
-		chapter: 0,
-		line: 0,
-		position: 0,
-		ts: 0,
-		highlight: None,
-	};
+	ReadingInfo::new(&current)
 }
 
 fn get_theme<'a>(theme_name: &String, theme_entries: &'a Vec<ThemeEntry>) -> Result<&'a Theme> {
@@ -164,15 +156,8 @@ fn select_book(s: &mut Cursive) {
 		if reading_now.inner_book == selected {
 			return;
 		}
-		let new_reading = ReadingInfo {
-			filename: reading_now.filename.clone(),
-			inner_book: selected,
-			chapter: 0,
-			line: 0,
-			position: 0,
-			ts: 0,
-			highlight: None,
-		};
+		let new_reading = ReadingInfo::new(&reading_now.filename)
+			.with_inner_book(selected);
 		let msg = reading_view.switch_book(new_reading);
 		update_status(s, &msg);
 	});

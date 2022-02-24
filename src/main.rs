@@ -56,6 +56,26 @@ pub struct ReadingInfo {
 }
 
 impl ReadingInfo {
+	pub(crate) fn new(filename: &str) -> Self {
+		ReadingInfo {
+			filename: String::from(filename),
+			inner_book: 0,
+			chapter: 0,
+			line: 0,
+			position: 0,
+			ts: 0,
+			highlight: None,
+		}
+	}
+	pub(crate) fn with_last_chapter(mut self) -> Self {
+		self.chapter = usize::MAX;
+		self
+	}
+	pub(crate) fn with_inner_book(mut self, inner_book: usize) -> Self {
+		self.inner_book = inner_book;
+		self
+	}
+
 	fn now() -> u64 {
 		SystemTime::now()
 			.duration_since(UNIX_EPOCH)

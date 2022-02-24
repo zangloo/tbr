@@ -439,15 +439,8 @@ impl ReadingView {
 					if book_index >= book_count {
 						Ok(false)
 					} else {
-						let reading = ReadingInfo {
-							filename: self.reading.filename.clone(),
-							inner_book: book_index,
-							chapter: 0,
-							line: 0,
-							position: 0,
-							ts: 0,
-							highlight: None,
-						};
+						let reading = ReadingInfo::new(&self.reading.filename)
+							.with_inner_book(book_index);
 						self.do_switch_book(reading)?;
 						Ok(true)
 					}
@@ -472,15 +465,9 @@ impl ReadingView {
 				Ok(true)
 			} else {
 				if reading.inner_book > 0 {
-					let mut new_reading = ReadingInfo {
-						filename: reading.filename.clone(),
-						inner_book: reading.inner_book - 1,
-						chapter: usize::MAX,
-						line: 0,
-						position: 0,
-						ts: 0,
-						highlight: None,
-					};
+					let mut new_reading = ReadingInfo::new(&reading.filename)
+						.with_inner_book(reading.inner_book - 1)
+						.with_last_chapter();
 					self.book = load_book(&self.container_manager, &mut self.container, &mut new_reading)?;
 					new_reading.chapter = self.book.current_chapter();
 					new_reading.line = self.book.lines().len();
