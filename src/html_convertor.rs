@@ -102,6 +102,15 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) -> bool {
 				}
 			}
 			match name.local {
+				local_name!("img") => {
+					if let Some(src) = attr_value("src", &attrs) {
+						context.buf.concat("[IMG:");
+						context.buf.concat(&src);
+						context.buf.push(']');
+						context.buf.add_link(&src, 0, context.buf.len());
+					}
+					true
+				}
 				local_name!("head") | local_name!("style") | local_name!("script") => {
 					true
 				}

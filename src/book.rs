@@ -35,6 +35,12 @@ impl Line {
 		self.chars.push(ch);
 	}
 
+	pub fn concat(&mut self, str: &str) {
+		for ch in str.chars() {
+			self.chars.push(ch);
+		}
+	}
+
 	pub fn len(&self) -> usize {
 		self.chars.len()
 	}
