@@ -5,6 +5,7 @@ use anyhow::Result;
 
 use crate::book::{Book, Chapter, Line, Loader};
 use crate::book::epub::parser::EpubArchive;
+use crate::view::TraceInfo;
 
 mod parser;
 
@@ -74,5 +75,10 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 
 	fn lines(&self) -> &Vec<Line> {
 		&self.chapter.lines
+	}
+
+	fn link_position(&self, link_target: &str) -> Option<TraceInfo> {
+		let chapter = self.doc.target_location(link_target)?;
+		Some(TraceInfo { chapter, line: 0, position: 0 })
 	}
 }

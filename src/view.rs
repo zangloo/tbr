@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use cursive::{Printer, Vec2, View, XY};
-use cursive::event::{Event, EventResult, Key};
+use cursive::event::{Event, EventResult, Key, MouseButton, MouseEvent};
 use cursive::theme::{ColorStyle, PaletteColor};
 use regex::{Regex};
 
@@ -16,10 +17,25 @@ mod xi;
 
 const TRACE_SIZE: usize = 100;
 
-pub struct ReverseInfo {
+pub enum HighlightMode {
+	Search,
+	Link(usize),
+}
+
+impl Clone for HighlightMode {
+	fn clone(&self) -> Self {
+		match self {
+			HighlightMode::Search => HighlightMode::Search,
+			HighlightMode::Link(link_index) => HighlightMode::Link(*link_index),
+		}
+	}
+}
+
+pub struct HighlightInfo {
 	pub line: usize,
 	pub start: usize,
 	pub end: usize,
+	pub mode: HighlightMode,
 }
 
 pub struct NextPageInfo {
@@ -27,10 +43,10 @@ pub struct NextPageInfo {
 	position: usize,
 }
 
-struct TraceInfo {
-	chapter: usize,
-	line: usize,
-	position: usize,
+pub struct TraceInfo {
+	pub chapter: usize,
+	pub line: usize,
+	pub position: usize,
 }
 
 pub struct ReadingView {
@@ -45,14 +61,29 @@ pub struct ReadingView {
 	render_context: RenderContext,
 }
 
-pub struct ReverseChar(char, Vec2);
+pub(crate) enum DrawChar {
+	Highlight(char, HighlightMode),
+	Link {
+		char: char,
+		line: usize,
+		link_index: usize,
+	},
+	// for char which width is 1 and display with 2 byte width
+	// this is the 2nd cell, for mouse click and open link
+	LinkDummy {
+		line: usize,
+		link_index: usize,
+	},
+}
 
 pub struct RenderContext {
 	width: usize,
 	height: usize,
-	reverse_chars: Vec<ReverseChar>,
 	print_lines: Vec<String>,
-	reverse_color: ColorStyle,
+	special_char_map: HashMap<Vec2, DrawChar>,
+	search_color: ColorStyle,
+	link_color: ColorStyle,
+	highlight_link_color: ColorStyle,
 	color: ColorStyle,
 	leading_space: usize,
 	next: Option<NextPageInfo>,
@@ -60,12 +91,16 @@ pub struct RenderContext {
 
 impl RenderContext {
 	fn build(book: &Box<dyn Book>) -> Self {
+		let link_color = ColorStyle::new(ColorStyle::secondary().front, PaletteColor::Background);
+		let highlight_link_color = ColorStyle::new(ColorStyle::secondary().front, ColorStyle::highlight().back);
 		RenderContext {
 			width: 0,
 			height: 0,
 			print_lines: vec!["".to_string()],
-			reverse_chars: vec![],
-			reverse_color: ColorStyle::highlight(),
+			special_char_map: HashMap::new(),
+			search_color: ColorStyle::highlight(),
+			link_color,
+			highlight_link_color,
 			color: ColorStyle::new(PaletteColor::Primary, PaletteColor::Background),
 			leading_space: book.leading_space(),
 			next: None,
@@ -79,8 +114,8 @@ pub(crate) trait Render {
 	fn prev(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext);
 	fn next_line(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext);
 	fn prev_line(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext);
-	// move to reverse line if not displayed in current view
-	fn setup_reverse(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext);
+	// move to highlight line if not displayed in current view
+	fn setup_highlight(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext);
 }
 
 fn load_render(render_type: &String) -> Box<dyn Render> {
@@ -89,26 +124,6 @@ fn load_render(render_type: &String) -> Box<dyn Render> {
 		// for now, only "xi"
 		_ => Box::new(Xi::default()),
 	}
-}
-
-fn is_reverse_displayed(reading: &ReadingInfo, context: &RenderContext) -> bool {
-	let reverse = match &reading.reverse {
-		Some(r) => r,
-		None => return true,
-	};
-	let revers_line = reverse.line;
-	let revers_start = reverse.start;
-	let reading_line = reading.line;
-	let reading_position = reading.position;
-	if (revers_line == reading_line && revers_start >= reading_position) || (revers_line > reading_line) {
-		match &context.next {
-			Some(next) => if (revers_line == next.line && revers_start < next.position) || (revers_line < next.line) {
-				return true;
-			}
-			None => return true,
-		}
-	}
-	return false;
 }
 
 impl View for ReadingView {
@@ -121,14 +136,21 @@ impl View for ReadingView {
 				xy.y += 1;
 			}
 		});
-		let reverse_chars = &context.reverse_chars;
-		if reverse_chars.len() > 0 {
+		for (xy, dc) in &context.special_char_map {
 			let mut tmp = [0u8; 4];
-			printer.with_color(context.reverse_color, |printer| {
-				for ReverseChar(ch, xy) in reverse_chars {
-					printer.print(xy, ch.encode_utf8(&mut tmp));
-				}
-			});
+			let (char, color) = match dc {
+				DrawChar::Link { char, .. } => (Some(char), context.link_color),
+				DrawChar::LinkDummy { .. } => (None, context.link_color),
+				DrawChar::Highlight(char, mode) => (Some(char), match mode {
+					HighlightMode::Search => context.search_color,
+					HighlightMode::Link(..) => context.highlight_link_color,
+				}),
+			};
+			if let Some(char) = char {
+				printer.with_color(color, |printer| {
+					printer.print(xy, char.encode_utf8(&mut tmp));
+				});
+			}
 		}
 	}
 
@@ -282,16 +304,16 @@ impl ReadingView {
 				self.push_trace(true);
 			}
 			Event::Char('n') => {
-				let (line, position) = match &self.reading.reverse {
-					Some(reverse) => (reverse.line, reverse.end),
-					None => (self.reading.line, self.reading.position),
+				let (line, position) = match &self.reading.highlight {
+					Some(HighlightInfo { mode: HighlightMode::Search, line, end, .. }) => (*line, *end),
+					None | Some(HighlightInfo { mode: HighlightMode::Link(..), .. }) => (self.reading.line, self.reading.position),
 				};
 				self.search_next(line, position)?;
 			}
 			Event::Char('N') => {
-				let (line, position) = match &self.reading.reverse {
-					Some(reverse) => (reverse.line, reverse.start),
-					None => (self.reading.line, self.reading.position),
+				let (line, position) = match &self.reading.highlight {
+					Some(HighlightInfo { mode: HighlightMode::Search, line, start, .. }) => (*line, *start),
+					None | Some(HighlightInfo { mode: HighlightMode::Link(..), .. }) => (self.reading.line, self.reading.position),
 				};
 				self.search_prev(line, position)?;
 			}
@@ -305,6 +327,30 @@ impl ReadingView {
 			}
 			Event::Key(Key::Right) => self.goto_trace(false)?,
 			Event::Key(Key::Left) => self.goto_trace(true)?,
+
+			Event::Key(Key::Tab) => self.switch_link_next()?,
+			Event::Shift(Key::Tab) => self.switch_link_prev()?,
+			Event::Key(Key::Enter) => {
+				if let Some(HighlightInfo { mode: HighlightMode::Link(link_index), line, .. }) = self.reading.highlight {
+					self.goto_link(line, link_index)?
+				}
+			}
+			Event::Mouse { event: MouseEvent::Press(MouseButton::Left), position, .. } => {
+				let option = self.render_context.special_char_map
+					.get(&position)
+					.and_then(|dc| {
+						match dc {
+							DrawChar::Link { line, link_index, .. }
+							| DrawChar::LinkDummy { line, link_index } => {
+								Some((*line, *link_index))
+							}
+							_ => None
+						}
+					});
+				if let Some((line, link_index)) = option {
+					self.goto_link(line, link_index)?;
+				}
+			}
 			_ => return Ok(false),
 		};
 		Ok(true)
@@ -335,7 +381,7 @@ impl ReadingView {
 							line: 0,
 							position: 0,
 							ts: 0,
-							reverse: None,
+							highlight: None,
 						};
 						self.do_switch_book(reading)?;
 						Ok(true)
@@ -368,7 +414,7 @@ impl ReadingView {
 						line: 0,
 						position: 0,
 						ts: 0,
-						reverse: None,
+						highlight: None,
 					};
 					self.book = load_book(&self.container_manager, &mut self.container, &mut new_reading)?;
 					new_reading.chapter = self.book.current_chapter();
@@ -424,16 +470,13 @@ impl ReadingView {
 		for idx in start_line..lines.len() {
 			let line = &lines[idx];
 			if let Some(range) = line.search_pattern(&regex, Some(position), None, false) {
-				self.reading.reverse = Some(ReverseInfo {
+				self.reading.highlight = Some(HighlightInfo {
 					line: idx,
 					start: range.start,
 					end: range.end,
+					mode: HighlightMode::Search,
 				});
-				if !is_reverse_displayed(&self.reading, &self.render_context) {
-					self.render.setup_reverse(lines, &mut self.reading, &mut self.render_context);
-				}
-				self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
-				self.push_trace(false);
+				self.highlight_setup();
 				return Ok(());
 			}
 			position = 0;
@@ -459,23 +502,20 @@ impl ReadingView {
 				lines[idx].search_pattern(&regex, None, None, true)
 			};
 			if let Some(range) = range {
-				self.reading.reverse = Some(ReverseInfo {
+				self.reading.highlight = Some(HighlightInfo {
 					line: idx,
 					start: range.start,
 					end: range.end,
+					mode: HighlightMode::Search,
 				});
-				if !is_reverse_displayed(&self.reading, &self.render_context) {
-					self.render.setup_reverse(lines, &mut self.reading, &mut self.render_context);
-				}
-				self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
-				self.push_trace(false);
+				self.highlight_setup();
 				return Ok(());
 			}
 		}
 		Ok(())
 	}
 
-	fn push_trace(&mut self, clear_reverse: bool) {
+	fn push_trace(&mut self, clear_highlight: bool) {
 		let reading = &self.reading;
 		let trace = &mut self.trace;
 		let last = &trace[self.current_trace];
@@ -489,8 +529,8 @@ impl ReadingView {
 		} else {
 			self.current_trace += 1;
 		}
-		if clear_reverse {
-			self.reading.reverse = None;
+		if clear_highlight {
+			self.reading.highlight = None;
 		}
 	}
 	fn goto_trace(&mut self, backward: bool) -> Result<()> {
@@ -517,8 +557,111 @@ impl ReadingView {
 			self.book.set_chapter(reading.chapter)?;
 		}
 		self.render.redraw(self.book.lines(), reading, &mut self.render_context);
-		self.reading.reverse = None;
+		self.reading.highlight = None;
 		Ok(())
+	}
+
+	fn switch_link_prev(&mut self) -> Result<()> {
+		let reading = &mut self.reading;
+		let (mut line, mut position) = match &reading.highlight {
+			Some(HighlightInfo { mode: HighlightMode::Link(..), line, start, .. }) => (*line, *start),
+			None | Some(HighlightInfo { mode: HighlightMode::Search, .. }) => (reading.line, reading.position)
+		};
+		let lines = self.book.lines();
+		let mut text = &lines[line];
+		'outer: loop {
+			for (link_index, link) in text.link_iter().rev().enumerate() {
+				if link.range.end <= position {
+					reading.highlight = Some(HighlightInfo {
+						line,
+						start: link.range.start,
+						end: link.range.end,
+						mode: HighlightMode::Link(link_index),
+					});
+					break 'outer;
+				}
+			}
+			if line == 0 {
+				break;
+			}
+			line -= 1;
+			text = &lines[line];
+			position = text.len();
+		}
+		self.highlight_setup();
+		Ok(())
+	}
+
+	fn switch_link_next(&mut self) -> Result<()> {
+		let reading = &mut self.reading;
+		let (line, mut position) = match &reading.highlight {
+			Some(HighlightInfo { mode: HighlightMode::Link(..), line, end, .. }) => (*line, *end),
+			None | Some(HighlightInfo { mode: HighlightMode::Search, .. }) => (reading.line, reading.position),
+		};
+		let lines = self.book.lines();
+		'outer: for index in line..lines.len() {
+			let text = &lines[index];
+			for (link_index, link) in text.link_iter().enumerate() {
+				if link.range.start >= position {
+					reading.highlight = Some(HighlightInfo {
+						line: index,
+						start: link.range.start,
+						end: link.range.end,
+						mode: HighlightMode::Link(link_index),
+					});
+					break 'outer;
+				}
+			}
+			position = 0;
+		}
+		self.highlight_setup();
+		Ok(())
+	}
+
+	fn goto_link(&mut self, line: usize, link_index: usize) -> Result<()> {
+		let line = &self.book.lines()[line];
+		if let Some(link) = line.link_at(link_index) {
+			if let Some(pos) = self.book.link_position(&link.target) {
+				if pos.chapter != self.book.current_chapter() {
+					self.book.set_chapter(pos.chapter)?;
+					self.reading.chapter = pos.chapter;
+					self.reading.line = pos.line;
+					self.reading.position = pos.position;
+					self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
+					self.push_trace(true);
+				}
+			}
+		}
+		Ok(())
+	}
+
+	fn highlight_setup(&mut self) {
+		let in_current_screen = match &self.reading.highlight {
+			Some(highlight) => {
+				let highlight_line = highlight.line;
+				let highlight_start = highlight.start;
+				let reading_line = self.reading.line;
+				let reading_position = self.reading.position;
+				if (highlight_line == reading_line && highlight_start >= reading_position) || (highlight_line > reading_line) {
+					match &self.render_context.next {
+						Some(next) => if (highlight_line == next.line && highlight_start < next.position) || (highlight_line < next.line) {
+							true
+						} else {
+							false
+						}
+						None => true,
+					}
+				} else {
+					false
+				}
+			}
+			None => true,
+		};
+		if !in_current_screen {
+			self.render.setup_highlight(self.book.lines(), &mut self.reading, &mut self.render_context);
+			self.push_trace(false);
+		}
+		self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
 	}
 }
 

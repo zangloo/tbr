@@ -14,6 +14,7 @@ use crate::book::txt::TxtLoader;
 use crate::common::char_index_for_byte;
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
+use crate::view::TraceInfo;
 
 mod epub;
 mod txt;
@@ -21,6 +22,12 @@ mod html;
 
 pub struct Line {
 	chars: Vec<char>,
+	links: Vec<Link>,
+}
+
+pub struct Link {
+	pub target: String,
+	pub range: Range<usize>,
 }
 
 impl Line {
@@ -89,11 +96,24 @@ impl Line {
 		let match_end = char_index_for_byte(&line, m.end()).unwrap();
 		Some(Range { start: match_start + start, end: match_end + start })
 	}
+
+	pub fn add_link(&mut self, target: &str, start: usize, end: usize) {
+		let link = Link { target: String::from(target), range: Range { start, end } };
+		self.links.push(link);
+	}
+
+	pub fn link_iter(&self) -> Iter<Link> {
+		self.links.iter()
+	}
+
+	pub fn link_at(&self, link_index: usize) -> Option<&Link> {
+		self.links.get(link_index)
+	}
 }
 
 impl Default for Line {
 	fn default() -> Self {
-		Line { chars: vec![] }
+		Line { chars: vec![], links: vec![] }
 	}
 }
 
@@ -103,7 +123,7 @@ impl From<&str> for Line {
 		for ch in str.chars() {
 			chars.push(ch);
 		}
-		Line { chars }
+		Line { chars, links: vec![] }
 	}
 }
 
@@ -154,6 +174,7 @@ pub trait Book {
 	fn chapter_title(&self, _chapter: usize) -> Option<&String> { None }
 	fn lines(&self) -> &Vec<Line>;
 	fn leading_space(&self) -> usize { 2 }
+	fn link_position(&self, _link_target: &str) -> Option<TraceInfo> { None }
 }
 
 pub struct BookLoader {

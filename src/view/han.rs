@@ -1,12 +1,11 @@
 use std::collections::HashMap;
-
 use cursive::Vec2;
 use unicode_width::UnicodeWidthChar;
 use crate::book::Line;
 
 use crate::common::{char_width, length_with_leading, with_leading};
 use crate::ReadingInfo;
-use crate::view::{NextPageInfo, Render, RenderContext, ReverseChar};
+use crate::view::{NextPageInfo, Render, RenderContext, DrawChar};
 
 const CHARS_PAIRS: [(char, char); 31] = [
 	('「', '﹁'),
@@ -105,16 +104,17 @@ impl Han {
 	}
 }
 
+fn map_char(chars_map: &HashMap<char, char>, ch: &char) -> char {
+	*chars_map.get(ch).unwrap_or(ch)
+}
+
 fn append_char(line: &mut String, ch: Option<char>, chars_map: &HashMap<char, char>) {
 	match ch {
 		Some(oc) => {
-			let c = match chars_map.get(&oc) {
-				Some(mc) => mc,
-				None => &oc,
-			};
+			let c = map_char(chars_map, &oc);
 			match c.width() {
 				Some(s) => {
-					line.push(*c);
+					line.push(c);
 					if s == 1 {
 						line.push(' ');
 					}
@@ -146,7 +146,7 @@ impl Render for Han {
 		let mut text = &lines[line];
 		let mut line_length = text.len();
 		let mut draw_lines: Vec<String> = vec![];
-		context.reverse_chars.clear();
+		context.special_char_map.clear();
 		for x in 0..self.line_count {
 			let left = line_length - position;
 			let mut charts_to_draw = if left >= context.height { context.height } else { left };
@@ -164,18 +164,46 @@ impl Render for Han {
 				}
 			}
 			for y in 0..charts_to_draw {
-				let ch = text.char_at(position).unwrap();
-				draw_line.push(ch);
-				match &reading.reverse {
-					Some(reverse) => if reverse.line == line && reverse.start <= position && reverse.end > position {
+				let char = text.char_at(position).unwrap();
+				draw_line.push(char);
+				if !match &reading.highlight {
+					Some(highlight) => if highlight.line == line && highlight.start <= position && highlight.end > position {
 						let y_pos = y + y_offset;
 						let x_pos = (self.line_count - x - 1) * 3;
-						context.reverse_chars.push(ReverseChar(ch, Vec2 { x: x_pos, y: y_pos }));
-						if char_width(ch) == 1 {
-							context.reverse_chars.push(ReverseChar(' ', Vec2 { x: x_pos + 1, y: y_pos }));
+						let draw_char = map_char(&self.chars_map, &char);
+						context.special_char_map.insert(
+							Vec2 { x: x_pos, y: y_pos },
+							DrawChar::Highlight(draw_char, highlight.mode.clone()));
+						if char_width(draw_char) == 1 {
+							context.special_char_map.insert(
+								Vec2 { x: x_pos + 1, y: y_pos },
+								DrawChar::Highlight(' ', highlight.mode.clone()));
 						}
+						true
+					} else {
+						false
 					},
-					None => (),
+					None => false,
+				} {
+					for (link_index, link) in text.link_iter().enumerate() {
+						if link.range.start <= position && link.range.end > position {
+							let y_pos = y + y_offset;
+							let x_pos = (self.line_count - x - 1) * 3;
+							let draw_char = map_char(&self.chars_map, &char);
+							context.special_char_map.insert(
+								Vec2 { x: x_pos, y: y_pos },
+								DrawChar::Link { char: draw_char, line, link_index });
+							let draw_char = if char_width(draw_char) == 1 {
+								DrawChar::Link { char: ' ', line, link_index }
+							} else {
+								DrawChar::LinkDummy { line, link_index }
+							};
+							context.special_char_map.insert(
+								Vec2 { x: x_pos + 1, y: y_pos },
+								draw_char);
+							break;
+						}
+					}
 				}
 				position += 1;
 			}
@@ -297,31 +325,31 @@ impl Render for Han {
 		self.redraw(lines, reading, context)
 	}
 
-	fn setup_reverse(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
-		let reverse = &reading.reverse.as_ref().unwrap();
-		let revers_line = reverse.line;
-		let revers_start = reverse.start;
+	fn setup_highlight(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
+		let highlight = &reading.highlight.as_ref().unwrap();
+		let highlight_line = highlight.line;
+		let highlight_start = highlight.start;
 		let height = context.height;
 		let mut position = 0;
 		loop {
 			if position == 0 {
-				let leading = if with_leading(&lines[revers_line]) {
+				let leading = if with_leading(&lines[highlight_line]) {
 					context.leading_space
 				} else {
 					0
 				};
-				if height - leading > revers_start {
+				if height - leading > highlight_start {
 					break;
 				} else {
 					position = height - leading;
 				}
-			} else if position + height > revers_start {
+			} else if position + height > highlight_start {
 				break;
 			} else {
 				position += height;
 			}
 		}
-		reading.line = revers_line;
+		reading.line = highlight_line;
 		reading.position = position;
 	}
 }

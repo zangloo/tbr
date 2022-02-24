@@ -50,7 +50,7 @@ fn reading_info(history: &mut Vec<ReadingInfo>, current: &String) -> ReadingInfo
 		line: 0,
 		position: 0,
 		ts: 0,
-		reverse: None,
+		highlight: None,
 	};
 }
 
@@ -171,7 +171,7 @@ fn select_book(s: &mut Cursive) {
 			line: 0,
 			position: 0,
 			ts: 0,
-			reverse: None,
+			highlight: None,
 		};
 		let msg = reading_view.switch_book(new_reading);
 		update_status(s, &msg);

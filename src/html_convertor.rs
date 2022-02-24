@@ -5,6 +5,7 @@ use anyhow::Result;
 use html5ever::{parse_document, ParseOpts};
 use html5ever::tendril::TendrilSink;
 use html5ever::tree_builder::TreeBuilderOpts;
+use markup5ever::LocalName;
 use markup5ever::Attribute;
 use markup5ever_rcdom::{Handle, RcDom};
 use markup5ever_rcdom::NodeData::{Document, Element, Text};
@@ -68,16 +69,13 @@ fn push_buf(context: &mut ParseContext) {
 }
 
 fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) -> bool {
-	let mut space_prev = false;
 	match &handle.data {
 		Text { contents } => {
 			if context.started {
+				let mut space_prev = true;
 				for c in contents.borrow().chars() {
 					match c {
-						'\n' => {
-							push_buf(context);
-							space_prev = true;
-						}
+						'\n' => {}
 						' ' => {
 							if !space_prev {
 								context.buf.push(' ');
@@ -107,10 +105,45 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) -> bool {
 				local_name!("head") | local_name!("style") | local_name!("script") => {
 					true
 				}
-				local_name!("p") | local_name!("br") => {
-					push_buf(context);
+				local_name!("p") => {
+					if context.started {
+						push_buf(context);
+					}
 					let end = process_children(handle, context);
-					push_buf(context);
+					if context.started {
+						push_buf(context);
+					}
+					end
+				}
+				local_name!("br") => {
+					if context.started {
+						push_buf(context);
+					}
+					process_children(handle, context)
+				}
+				local_name!("a") => {
+					let start_line = context.lines.len();
+					let mut start_position = context.buf.len();
+					let end = process_children(handle, context);
+					if context.started {
+						if let Some(href) = attr_value("href", &attrs) {
+							let end_line = context.lines.len();
+							let end_position = context.buf.len();
+							if start_line != end_line {
+								for line_index in start_line..end_line {
+									let line = &mut context.lines[line_index];
+									let len = line.len();
+									if start_position < len {
+										line.add_link(&href, start_position, len);
+									}
+									start_position = 0;
+								}
+							}
+							if start_position < end_position {
+								context.buf.add_link(&href, start_position, end_position);
+							}
+						}
+					}
 					end
 				}
 				_ => process_children(handle, context),
@@ -123,8 +156,16 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) -> bool {
 
 fn match_id(id: &str, attrs: &RefCell<Vec<Attribute>>) -> bool {
 	attrs.borrow().iter().find(|attr| {
-		attr.name.local == local_name!("id") && attr.value.to_string() == id
+		attr.name.local == LocalName::from("id") && attr.value.to_string() == id
 	}).is_some()
+}
+
+fn attr_value(attr_name: &str, attrs: &RefCell<Vec<Attribute>>) -> Option<String> {
+	let attrs = attrs.borrow();
+	let attr = attrs.iter().find(move |attr| {
+		attr.name.local == LocalName::from(attr_name)
+	})?;
+	Some(attr.value.to_string())
 }
 
 fn process_children(handle: &Handle, context: &mut ParseContext) -> bool {

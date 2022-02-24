@@ -134,6 +134,15 @@ impl<R: Read + Seek> EpubArchive<R> {
 		};
 		Ok(Chapter::new(chapter_index, title.as_str(), lines))
 	}
+
+	pub fn target_location(&self, target: &str) -> Option<usize> {
+		for (chapter_index, np) in self.toc.iter().enumerate() {
+			if target == np.src {
+				return Some(chapter_index);
+			}
+		}
+		None
+	}
 }
 
 fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<String> {

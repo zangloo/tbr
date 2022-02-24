@@ -1,9 +1,9 @@
 use cursive::Vec2;
 
-use crate::{ReadingInfo, ReverseInfo};
+use crate::{ReadingInfo, HighlightInfo};
 use crate::book::Line;
 use crate::common::{char_width, with_leading};
-use crate::view::{NextPageInfo, Render, RenderContext, ReverseChar};
+use crate::view::{NextPageInfo, Render, RenderContext, DrawChar};
 
 const TAB_SIZE: usize = 4;
 
@@ -21,10 +21,10 @@ impl Render for Xi {
 		let width = context.width;
 		let mut position = reading.position;
 		context.print_lines.clear();
-		context.reverse_chars.clear();
+		context.special_char_map.clear();
 		for line in reading.line..lines.len() {
 			let text = &lines[line];
-			let wrapped_breaks = wrap_line(text, line, position, usize::MAX, width, context, &reading.reverse);
+			let wrapped_breaks = wrap_line(text, line, position, usize::MAX, width, context, &reading.highlight);
 			let current_lines = context.print_lines.len();
 			if current_lines == height {
 				if line >= lines.len() - 1 {
@@ -115,14 +115,14 @@ impl Render for Xi {
 		self.redraw(lines, reading, context);
 	}
 
-	fn setup_reverse(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
-		let reverse = &reading.reverse.as_ref().unwrap();
-		let revers_line = reverse.line;
-		let revers_start = reverse.start;
+	fn setup_highlight(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
+		let highlight = &reading.highlight.as_ref().unwrap();
+		let highlight_line = highlight.line;
+		let highlight_start = highlight.start;
 		let width = context.width;
-		let text = &lines[revers_line];
-		let wrapped_breaks = wrap_line(text, revers_line, 0, revers_start + 1, width, context, &None);
-		reading.line = revers_line;
+		let text = &lines[highlight_line];
+		let wrapped_breaks = wrap_line(text, highlight_line, 0, highlight_start + 1, width, context, &None);
+		reading.line = highlight_line;
 		reading.position = wrapped_breaks[wrapped_breaks.len() - 1];
 	}
 }
@@ -134,7 +134,7 @@ fn fill_print_line(print_line: &mut String, chars: usize) {
 	}
 }
 
-fn wrap_line(text: &Line, line: usize, start_position: usize, end_position: usize, width: usize, context: &mut RenderContext, reverse: &Option<ReverseInfo>) -> Vec<usize> {
+fn wrap_line(text: &Line, line: usize, start_position: usize, end_position: usize, width: usize, context: &mut RenderContext, highlight: &Option<HighlightInfo>) -> Vec<usize> {
 	let with_leading_space = if context.leading_space > 0 {
 		start_position == 0 && with_leading(text)
 	} else {
@@ -207,13 +207,33 @@ fn wrap_line(text: &Line, line: usize, start_position: usize, end_position: usiz
 				}
 			}
 		}
-		match reverse {
-			Some(reverse) => {
-				if reverse.line == line && reverse.start <= position && reverse.end > position {
-					context.reverse_chars.push(ReverseChar(*char, Vec2 { x, y: context.print_lines.len() }));
+		if !match highlight {
+			Some(highlight) => {
+				if highlight.line == line && highlight.start <= position && highlight.end > position {
+					context.special_char_map.insert(
+						Vec2 { x, y: context.print_lines.len() },
+						DrawChar::Highlight(*char, highlight.mode.clone()));
+					true
+				} else {
+					false
 				}
 			}
-			None => (),
+			None => false,
+		} {
+			for (link_index, link) in text.link_iter().enumerate() {
+				if link.range.start <= position && link.range.end > position {
+					let y = context.print_lines.len();
+					context.special_char_map.insert(
+						Vec2 { x, y },
+						DrawChar::Link { char: *char, line, link_index });
+					if char_width(*char) == 2 {
+						context.special_char_map.insert(
+							Vec2 { x: x + 1, y },
+							DrawChar::LinkDummy { line, link_index });
+					}
+					break;
+				}
+			}
 		}
 		position += 1;
 		x += cw;

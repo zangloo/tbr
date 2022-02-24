@@ -17,7 +17,7 @@ use toml;
 
 use crate::book::BookLoader;
 use crate::container::ContainerManager;
-use crate::view::ReverseInfo;
+use crate::view::HighlightInfo;
 
 mod controller;
 mod view;
@@ -52,7 +52,7 @@ pub struct ReadingInfo {
 	position: usize,
 	ts: u64,
 	#[serde(skip)]
-	reverse: Option<ReverseInfo>,
+	highlight: Option<HighlightInfo>,
 }
 
 impl ReadingInfo {
@@ -73,7 +73,7 @@ impl Clone for ReadingInfo {
 			line: self.line,
 			position: self.position,
 			ts: ReadingInfo::now(),
-			reverse: None,
+			highlight: None,
 		}
 	}
 }
