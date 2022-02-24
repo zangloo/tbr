@@ -1,11 +1,12 @@
 use std::collections::HashMap;
+
 use cursive::Vec2;
 use unicode_width::UnicodeWidthChar;
-use crate::book::Line;
 
+use crate::book::Line;
 use crate::common::{char_width, length_with_leading, with_leading};
 use crate::ReadingInfo;
-use crate::view::{NextPageInfo, Render, RenderContext, DrawChar};
+use crate::view::{DrawChar, DrawCharMode, NextPageInfo, Render, RenderContext};
 
 const CHARS_PAIRS: [(char, char); 31] = [
 	('「', '﹁'),
@@ -89,7 +90,7 @@ impl Han {
 				if need_split_space {
 					draw_line.push(' ');
 				}
-				append_char(draw_line, ch, &self.chars_map);
+				self.append_char(draw_line, ch);
 			}
 			need_split_space = true;
 		}
@@ -102,34 +103,29 @@ impl Han {
 			None => (),
 		}
 	}
-}
-
-fn map_char(chars_map: &HashMap<char, char>, ch: &char) -> char {
-	*chars_map.get(ch).unwrap_or(ch)
-}
-
-fn append_char(line: &mut String, ch: Option<char>, chars_map: &HashMap<char, char>) {
-	match ch {
-		Some(oc) => {
-			let c = map_char(chars_map, &oc);
-			match c.width() {
-				Some(s) => {
-					line.push(c);
-					if s == 1 {
+	fn append_char(&self, line: &mut String, ch: Option<char>) {
+		match ch {
+			Some(oc) => {
+				let c = self.map_char(oc);
+				match c.width() {
+					Some(s) => {
+						line.push(c);
+						if s == 1 {
+							line.push(' ');
+						}
+					}
+					None => {
+						line.push(' ');
 						line.push(' ');
 					}
 				}
-				None => {
-					line.push(' ');
-					line.push(' ');
-				}
 			}
-		}
-		None => {
-			line.push(' ');
-			line.push(' ');
-		}
-	};
+			None => {
+				line.push(' ');
+				line.push(' ');
+			}
+		};
+	}
 }
 
 impl Render for Han {
@@ -166,44 +162,29 @@ impl Render for Han {
 			for y in 0..charts_to_draw {
 				let char = text.char_at(position).unwrap();
 				draw_line.push(char);
-				if !match &reading.highlight {
-					Some(highlight) => if highlight.line == line && highlight.start <= position && highlight.end > position {
-						let y_pos = y + y_offset;
-						let x_pos = (self.line_count - x - 1) * 3;
-						let draw_char = map_char(&self.chars_map, &char);
-						context.special_char_map.insert(
-							Vec2 { x: x_pos, y: y_pos },
-							DrawChar::Highlight(draw_char, highlight.mode.clone()));
-						if char_width(draw_char) == 1 {
-							context.special_char_map.insert(
-								Vec2 { x: x_pos + 1, y: y_pos },
-								DrawChar::Highlight(' ', highlight.mode.clone()));
-						}
-						true
-					} else {
-						false
-					},
-					None => false,
-				} {
-					for (link_index, link) in text.link_iter().enumerate() {
-						if link.range.start <= position && link.range.end > position {
-							let y_pos = y + y_offset;
-							let x_pos = (self.line_count - x - 1) * 3;
-							let draw_char = map_char(&self.chars_map, &char);
-							context.special_char_map.insert(
-								Vec2 { x: x_pos, y: y_pos },
-								DrawChar::Link { char: draw_char, line, link_index });
-							let draw_char = if char_width(draw_char) == 1 {
-								DrawChar::Link { char: ' ', line, link_index }
+				if let Some(dc) = self.setup_special_char(line, position, char, lines, reading) {
+					let y_pos = y + y_offset;
+					let x_pos = (self.line_count - x - 1) * 3;
+					match &dc.mode {
+						DrawCharMode::Search => {}
+						DrawCharMode::Link { .. }
+						| DrawCharMode::HighlightLink { .. }
+						| DrawCharMode::SearchOnLink { .. } => {
+							let draw_char = &dc.char.unwrap();
+							let mode = dc.mode.clone();
+							// for char which width is 1 and display with 2 byte width
+							// this is the 2nd cell, for mouse click and open link
+							let extra_draw_char = if char_width(*draw_char) == 1 {
+								DrawChar { char: Some(' '), mode }
 							} else {
-								DrawChar::LinkDummy { line, link_index }
+								DrawChar { char: None, mode }
 							};
 							context.special_char_map.insert(
 								Vec2 { x: x_pos + 1, y: y_pos },
-								draw_char);
-							break;
+								extra_draw_char);
 						}
 					}
+					context.special_char_map.insert(Vec2 { x: x_pos, y: y_pos }, dc);
 				}
 				position += 1;
 			}
@@ -351,5 +332,9 @@ impl Render for Han {
 		}
 		reading.line = highlight_line;
 		reading.position = position;
+	}
+
+	fn map_char(&self, ch: char) -> char {
+		*self.chars_map.get(&ch).unwrap_or(&ch)
 	}
 }

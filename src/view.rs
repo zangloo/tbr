@@ -1,9 +1,10 @@
 use std::collections::HashMap;
+
 use anyhow::{anyhow, Result};
 use cursive::{Printer, Vec2, View, XY};
 use cursive::event::{Event, EventResult, Key, MouseButton, MouseEvent};
 use cursive::theme::{ColorStyle, PaletteColor};
-use regex::{Regex};
+use regex::Regex;
 
 use crate::{ContainerManager, ReadingInfo};
 use crate::book::{Book, Line};
@@ -61,19 +62,36 @@ pub struct ReadingView {
 	render_context: RenderContext,
 }
 
-pub(crate) enum DrawChar {
-	Highlight(char, HighlightMode),
+pub(crate) enum DrawCharMode {
+	Search,
+	SearchOnLink {
+		line: usize,
+		link_index: usize,
+	},
+	HighlightLink {
+		line: usize,
+		link_index: usize,
+	},
 	Link {
-		char: char,
 		line: usize,
 		link_index: usize,
 	},
-	// for char which width is 1 and display with 2 byte width
-	// this is the 2nd cell, for mouse click and open link
-	LinkDummy {
-		line: usize,
-		link_index: usize,
-	},
+}
+
+impl Clone for DrawCharMode {
+	fn clone(&self) -> Self {
+		match self {
+			DrawCharMode::Search => DrawCharMode::Search,
+			DrawCharMode::Link { line, link_index } => DrawCharMode::Link { line: *line, link_index: *link_index },
+			DrawCharMode::HighlightLink { line, link_index } => DrawCharMode::HighlightLink { line: *line, link_index: *link_index },
+			DrawCharMode::SearchOnLink { line, link_index } => DrawCharMode::SearchOnLink { line: *line, link_index: *link_index },
+		}
+	}
+}
+
+pub(crate) struct DrawChar {
+	char: Option<char>,
+	mode: DrawCharMode,
 }
 
 pub struct RenderContext {
@@ -116,6 +134,40 @@ pub(crate) trait Render {
 	fn prev_line(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext);
 	// move to highlight line if not displayed in current view
 	fn setup_highlight(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext);
+	#[inline]
+	fn map_char(&self, ch: char) -> char { ch }
+	fn setup_special_char(&mut self, line: usize, position: usize, char: char, lines: &Vec<Line>, reading: &ReadingInfo) -> Option<DrawChar> {
+		let mut special_char = match &reading.highlight {
+			Some(highlight) => if highlight.line == line && highlight.start <= position && highlight.end > position {
+				let draw_char = self.map_char(char);
+				Some(DrawChar {
+					char: Some(draw_char),
+					mode: match highlight.mode {
+						HighlightMode::Search => DrawCharMode::Search,
+						HighlightMode::Link(link_index) => DrawCharMode::HighlightLink { line, link_index },
+					},
+				})
+			} else {
+				None
+			},
+			None => None,
+		};
+		let text = &lines[line];
+		for (link_index, link) in text.link_iter().enumerate() {
+			if link.range.start <= position && link.range.end > position {
+				if let Some(DrawChar { ref mut mode, .. }) = special_char {
+					if matches!(mode, DrawCharMode::Search) {
+						*mode = DrawCharMode::SearchOnLink { line, link_index };
+					}
+				} else {
+					let draw_char = self.map_char(char);
+					special_char = Some(DrawChar { char: Some(draw_char), mode: DrawCharMode::Link { line, link_index } });
+				}
+				break;
+			}
+		}
+		special_char
+	}
 }
 
 fn load_render(render_type: &String) -> Box<dyn Render> {
@@ -137,20 +189,19 @@ impl View for ReadingView {
 			}
 		});
 		for (xy, dc) in &context.special_char_map {
-			let mut tmp = [0u8; 4];
-			let (char, color) = match dc {
-				DrawChar::Link { char, .. } => (Some(char), context.link_color),
-				DrawChar::LinkDummy { .. } => (None, context.link_color),
-				DrawChar::Highlight(char, mode) => (Some(char), match mode {
-					HighlightMode::Search => context.search_color,
-					HighlightMode::Link(..) => context.highlight_link_color,
-				}),
+			let char = match dc.char {
+				Some(ch) => ch,
+				None => continue,
 			};
-			if let Some(char) = char {
-				printer.with_color(color, |printer| {
-					printer.print(xy, char.encode_utf8(&mut tmp));
-				});
-			}
+			let mut tmp = [0u8; 4];
+			let color = match dc.mode {
+				DrawCharMode::Search | DrawCharMode::SearchOnLink { .. } => context.search_color,
+				DrawCharMode::Link { .. } => context.link_color,
+				DrawCharMode::HighlightLink { .. } => context.highlight_link_color,
+			};
+			printer.with_color(color, |printer| {
+				printer.print(xy, char.encode_utf8(&mut tmp));
+			});
 		}
 	}
 
@@ -331,20 +382,34 @@ impl ReadingView {
 			Event::Key(Key::Tab) => self.switch_link_next()?,
 			Event::Shift(Key::Tab) => self.switch_link_prev()?,
 			Event::Key(Key::Enter) => {
-				if let Some(HighlightInfo { mode: HighlightMode::Link(link_index), line, .. }) = self.reading.highlight {
-					self.goto_link(line, link_index)?
+				match self.reading.highlight {
+					Some(HighlightInfo { mode: HighlightMode::Search, line, start, end }) => {
+						let text = &self.book.lines()[line];
+						for (link_index, link) in text.link_iter().enumerate() {
+							let range = &link.range;
+							if range.start <= start && range.end >= end {
+								self.goto_link(line, link_index)?;
+								break;
+							}
+						}
+					}
+					Some(HighlightInfo { mode: HighlightMode::Link(link_index), line, .. }) => {
+						self.goto_link(line, link_index)?;
+					}
+					None => {}
 				}
 			}
 			Event::Mouse { event: MouseEvent::Press(MouseButton::Left), position, .. } => {
 				let option = self.render_context.special_char_map
 					.get(&position)
 					.and_then(|dc| {
-						match dc {
-							DrawChar::Link { line, link_index, .. }
-							| DrawChar::LinkDummy { line, link_index } => {
-								Some((*line, *link_index))
+						match dc.mode {
+							DrawCharMode::Link { line, link_index, .. }
+							| DrawCharMode::HighlightLink { line, link_index, .. }
+							| DrawCharMode::SearchOnLink { line, link_index } => {
+								Some((line, link_index))
 							}
-							_ => None
+							DrawCharMode::Search => None
 						}
 					});
 				if let Some((line, link_index)) = option {
