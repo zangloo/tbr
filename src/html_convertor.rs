@@ -55,6 +55,16 @@ pub(crate) fn html_str_lines(str: &str, start_id: Option<&str>, stop_id: Option<
 	Ok(context.lines)
 }
 
+fn push_for_class(context: &mut ParseContext, attrs: &RefCell<Vec<Attribute>>, class_name: &str) {
+	if context.started && !context.buf.is_empty() {
+		if let Some(class) = attr_value("class", attrs) {
+			if class.contains(class_name) {
+				push_buf(context);
+			}
+		}
+	}
+}
+
 fn push_buf(context: &mut ParseContext) {
 	// ignore empty line if prev line is empty too.
 	context.buf.trim();
@@ -120,19 +130,30 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) -> bool {
 				local_name!("head") | local_name!("style") | local_name!("script") => {
 					true
 				}
-				local_name!("p") | local_name!("h2") | local_name!("li") => {
+				local_name!("div") => {
+					push_for_class(context, attrs, "sgc-toc-level-");
+					let end = process_children(handle, context);
+					push_for_class(context, attrs, "sgc-toc-level-");
+					end
+				}
+				local_name!("p") | local_name!("h3") | local_name!("h2") | local_name!("li") => {
+					if context.started && !context.buf.is_empty() {
+						push_buf(context);
+					}
+					let end = process_children(handle, context);
 					if context.started {
 						push_buf(context);
 					}
-					process_children(handle, context)
+					end
 				}
 				local_name!("br") => {
-					if context.started {
+					if context.started && !context.buf.is_empty() {
 						push_buf(context);
 					}
 					process_children(handle, context)
 				}
 				local_name!("a") => {
+					push_for_class(context, attrs, "calibre1");
 					let start_line = context.lines.len();
 					let mut start_position = context.buf.len();
 					let end = process_children(handle, context);
@@ -155,6 +176,7 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) -> bool {
 							}
 						}
 					}
+					push_for_class(context, attrs, "calibre1");
 					end
 				}
 				_ => process_children(handle, context),
