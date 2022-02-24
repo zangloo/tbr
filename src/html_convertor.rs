@@ -114,15 +114,11 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) -> bool {
 				local_name!("head") | local_name!("style") | local_name!("script") => {
 					true
 				}
-				local_name!("p") => {
+				local_name!("p") | local_name!("h2") | local_name!("li") => {
 					if context.started {
 						push_buf(context);
 					}
-					let end = process_children(handle, context);
-					if context.started {
-						push_buf(context);
-					}
-					end
+					process_children(handle, context)
 				}
 				local_name!("br") => {
 					if context.started {
