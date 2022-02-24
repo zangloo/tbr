@@ -1,6 +1,6 @@
 use std::fs::OpenOptions;
 use std::io::{Cursor, Read, Seek};
-
+use std::path::PathBuf;
 use anyhow::Result;
 
 use crate::book::{Book, Chapter, Line, Loader};
@@ -12,6 +12,7 @@ mod parser;
 pub struct EpubBook<R: Read + Seek> {
 	doc: EpubArchive<R>,
 	chapter: Chapter,
+	chapter_path: PathBuf,
 }
 
 pub struct EpubLoader {}
@@ -40,8 +41,8 @@ impl EpubLoader {
 		if chapter >= chapters {
 			chapter = chapters - 1;
 		}
-		let chapter = doc.load_chapter(chapter)?;
-		let book = EpubBook { doc, chapter };
+		let (chapter, chapter_path) = doc.load_chapter(chapter)?;
+		let book = EpubBook { doc, chapter, chapter_path };
 		Result::Ok(Box::new(book))
 	}
 }
@@ -52,7 +53,9 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 	}
 
 	fn set_chapter(&mut self, chapter_index: usize) -> Result<()> {
-		self.chapter = self.doc.load_chapter(chapter_index)?;
+		let (chapter, chapter_path) = self.doc.load_chapter(chapter_index)?;
+		self.chapter = chapter;
+		self.chapter_path = chapter_path;
 		Ok(())
 	}
 
@@ -77,8 +80,15 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 		&self.chapter.lines
 	}
 
-	fn link_position(&self, link_target: &str) -> Option<TraceInfo> {
-		let chapter = self.doc.target_location(link_target)?;
+	fn link_position(&self, mut link_target: &str) -> Option<TraceInfo> {
+		let mut current_path = self.chapter_path.clone();
+		current_path.pop();
+		while link_target.starts_with("../") {
+			current_path.pop();
+			link_target = &link_target[3..];
+		}
+		current_path.push(link_target);
+		let chapter = self.doc.target_location(current_path.to_str()?)?;
 		Some(TraceInfo { chapter, line: 0, position: 0 })
 	}
 }

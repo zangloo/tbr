@@ -100,7 +100,7 @@ impl<R: Read + Seek> EpubArchive<R> {
 		})
 	}
 
-	pub fn load_chapter(&mut self, chapter_index: usize) -> Result<Chapter> {
+	pub fn load_chapter(&mut self, chapter_index: usize) -> Result<(Chapter, PathBuf)> {
 		let np = self.toc.get(chapter_index).ok_or(Error::new(InvalidChapterError {}))?;
 		let mut src_split = np.src.split('#');
 		let src_file = src_split.next().unwrap();
@@ -132,7 +132,7 @@ impl<R: Read + Seek> EpubArchive<R> {
 			Some(label) => label,
 			None => &np.src,
 		};
-		Ok(Chapter::new(chapter_index, title.as_str(), lines))
+		Ok((Chapter::new(chapter_index, title.as_str(), lines), PathBuf::from(src_file)))
 	}
 
 	pub fn target_location(&self, target: &str) -> Option<usize> {
