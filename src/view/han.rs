@@ -6,7 +6,7 @@ use unicode_width::UnicodeWidthChar;
 use crate::book::Line;
 use crate::common::{char_width, length_with_leading, with_leading};
 use crate::ReadingInfo;
-use crate::view::{DrawChar, DrawCharMode, NextPageInfo, Render, RenderContext};
+use crate::view::{DrawChar, DrawCharMode, Position, Render, RenderContext};
 
 const CHARS_PAIRS: [(char, char); 31] = [
 	('「', '﹁'),
@@ -202,7 +202,7 @@ impl Render for Han {
 			}
 		}
 		self.setup_print_lines(&draw_lines, context);
-		context.next = Some(NextPageInfo { line, position });
+		context.next = Some(Position { line, position });
 	}
 
 	fn prev(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {

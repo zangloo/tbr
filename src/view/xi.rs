@@ -3,7 +3,7 @@ use cursive::Vec2;
 use crate::book::Line;
 use crate::common::{char_width, with_leading};
 use crate::ReadingInfo;
-use crate::view::{DrawChar, DrawCharMode, NextPageInfo, Render, RenderContext};
+use crate::view::{DrawChar, DrawCharMode, Position, Render, RenderContext};
 
 const TAB_SIZE: usize = 4;
 
@@ -34,12 +34,12 @@ impl Render for Xi {
 				if line >= lines.len() - 1 {
 					context.next = None;
 				} else {
-					context.next = Some(NextPageInfo { line: line + 1, position: 0 });
+					context.next = Some(Position { line: line + 1, position: 0 });
 				}
 				return;
 			} else if current_lines > height {
 				let gap = current_lines - height;
-				context.next = Some(NextPageInfo { line, position: wrapped_breaks[wrapped_breaks.len() - gap] });
+				context.next = Some(Position { line, position: wrapped_breaks[wrapped_breaks.len() - gap] });
 				return;
 			}
 			position = 0;

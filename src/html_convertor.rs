@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::mem;
 
 use anyhow::Result;
@@ -12,21 +13,30 @@ use markup5ever_rcdom::NodeData::{Document, Element, Text};
 
 use crate::book::Line;
 use crate::common::plain_text;
+use crate::view::Position;
 
-struct ParseContext<'a> {
-	start_id: Option<&'a str>,
-	started: bool,
-	stop_id: Option<&'a str>,
+pub struct HtmlContent {
+	pub lines: Vec<Line>,
+	pub id_map: HashMap<String, Position>,
+}
+
+impl Default for HtmlContent {
+	fn default() -> Self {
+		HtmlContent { lines: vec![], id_map: HashMap::new() }
+	}
+}
+
+struct ParseContext {
 	buf: Line,
-	lines: Vec<Line>,
+	content: HtmlContent,
 }
 
-pub(crate) fn html_lines(text: Vec<u8>) -> Result<Vec<Line>> {
+pub(crate) fn html_content(text: Vec<u8>) -> Result<HtmlContent> {
 	let text = plain_text(text, false)?;
-	html_str_lines(text.as_str(), None, None)
+	html_str_content(text.as_str())
 }
 
-pub(crate) fn html_str_lines(str: &str, start_id: Option<&str>, stop_id: Option<&str>) -> Result<Vec<Line>> {
+pub(crate) fn html_str_content(str: &str) -> Result<HtmlContent> {
 	let opts = ParseOpts {
 		tree_builder: TreeBuilderOpts {
 			drop_doctype: true,
@@ -39,27 +49,27 @@ pub(crate) fn html_str_lines(str: &str, start_id: Option<&str>, stop_id: Option<
 		.read_from(&mut str.as_bytes())
 		.unwrap();
 	let mut context = ParseContext {
-		start_id,
-		started: start_id.is_none(),
-		stop_id,
 		buf: Default::default(),
-		lines: vec![],
+		content: Default::default(),
 	};
 	convert_dom_to_lines(&dom.document, &mut context);
 	if !context.buf.is_empty() {
-		context.lines.push(context.buf);
+		context.content.lines.push(context.buf);
 	}
-	if context.lines.is_empty() {
-		context.lines.push(Line::from("No content."));
+	if context.content.lines.is_empty() {
+		context.content.lines.push(Line::from("No content."));
 	}
-	Ok(context.lines)
+	Ok(context.content)
 }
 
-fn push_for_class(context: &mut ParseContext, attrs: &RefCell<Vec<Attribute>>, class_name: &str) {
-	if context.started && !context.buf.is_empty() {
+fn push_for_class(context: &mut ParseContext, attrs: &RefCell<Vec<Attribute>>) {
+	if !context.buf.is_empty() {
 		if let Some(class) = attr_value("class", attrs) {
-			if class.contains(class_name) {
-				push_buf(context);
+			for class_name in DIV_PUSH_CLASSES {
+				if class.contains(class_name) {
+					push_buf(context);
+					return;
+				}
 			}
 		}
 	}
@@ -69,113 +79,91 @@ fn push_buf(context: &mut ParseContext) {
 	// ignore empty line if prev line is empty too.
 	context.buf.trim();
 	if context.buf.is_empty() {
-		let line_count = context.lines.len();
-		if line_count == 0 || context.lines[line_count - 1].is_empty() {
+		let line_count = context.content.lines.len();
+		if line_count == 0 || context.content.lines[line_count - 1].is_empty() {
 			return;
 		}
 	}
 	let buf = mem::take(&mut context.buf);
-	context.lines.push(buf);
+	context.content.lines.push(buf);
 }
 
-fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) -> bool {
+const DIV_PUSH_CLASSES: [&str; 2] = ["sgc-toc-level-", "contents"];
+
+fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) {
 	match &handle.data {
 		Text { contents } => {
-			if context.started {
-				let mut space_prev = true;
-				for c in contents.borrow().chars() {
-					match c {
-						'\n' => {}
-						' ' => {
-							if !space_prev {
-								context.buf.push(' ');
-								space_prev = true;
-							}
+			let mut space_prev = true;
+			for c in contents.borrow().chars() {
+				match c {
+					'\n' => {}
+					' ' => {
+						if !space_prev {
+							context.buf.push(' ');
+							space_prev = true;
 						}
-						_ => {
-							space_prev = false;
-							context.buf.push(c);
-						}
+					}
+					_ => {
+						space_prev = false;
+						context.buf.push(c);
 					}
 				}
 			}
-			return true;
 		}
 		Element { name, attrs, .. } => {
-			if !context.started {
-				if match_id(context.start_id.unwrap(), &attrs) {
-					context.started = true;
-				}
-			} else if let Some(stop_id) = context.stop_id {
-				if match_id(stop_id, &attrs) {
-					return false;
-				}
+			if let Some(id) = attr_value("id", &attrs) {
+				let position = Position::new(context.content.lines.len(), context.buf.len());
+				context.content.id_map.insert(id, position);
 			}
 			match name.local {
-				local_name!("head") | local_name!("style") | local_name!("script") => {
-					true
-				}
+				local_name!("head") | local_name!("style") | local_name!("script") => {}
 				local_name!("div") => {
-					push_for_class(context, attrs, "sgc-toc-level-");
-					let end = process_children(handle, context);
-					push_for_class(context, attrs, "sgc-toc-level-");
-					end
+					push_for_class(context, attrs);
+					process_children(handle, context);
+					push_for_class(context, attrs);
 				}
 				local_name!("p") | local_name!("h3") | local_name!("h2") | local_name!("li") => {
-					if context.started && !context.buf.is_empty() {
+					if !context.buf.is_empty() {
 						push_buf(context);
 					}
-					let end = process_children(handle, context);
-					if context.started {
-						push_buf(context);
-					}
-					end
+					process_children(handle, context);
+					push_buf(context);
 				}
 				local_name!("br") => {
-					if context.started && !context.buf.is_empty() {
+					if !context.buf.is_empty() {
 						push_buf(context);
 					}
 					process_children(handle, context)
 				}
 				local_name!("a") => {
-					push_for_class(context, attrs, "calibre1");
-					let start_line = context.lines.len();
+					let start_line = context.content.lines.len();
 					let mut start_position = context.buf.len();
 					let end = process_children(handle, context);
-					if context.started {
-						if let Some(href) = attr_value("href", &attrs) {
-							let end_line = context.lines.len();
-							let end_position = context.buf.len();
-							if start_line != end_line {
-								for line_index in start_line..end_line {
-									let line = &mut context.lines[line_index];
-									let len = line.len();
-									if start_position < len {
-										line.add_link(&href, start_position, len);
-									}
-									start_position = 0;
+					if let Some(href) = attr_value("href", &attrs) {
+						let end_line = context.content.lines.len();
+						let end_position = context.buf.len();
+						if start_line != end_line {
+							for line_index in start_line..end_line {
+								let line = &mut context.content.lines[line_index];
+								let len = line.len();
+								if start_position < len {
+									line.add_link(&href, start_position, len);
 								}
-							}
-							if start_position < end_position {
-								context.buf.add_link(&href, start_position, end_position);
+								start_position = 0;
 							}
 						}
+						if start_position < end_position {
+							context.buf.add_link(&href, start_position, end_position);
+						}
 					}
-					push_for_class(context, attrs, "calibre1");
 					end
 				}
 				_ => process_children(handle, context),
 			}
 		}
 		Document {} => process_children(handle, context),
-		_ => true,
+		_ => {}
 	}
-}
-
-fn match_id(id: &str, attrs: &RefCell<Vec<Attribute>>) -> bool {
-	attrs.borrow().iter().find(|attr| {
-		attr.name.local == LocalName::from("id") && attr.value.to_string() == id
-	}).is_some()
 }
 
 fn attr_value(attr_name: &str, attrs: &RefCell<Vec<Attribute>>) -> Option<String> {
@@ -186,11 +174,8 @@ fn attr_value(attr_name: &str, attrs: &RefCell<Vec<Attribute>>) -> Option<String
 	Some(attr.value.to_string())
 }
 
-fn process_children(handle: &Handle, context: &mut ParseContext) -> bool {
+fn process_children(handle: &Handle, context: &mut ParseContext) {
 	for child in handle.children.borrow().iter() {
-		if !convert_dom_to_lines(&child, context) {
-			return false;
-		}
+		convert_dom_to_lines(&child, context)
 	}
-	true
 }

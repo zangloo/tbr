@@ -39,9 +39,15 @@ pub struct HighlightInfo {
 	pub mode: HighlightMode,
 }
 
-pub struct NextPageInfo {
-	line: usize,
-	position: usize,
+pub struct Position {
+	pub line: usize,
+	pub position: usize,
+}
+
+impl Position {
+	pub fn new(line: usize, position: usize) -> Self {
+		Position { line, position }
+	}
 }
 
 pub struct TraceInfo {
@@ -104,7 +110,7 @@ pub struct RenderContext {
 	highlight_link_color: ColorStyle,
 	color: ColorStyle,
 	leading_space: usize,
-	next: Option<NextPageInfo>,
+	next: Option<Position>,
 }
 
 impl RenderContext {
@@ -671,18 +677,19 @@ impl ReadingView {
 	}
 
 	fn goto_link(&mut self, line: usize, link_index: usize) -> Result<()> {
-		let line = &self.book.lines()[line];
-		if let Some(link) = line.link_at(link_index) {
-			if let Some(pos) = self.book.link_position(&link.target) {
-				if pos.chapter != self.book.current_chapter() {
-					self.book.set_chapter(pos.chapter)?;
-					self.reading.chapter = pos.chapter;
-					self.reading.line = pos.line;
-					self.reading.position = pos.position;
-					self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
-					self.push_trace(true);
-				}
+		if let Some(pos) = self.book.link_position(line, link_index) {
+			if pos.chapter != self.book.current_chapter() {
+				self.book.set_chapter(pos.chapter)?;
 			}
+			self.reading.chapter = pos.chapter;
+			self.reading.line = pos.line;
+			self.reading.position = pos.position;
+			if pos.position == 0 {
+				self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
+			} else {
+				self.render.prev_line(self.book.lines(), &mut self.reading, &mut self.render_context);
+			}
+			self.push_trace(true);
 		}
 		Ok(())
 	}

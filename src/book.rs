@@ -149,18 +149,6 @@ impl PartialEq for Line {
 	}
 }
 
-pub struct Chapter {
-	index: usize,
-	title: String,
-	lines: Vec<Line>,
-}
-
-impl Chapter {
-	pub fn new(index: usize, title: &str, lines: Vec<Line>) -> Self {
-		Chapter { index, title: String::from(title), lines }
-	}
-}
-
 pub trait Book {
 	fn chapter_count(&self) -> usize { 1 }
 	fn set_chapter(&mut self, chapter: usize) -> Result<()> {
@@ -174,7 +162,7 @@ pub trait Book {
 	fn chapter_title(&self, _chapter: usize) -> Option<&String> { None }
 	fn lines(&self) -> &Vec<Line>;
 	fn leading_space(&self) -> usize { 2 }
-	fn link_position(&self, _link_target: &str) -> Option<TraceInfo> { None }
+	fn link_position(&mut self, _line: usize, _link_index: usize) -> Option<TraceInfo> { None }
 }
 
 pub struct BookLoader {
