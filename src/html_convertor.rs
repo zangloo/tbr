@@ -95,18 +95,14 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) {
 		Text { contents } => {
 			let mut space_prev = true;
 			for c in contents.borrow().chars() {
-				match c {
-					'\n' => {}
-					' ' => {
-						if !space_prev {
-							context.buf.push(' ');
-							space_prev = true;
-						}
+				if c.is_whitespace() {
+					if !space_prev && !context.buf.is_empty() {
+						context.buf.push(' ');
+						space_prev = true;
 					}
-					_ => {
-						space_prev = false;
-						context.buf.push(c);
-					}
+				} else {
+					space_prev = false;
+					context.buf.push(c);
 				}
 			}
 		}
