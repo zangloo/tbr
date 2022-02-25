@@ -8,7 +8,7 @@ use crate::common::{char_width, length_with_leading, with_leading};
 use crate::ReadingInfo;
 use crate::view::{DrawChar, DrawCharMode, Position, Render, RenderContext};
 
-const CHARS_PAIRS: [(char, char); 31] = [
+const CHARS_PAIRS: [(char, char); 33] = [
 	('「', '﹁'),
 	('」', '﹂'),
 	('〈', '︿'),
@@ -21,6 +21,8 @@ const CHARS_PAIRS: [(char, char); 31] = [
 	('》', '︾'),
 	('〔', '︹'),
 	('〕', '︺'),
+	('［', '︹'),
+	('］', '︺'),
 	('【', '︻'),
 	('】', '︼'),
 	('｛', '︷'),
