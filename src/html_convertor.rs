@@ -88,7 +88,7 @@ fn push_buf(context: &mut ParseContext) {
 	context.content.lines.push(buf);
 }
 
-const DIV_PUSH_CLASSES: [&str; 2] = ["sgc-toc-level-", "contents"];
+const DIV_PUSH_CLASSES: [&str; 3] = ["contents", "toc", "mulu"];
 
 fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) {
 	match &handle.data {
@@ -117,12 +117,12 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) {
 			}
 			match name.local {
 				local_name!("head") | local_name!("style") | local_name!("script") => {}
-				local_name!("div") => {
+				local_name!("div") | local_name!("dt") => {
 					push_for_class(context, attrs);
 					process_children(handle, context);
 					push_for_class(context, attrs);
 				}
-				local_name!("p") | local_name!("h3") | local_name!("h2") | local_name!("li") => {
+				local_name!("p") | local_name!("h4") | local_name!("h3") | local_name!("h2") | local_name!("li") => {
 					if !context.buf.is_empty() {
 						push_buf(context);
 					}
