@@ -5,12 +5,12 @@ use anyhow::Result;
 use html5ever::{parse_document, ParseOpts};
 use html5ever::tendril::TendrilSink;
 use html5ever::tree_builder::TreeBuilderOpts;
-use markup5ever::LocalName;
 use markup5ever::Attribute;
+use markup5ever::LocalName;
 use markup5ever_rcdom::{Handle, RcDom};
 use markup5ever_rcdom::NodeData::{Document, Element, Text};
-use crate::book::Line;
 
+use crate::book::Line;
 use crate::common::plain_text;
 
 struct ParseContext<'a> {
@@ -112,21 +112,6 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) -> bool {
 				}
 			}
 			match name.local {
-				local_name!("img") => {
-					if context.started {
-						if let Some(src) = attr_value("src", &attrs) {
-							if !context.buf.is_empty() {
-								push_buf(context);
-							}
-							context.buf.concat("[IMG:");
-							context.buf.concat(&src);
-							context.buf.push(']');
-							context.buf.add_link(&src, 0, context.buf.len());
-							push_buf(context);
-						}
-					}
-					true
-				}
 				local_name!("head") | local_name!("style") | local_name!("script") => {
 					true
 				}
