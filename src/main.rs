@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-
+use std::env;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use cursive::theme::{Error, load_theme_file, load_toml, Theme};
@@ -26,6 +26,8 @@ mod list;
 mod book;
 mod html_convertor;
 mod container;
+
+const TBR_BOOK_ENV_KEY: &str = "TBR_BOOK";
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -124,7 +126,8 @@ fn main() -> Result<()> {
 	cache_dir.push("ter");
 	let mut themes_dir = config_dir.clone();
 	themes_dir.push("themes");
-	let (configuration, theme_entries) = load_config(cli.filename, &config_file, &themes_dir, &cache_dir)?;
+	let filename = cli.filename.or(env::var(TBR_BOOK_ENV_KEY).ok());
+	let (configuration, theme_entries) = load_config(filename, &config_file, &themes_dir, &cache_dir)?;
 	let configuration = controller::start(configuration, theme_entries)?;
 	save_config(configuration, config_file)?;
 	Ok(())
