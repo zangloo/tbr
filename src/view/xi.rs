@@ -1,5 +1,3 @@
-use cursive::Vec2;
-
 use crate::book::Line;
 use crate::common::{char_width, with_leading};
 use crate::ReadingInfo;
@@ -21,7 +19,6 @@ impl Render for Xi {
 		let width = context.width;
 		let mut position = reading.position;
 		context.print_lines.clear();
-		context.special_char_map.clear();
 		for line in reading.line..lines.len() {
 			let text = &lines[line];
 			let wrapped_breaks = self.wrap_line(text, position, usize::MAX, width, context, Some(WrapLineDrawingContext {
@@ -46,7 +43,11 @@ impl Render for Xi {
 		}
 		let blank_lines = height - context.print_lines.len();
 		for _x in 0..blank_lines {
-			context.print_lines.push(" ".repeat(width));
+			let mut print_line = vec![];
+			for _y in 0..width {
+				print_line.push(DrawChar::space());
+			}
+			context.print_lines.push(print_line);
 		}
 		context.next = None;
 	}
@@ -132,9 +133,9 @@ impl Render for Xi {
 }
 
 #[inline]
-fn fill_print_line(print_line: &mut String, chars: usize) {
-	if chars > 0 {
-		print_line.push_str(" ".repeat(chars).as_str());
+fn fill_print_line(print_line: &mut Vec<DrawChar>, chars: usize) {
+	for _x in 0..chars {
+		print_line.push(DrawChar::space());
 	}
 }
 
@@ -146,16 +147,20 @@ struct WrapLineDrawingContext<'a> {
 
 impl Xi {
 	fn wrap_line(&mut self, text: &Line, start_position: usize, end_position: usize, width: usize,
-	             context: &mut RenderContext, mut draw_context: Option<WrapLineDrawingContext>) -> Vec<usize> {
+	             context: &mut RenderContext, draw_context: Option<WrapLineDrawingContext>) -> Vec<usize> {
 		let with_leading_space = if context.leading_space > 0 {
 			start_position == 0 && with_leading(text)
 		} else {
 			false
 		};
 		let (mut x, mut print_line) = if with_leading_space {
-			(context.leading_space, " ".repeat(context.leading_space))
+			let mut chars = vec![];
+			for _x in 0..context.leading_space {
+				chars.push(DrawChar::space());
+			}
+			(context.leading_space, chars)
 		} else {
-			(0, "".to_string())
+			(0, vec![])
 		};
 		let mut wrapped_breaks = vec![0];
 		let mut break_position = 0;
@@ -173,11 +178,11 @@ impl Xi {
 			if x + cw > width {
 				let gap = width - x;
 				x = 0;
-				// for unicode, can_break, or prev break not exists
-				if cw > 1 || can_break || break_position == 0 {
+				// for unicode, can_break, or prev break not exists, or breaking conent too long
+				if cw > 1 || can_break || break_position == 0 || position - break_position > 20 {
 					fill_print_line(&mut print_line, gap);
 					context.print_lines.push(print_line);
-					print_line = String::from("");
+					print_line = vec![];
 					// for break char, will not print it any more
 					// skip it for line break
 					if can_break {
@@ -197,56 +202,32 @@ impl Xi {
 					} else {
 						break_position
 					};
-					let mut print_chars = print_line.chars();
-					let mut line = String::from("");
+					let mut print_chars = print_line.iter();
+					let mut line = vec![];
 					let mut w = 0;
 					for _x in 0..chars_count {
-						let ch = print_chars.next().unwrap();
-						line.push(ch);
-						w += char_width(ch);
+						let dc = print_chars.next().unwrap();
+						line.push(dc.clone());
+						w += char_width(dc.char);
 					}
 					fill_print_line(&mut line, width - w);
 					context.print_lines.push(line);
-					line = String::from("");
+					line = vec![];
 					for ch in print_chars {
-						line.push(ch);
+						line.push(ch.clone());
 					}
 					print_line = line;
 					wrapped_breaks.push(break_position);
 					break_position = 0;
-					for ch in print_line.chars() {
-						x += char_width(ch);
+					for ch in &print_line {
+						x += char_width(ch.char);
 					}
 				}
 			}
-			if let Some(ref mut drawing_context) = draw_context {
-				if let Some(dc) = self.setup_special_char(drawing_context.line, position, *char, drawing_context.lines, drawing_context.reading) {
-					let y = context.print_lines.len();
-					if let Some(draw_char) = &dc.char {
-						match &dc.mode {
-							DrawCharMode::Search => {}
-							DrawCharMode::Link { .. }
-							| DrawCharMode::HighlightLink { .. }
-							| DrawCharMode::SearchOnLink { .. } => {
-								// for char which width is 1 and display with 2 byte width
-								// this is the 2nd cell, for mouse click and open link
-								if char_width(*draw_char) == 2 {
-									let mode = dc.mode.clone();
-									context.special_char_map.insert(
-										Vec2 { x: x + 1, y },
-										DrawChar { char: None, mode });
-								};
-							}
-						}
-					}
-					context.special_char_map.insert(Vec2 { x, y }, dc);
-				}
-			}
-			position += 1;
 			x += cw;
 			if can_break {
 				break_position += 1;
-				print_line.push(' ');
+				print_line.push(DrawChar::space());
 				if *char == '\t' {
 					let tab_chars_left = TAB_SIZE - (x % TAB_SIZE);
 					for _c in 0..tab_chars_left {
@@ -254,12 +235,17 @@ impl Xi {
 							break;
 						}
 						x += 1;
-						print_line.push(' ');
+						print_line.push(DrawChar::space());
 					}
 				}
 			} else {
-				print_line.push(*char);
+				let dc = match &draw_context {
+					Some(context) => self.setup_draw_char(*char, context.line, position, context.lines, context.reading),
+					None => DrawChar::new(*char, DrawCharMode::Plain),
+				};
+				print_line.push(dc);
 			}
+			position += 1;
 		}
 		if start_position != position {
 			if x > 0 {
