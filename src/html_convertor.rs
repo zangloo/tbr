@@ -11,7 +11,7 @@ use markup5ever::LocalName;
 use markup5ever_rcdom::{Handle, RcDom};
 use markup5ever_rcdom::NodeData::{Document, Element, Text};
 
-use crate::book::Line;
+use crate::book::{EMPTY_CHAPTER_CONTENT, Line};
 use crate::common::plain_text;
 use crate::view::Position;
 
@@ -57,7 +57,7 @@ pub(crate) fn html_str_content(str: &str) -> Result<HtmlContent> {
 		context.content.lines.push(context.buf);
 	}
 	if context.content.lines.is_empty() {
-		context.content.lines.push(Line::from("No content."));
+		context.content.lines.push(Line::from(EMPTY_CHAPTER_CONTENT));
 	}
 	Ok(context.content)
 }
@@ -118,7 +118,7 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) {
 					process_children(handle, context);
 					push_for_class(context, attrs);
 				}
-				local_name!("p") | local_name!("h4") | local_name!("h3") | local_name!("h2") | local_name!("li") => {
+				local_name!("p") | local_name!("h4") | local_name!("h3") | local_name!("h2") | local_name!("h1") | local_name!("li") => {
 					if !context.buf.is_empty() {
 						push_buf(context);
 					}

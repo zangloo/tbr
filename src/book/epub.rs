@@ -8,7 +8,7 @@ use regex::Regex;
 use xmltree::Element;
 use zip::ZipArchive;
 
-use crate::book::{Book, InvalidChapterError, Line, Loader};
+use crate::book::{Book, EMPTY_CHAPTER_CONTENT, InvalidChapterError, Line, Loader};
 use crate::html_convertor::html_str_content;
 use crate::view::{Position, TraceInfo};
 
@@ -61,7 +61,7 @@ struct EpubBook<R: Read + Seek> {
 	content_opf_dir: PathBuf,
 	#[allow(dead_code)]
 	content_opf: ContentOPF,
-	pub toc: Vec<NavPoint>,
+	toc: Vec<NavPoint>,
 	chapter_cache: HashMap<usize, Chapter>,
 	chapter_index: usize,
 }
@@ -401,7 +401,10 @@ fn load_chapter<R: Read + Seek>(zip: &mut ZipArchive<R>, toc: &Vec<NavPoint>,
 			}
 			None => html_lines.len(),
 		};
-		let lines = html_lines.drain(start_index..end_index).collect::<Vec<Line>>();
+		let mut lines = html_lines.drain(start_index..end_index).collect::<Vec<Line>>();
+		if lines.is_empty() {
+			lines.push(Line::from(EMPTY_CHAPTER_CONTENT));
+		}
 		let mut id_map = HashMap::new();
 		all_id_map.retain(|id, position| {
 			if position.line >= start_index && position.line < end_index {

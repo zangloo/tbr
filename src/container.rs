@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 
-use crate::book::Book;
+use crate::book::{Book, EMPTY_CHAPTER_CONTENT};
 use crate::BookLoader;
 use crate::container::zip::ZipLoader;
 
@@ -43,7 +43,7 @@ impl ContainerManager {
 		let lines = &mut book.lines();
 		let line_count = lines.len();
 		if line_count == 0 {
-			return Err(anyhow!("No content."));
+			return Err(anyhow!(EMPTY_CHAPTER_CONTENT));
 		}
 		Ok(book)
 	}

@@ -20,6 +20,8 @@ mod epub;
 mod txt;
 mod html;
 
+pub const EMPTY_CHAPTER_CONTENT: &str = "No content.";
+
 pub struct Line {
 	chars: Vec<char>,
 	links: Vec<Link>,
