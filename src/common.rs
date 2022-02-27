@@ -6,12 +6,10 @@ use unicode_width::UnicodeWidthChar;
 use crate::book::Line;
 
 pub fn with_leading(text: &Line) -> bool {
-	let leader = text.char_at(0);
-	{
-		match leader {
-			Some(leader) => leader != ' ' && leader != '\t' && leader != '　',
-			None => false,
-		}
+	if let Some(leader) = text.char_at(0) {
+		leader.is_whitespace()
+	} else {
+		false
 	}
 }
 

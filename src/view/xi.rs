@@ -147,7 +147,7 @@ struct WrapLineDrawingContext<'a> {
 
 impl Xi {
 	fn wrap_line(&mut self, text: &Line, start_position: usize, end_position: usize, width: usize,
-	             context: &mut RenderContext, draw_context: Option<WrapLineDrawingContext>) -> Vec<usize> {
+		context: &mut RenderContext, draw_context: Option<WrapLineDrawingContext>) -> Vec<usize> {
 		let with_leading_space = if context.leading_space > 0 {
 			start_position == 0 && with_leading(text)
 		} else {
@@ -162,8 +162,8 @@ impl Xi {
 		} else {
 			(0, vec![])
 		};
-		let mut wrapped_breaks = vec![0];
-		let mut break_position = 0;
+		let mut wrapped_breaks = vec![start_position];
+		let mut break_position = None;
 		let mut chars = text.iter();
 		for _x in 0..start_position {
 			chars.next();
@@ -179,7 +179,7 @@ impl Xi {
 				let gap = width - x;
 				x = 0;
 				// for unicode, can_break, or prev break not exists, or breaking conent too long
-				if cw > 1 || can_break || break_position == 0 || position - break_position > 20 {
+				if cw > 1 || can_break || break_position.is_none() || position - break_position.unwrap() > 20 {
 					fill_print_line(&mut print_line, gap);
 					context.print_lines.push(print_line);
 					print_line = vec![];
@@ -193,14 +193,11 @@ impl Xi {
 					wrapped_breaks.push(position);
 				} else {
 					let prev_position = wrapped_breaks[wrapped_breaks.len() - 1];
-					let chars_count = if prev_position == 0 {
-						if with_leading_space {
-							break_position + context.leading_space
-						} else {
-							break_position
-						}
+					let the_break_position = break_position.unwrap_or(0);
+					let chars_count = if prev_position == 0 && with_leading_space {
+						the_break_position + context.leading_space
 					} else {
-						break_position
+						the_break_position - prev_position
 					};
 					let mut print_chars = print_line.iter();
 					let mut line = vec![];
@@ -217,8 +214,8 @@ impl Xi {
 						line.push(ch.clone());
 					}
 					print_line = line;
-					wrapped_breaks.push(break_position);
-					break_position = 0;
+					wrapped_breaks.push(the_break_position);
+					break_position = None;
 					for ch in &print_line {
 						x += char_width(ch.char);
 					}
@@ -226,7 +223,7 @@ impl Xi {
 			}
 			x += cw;
 			if can_break {
-				break_position += 1;
+				break_position = Some(position + 1);
 				print_line.push(DrawChar::space());
 				if *char == '\t' {
 					let tab_chars_left = TAB_SIZE - (x % TAB_SIZE);
@@ -259,5 +256,185 @@ impl Xi {
 			context.print_lines.push(print_line);
 		}
 		return wrapped_breaks;
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use crate::book::Line;
+	use crate::ReadingInfo;
+	use crate::view::{DrawChar, DrawCharMode, Render, RenderContext};
+	use crate::view::xi::{fill_print_line, Xi};
+
+	const TEST_WIDTH: usize = 80;
+
+	fn to_draw_line(str: &str) -> Vec<DrawChar> {
+		let mut line = vec![];
+		for char in str.chars() {
+			line.push(DrawChar::new(char, DrawCharMode::Plain));
+		}
+		let len = line.len();
+		fill_print_line(&mut line, TEST_WIDTH - len);
+		line
+	}
+
+	#[test]
+	fn test_wrap() {
+		let mut lines = vec![];
+		lines.push(Line::from("SIGNET"));
+		lines.push(Line::from("Published by New American Library, a division of Penguin Group (USA) Inc., 375 Hudson Street, New York, New York 10014, USA Penguin Group (Canada), 90 Eglinton Avenue East, Suite 700, Toronto, Ontario M4P 2Y3, Canada (a division of Pearson Penguin Canada Inc.) Penguin Books Ltd., 80 Strand, London WC2R 0RL, England Penguin Ireland, 25 St. Stephen’s Green, Dublin 2, Ireland (a division of Penguin Books Ltd.) Penguin Group (Australia), 250 Camberwell Road, Camberwell, Victoria 3124, Australia (a division of Pearson Australia Group Pty. Ltd.) Penguin Books India Pvt. Ltd., 11 Community Centre, Panchsheel Park, New Delhi - 110 017, India Penguin Group (NZ), 67 Apollo Drive, Mairangi Bay, Albany, Auckland 1311, New Zealand (a division of Pearson New Zealand Ltd.) Penguin Books (South Africa) (Pty.) Ltd., 24 Sturdee Avenue, Rosebank, Johannesburg 2196, South Africa"));
+		lines.push(Line::from("Penguin Books Ltd., Registered Offices: 80 Strand, London WC2R 0RL, England"));
+		lines.push(Line::from("Published by Signet, an imprint of New American Library, a division of Penguin Group (USA) Inc. Previously published in a Viking edition. First Signet Printing, August 1983 70"));
+		lines.push(Line::from("Copyright © Stephen King, 1982"));
+		lines.push(Line::from("All rights reserved"));
+		lines.push(Line::from("eISBN : 978-1-101-13808-3"));
+		lines.push(Line::from("Grateful acknowledgment is made to the following for permission to reprint copyrighted material."));
+		lines.push(Line::from("Beechwood Music Corporation and Castle Music Pty. Limited:Portions of lyrics from “Tie Me Kangaroo Down, Sport,” by Rolf Harris. Copyright © Castle Music Pty. Limited, 1960. Assigned to and copyrighted © Beechwood Music Corp., 1961 for the United States and Canada. Copyright © Castle Music Pty. Limited for other territories. Used by permission. All rights reserved."));
+		lines.push(Line::from("Big Seven Music Corporation:Portions of lyrics from “Party Doll,” by Buddy Knox and Jimmy Bowen. Copyright © Big Seven Music Corp., 1956. Portions of lyrics from “Sorry (I Ran All the Way Home)” by Zwirn/Giosasi. Copyright © Big Seven Music Corp., 1959. All rights reserved."));
+		lines.push(Line::from("Holt, Rinehart and Winston, Publishers; Jonathan Cape Ltd.; and the Estate of Robert Frost:Two lines from “Mending Wall” from The Poetry of Robert Frost,edited by Edward Connery Lathem. Copyright ©Holt, Rinehart and Winston, 1930, 1939, 1969. Copyright © Robert Frost, 1958. Copyright © Lesley Frost Ballantine, 1967."));
+		lines.push(Line::from("REGISTERED TRADEMARK—MARCA REGISTRADA"));
+		lines.push(Line::from("Without limiting the rights under copyright reserved above, no part of this publication may be reproduced, stored in or introduced into a retrieval system, or transmitted, in any form, or by any means (electronic, mechanical, photocopying, recording, or otherwise), without the prior written permission of both the copyright owner and the above publisher of this book."));
+		lines.push(Line::from("PUBLISHER’S NOTE"));
+		lines.push(Line::from("These are works of fiction. Names, characters, places, and incidents either are the product of the author’s imagination or are used fictitiously, and any resemblance to actual persons, living or dead, business establishments, events, or locales is entirely coincidental."));
+		lines.push(Line::from("The publisher does not have any control over and does not assume any responsibility for author or third-party Web sites or their content."));
+		lines.push(Line::from("The scanning, uploading, and distribution of this book via the Internet or via any other means without the permission of the publisher is illegal and punishable by law. Please purchase only authorized electronic editions, and do not participate in or encourage electronic piracy of copyrighted materials. Your support of the author’s rights is appreciated."));
+		lines.push(Line::from("http://us.penguingroup.com"));
+
+		let mut xi = Xi {};
+		let mut reading = ReadingInfo {
+			filename: "dummy".to_string(),
+			inner_book: 0,
+			chapter: 0,
+			line: 0,
+			position: 0,
+			ts: 0,
+			highlight: None,
+		};
+		let mut context = RenderContext {
+			width: TEST_WIDTH,
+			height: 23,
+			print_lines: vec![],
+			search_color: Default::default(),
+			link_color: Default::default(),
+			highlight_link_color: Default::default(),
+			color: Default::default(),
+			leading_space: 2,
+			next: None,
+		};
+		// first page draw resul verify
+		xi.redraw(&lines, &reading, &mut context);
+		assert!(context.next.is_some());
+		let next = &context.next.as_ref().unwrap();
+		assert_eq!(next.line, 8);
+		assert_eq!(next.position, 77);
+
+		let mut result_lines = vec![];
+		result_lines.push(to_draw_line("  SIGNET"));
+		result_lines.push(to_draw_line("  Published by New American Library, a division of Penguin Group (USA) Inc., 375"));
+		result_lines.push(to_draw_line("Hudson Street, New York, New York 10014, USA Penguin Group (Canada), 90 Eglinton"));
+		result_lines.push(to_draw_line("Avenue East, Suite 700, Toronto, Ontario M4P 2Y3, Canada (a division of Pearson"));
+		result_lines.push(to_draw_line("Penguin Canada Inc.) Penguin Books Ltd., 80 Strand, London WC2R 0RL, England"));
+		result_lines.push(to_draw_line("Penguin Ireland, 25 St. Stephen’s Green, Dublin 2, Ireland (a division of"));
+		result_lines.push(to_draw_line("Penguin Books Ltd.) Penguin Group (Australia), 250 Camberwell Road, Camberwell,"));
+		result_lines.push(to_draw_line("Victoria 3124, Australia (a division of Pearson Australia Group Pty. Ltd.)"));
+		result_lines.push(to_draw_line("Penguin Books India Pvt. Ltd., 11 Community Centre, Panchsheel Park, New Delhi -"));
+		result_lines.push(to_draw_line("110 017, India Penguin Group (NZ), 67 Apollo Drive, Mairangi Bay, Albany,"));
+		result_lines.push(to_draw_line("Auckland 1311, New Zealand (a division of Pearson New Zealand Ltd.) Penguin"));
+		result_lines.push(to_draw_line("Books (South Africa) (Pty.) Ltd., 24 Sturdee Avenue, Rosebank, Johannesburg"));
+		result_lines.push(to_draw_line("2196, South Africa"));
+		result_lines.push(to_draw_line("  Penguin Books Ltd., Registered Offices: 80 Strand, London WC2R 0RL, England"));
+		result_lines.push(to_draw_line("  Published by Signet, an imprint of New American Library, a division of Penguin"));
+		result_lines.push(to_draw_line("Group (USA) Inc. Previously published in a Viking edition. First Signet"));
+		result_lines.push(to_draw_line("Printing, August 1983 70"));
+		result_lines.push(to_draw_line("  Copyright © Stephen King, 1982"));
+		result_lines.push(to_draw_line("  All rights reserved"));
+		result_lines.push(to_draw_line("  eISBN : 978-1-101-13808-3"));
+		result_lines.push(to_draw_line("  Grateful acknowledgment is made to the following for permission to reprint"));
+		result_lines.push(to_draw_line("copyrighted material."));
+		result_lines.push(to_draw_line("  Beechwood Music Corporation and Castle Music Pty. Limited:Portions of lyrics"));
+
+		for index in 0..result_lines.len() {
+			let line = &context.print_lines[index];
+			let result_line = &result_lines[index];
+			assert_eq!(line.len(), result_line.len());
+		}
+
+		// 2nd page draw resul verify
+		reading.line = next.line;
+		reading.position = next.position;
+		xi.redraw(&lines, &reading, &mut context);
+
+		assert!(context.next.is_some());
+		let next = context.next.as_ref().unwrap();
+		assert_eq!(next.line, 14);
+		assert_eq!(next.position, 234);
+		let mut result_lines = vec![];
+		result_lines.push(to_draw_line("from “Tie Me Kangaroo Down, Sport,” by Rolf Harris. Copyright © Castle Music"));
+		result_lines.push(to_draw_line("Pty. Limited, 1960. Assigned to and copyrighted © Beechwood Music Corp., 1961"));
+		result_lines.push(to_draw_line("for the United States and Canada. Copyright © Castle Music Pty. Limited for"));
+		result_lines.push(to_draw_line("other territories. Used by permission. All rights reserved."));
+		result_lines.push(to_draw_line("  Big Seven Music Corporation:Portions of lyrics from “Party Doll,” by Buddy"));
+		result_lines.push(to_draw_line("Knox and Jimmy Bowen. Copyright © Big Seven Music Corp., 1956. Portions of"));
+		result_lines.push(to_draw_line("lyrics from “Sorry (I Ran All the Way Home)” by Zwirn/Giosasi. Copyright © Big"));
+		result_lines.push(to_draw_line("Seven Music Corp., 1959. All rights reserved."));
+		result_lines.push(to_draw_line("  Holt, Rinehart and Winston, Publishers; Jonathan Cape Ltd.; and the Estate of"));
+		result_lines.push(to_draw_line("Robert Frost:Two lines from “Mending Wall” from The Poetry of Robert"));
+		result_lines.push(to_draw_line("Frost,edited by Edward Connery Lathem. Copyright ©Holt, Rinehart and Winston,"));
+		result_lines.push(to_draw_line("1930, 1939, 1969. Copyright © Robert Frost, 1958. Copyright © Lesley Frost"));
+		result_lines.push(to_draw_line("Ballantine, 1967."));
+		result_lines.push(to_draw_line("  REGISTERED TRADEMARK—MARCA REGISTRADA"));
+		result_lines.push(to_draw_line("  Without limiting the rights under copyright reserved above, no part of this"));
+		result_lines.push(to_draw_line("publication may be reproduced, stored in or introduced into a retrieval system,"));
+		result_lines.push(to_draw_line("or transmitted, in any form, or by any means (electronic, mechanical,"));
+		result_lines.push(to_draw_line("photocopying, recording, or otherwise), without the prior written permission of"));
+		result_lines.push(to_draw_line("both the copyright owner and the above publisher of this book."));
+		result_lines.push(to_draw_line("  PUBLISHER’S NOTE"));
+		result_lines.push(to_draw_line("  These are works of fiction. Names, characters, places, and incidents either"));
+		result_lines.push(to_draw_line("are the product of the author’s imagination or are used fictitiously, and any"));
+		result_lines.push(to_draw_line("resemblance to actual persons, living or dead, business establishments, events,"));
+
+		for index in 0..result_lines.len() {
+			let line = &context.print_lines[index];
+			let result_line = &result_lines[index];
+			assert_eq!(line.len(), result_line.len());
+		}
+
+		// 3rd page draw resul verify
+		reading.line = next.line;
+		reading.position = next.position;
+		xi.redraw(&lines, &reading, &mut context);
+
+		assert!(context.next.is_none());
+		let mut result_lines = vec![];
+		result_lines.push(to_draw_line("or locales is entirely coincidental."));
+		result_lines.push(to_draw_line("  The publisher does not have any control over and does not assume any"));
+		result_lines.push(to_draw_line("responsibility for author or third-party Web sites or their content."));
+		result_lines.push(to_draw_line("  The scanning, uploading, and distribution of this book via the Internet or via"));
+		result_lines.push(to_draw_line("any other means without the permission of the publisher is illegal and"));
+		result_lines.push(to_draw_line("punishable by law. Please purchase only authorized electronic editions, and do"));
+		result_lines.push(to_draw_line("not participate in or encourage electronic piracy of copyrighted materials. Your"));
+		result_lines.push(to_draw_line("support of the author’s rights is appreciated."));
+		result_lines.push(to_draw_line("  http://us.penguingroup.com"));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+		result_lines.push(to_draw_line(""));
+
+		assert_eq!(context.print_lines.len(), result_lines.len());
+		for index in 0..result_lines.len() {
+			let line = &context.print_lines[index];
+			let result_line = &result_lines[index];
+			assert_eq!(line.len(), result_line.len());
+		}
 	}
 }
