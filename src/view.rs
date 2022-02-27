@@ -586,8 +586,8 @@ impl ReadingView {
 		if reading.chapter == current_trace.chapter {
 			reading.line = current_trace.line;
 			reading.position = current_trace.position;
-		} else if let Some(new_chapter) = self.book.goto_chapter(reading.chapter)? {
-			assert_eq!(new_chapter, reading.chapter);
+		} else if let Some(new_chapter) = self.book.goto_chapter(current_trace.chapter)? {
+			assert_eq!(new_chapter, current_trace.chapter);
 			reading.chapter = new_chapter;
 			reading.line = current_trace.line;
 			reading.position = current_trace.position;
