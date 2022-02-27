@@ -414,29 +414,24 @@ impl ReadingView {
 	}
 
 	fn next_page(&mut self) -> Result<bool> {
-		match &self.render_context.next {
-			Some(next) => {
-				self.reading.line = next.line;
-				self.reading.position = next.position;
-				self.render.redraw(self.book.lines(), &mut self.reading, &mut self.render_context);
-				self.push_trace(true);
+		if let Some(next) = &self.render_context.next {
+			self.reading.line = next.line;
+			self.reading.position = next.position;
+			self.render.redraw(self.book.lines(), &mut self.reading, &mut self.render_context);
+			self.push_trace(true);
+			Ok(true)
+		} else if self.switch_chapter_internal(self.reading.chapter + 1)? {
+			Ok(true)
+		} else {
+			let book_index = self.reading.inner_book + 1;
+			let book_count = self.container.inner_book_names().len();
+			if book_index >= book_count {
+				Ok(false)
+			} else {
+				let reading = ReadingInfo::new(&self.reading.filename)
+					.with_inner_book(book_index);
+				self.do_switch_book(reading)?;
 				Ok(true)
-			}
-			None => {
-				if self.switch_chapter_internal(self.reading.chapter + 1)? {
-					Ok(true)
-				} else {
-					let book_index = self.reading.inner_book + 1;
-					let book_count = self.container.inner_book_names().len();
-					if book_index >= book_count {
-						Ok(false)
-					} else {
-						let reading = ReadingInfo::new(&self.reading.filename)
-							.with_inner_book(book_index);
-						self.do_switch_book(reading)?;
-						Ok(true)
-					}
-				}
 			}
 		}
 	}
@@ -444,15 +439,13 @@ impl ReadingView {
 	fn prev_page(&mut self) -> Result<bool> {
 		if self.reading.line == 0 && self.reading.position == 0 {
 			let reading = &mut self.reading;
-			if reading.chapter > 0 {
-				reading.chapter -= 1;
-				let book = &mut self.book;
-				book.set_chapter(reading.chapter)?;
-				let lines = book.lines();
+			if let Some(current_chapter) = self.book.prev_chapter()? {
+				reading.chapter = current_chapter;
+				let lines = self.book.lines();
 				reading.line = lines.len();
 				reading.position = 0;
 				// prev need decrease this invalid reading.line
-				self.render.prev(book.lines(), reading, &mut self.render_context);
+				self.render.prev(self.book.lines(), reading, &mut self.render_context);
 				self.push_trace(true);
 				Ok(true)
 			} else {
@@ -489,9 +482,8 @@ impl ReadingView {
 	}
 
 	fn switch_chapter_internal(&mut self, chapter: usize) -> Result<bool> {
-		if chapter < self.book.chapter_count() {
-			self.book.set_chapter(chapter)?;
-			self.reading.chapter = chapter;
+		if let Some(new_chapter) = self.book.goto_chapter(chapter)? {
+			self.reading.chapter = new_chapter;
 			self.reading.line = 0;
 			self.reading.position = 0;
 			self.render.redraw(self.book.lines(), &mut self.reading, &mut self.render_context);
@@ -594,11 +586,13 @@ impl ReadingView {
 		if reading.chapter == current_trace.chapter {
 			reading.line = current_trace.line;
 			reading.position = current_trace.position;
-		} else {
-			reading.chapter = current_trace.chapter;
+		} else if let Some(new_chapter) = self.book.goto_chapter(reading.chapter)? {
+			assert_eq!(new_chapter, reading.chapter);
+			reading.chapter = new_chapter;
 			reading.line = current_trace.line;
 			reading.position = current_trace.position;
-			self.book.set_chapter(reading.chapter)?;
+		} else {
+			return Ok(());
 		}
 		self.render.redraw(self.book.lines(), reading, &mut self.render_context);
 		self.reading.highlight = None;
@@ -708,17 +702,19 @@ impl ReadingView {
 	fn goto_link(&mut self, line: usize, link_index: usize) -> Result<()> {
 		if let Some(pos) = self.book.link_position(line, link_index) {
 			if pos.chapter != self.book.current_chapter() {
-				self.book.set_chapter(pos.chapter)?;
+				if let Some(new_chapter) = self.book.goto_chapter(pos.chapter)? {
+					assert_eq!(new_chapter, pos.chapter);
+					self.reading.chapter = new_chapter;
+					self.reading.line = pos.line;
+					self.reading.position = pos.position;
+					if pos.position == 0 {
+						self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
+					} else {
+						self.render.prev_line(self.book.lines(), &mut self.reading, &mut self.render_context);
+					}
+					self.push_trace(true);
+				}
 			}
-			self.reading.chapter = pos.chapter;
-			self.reading.line = pos.line;
-			self.reading.position = pos.position;
-			if pos.position == 0 {
-				self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
-			} else {
-				self.render.prev_line(self.book.lines(), &mut self.reading, &mut self.render_context);
-			}
-			self.push_trace(true);
 		}
 		Ok(())
 	}

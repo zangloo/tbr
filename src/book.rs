@@ -153,11 +153,20 @@ impl PartialEq for Line {
 
 pub trait Book {
 	fn chapter_count(&self) -> usize { 1 }
-	fn set_chapter(&mut self, chapter: usize) -> Result<()> {
-		if chapter >= self.chapter_count() {
-			return Err(anyhow!("Invalid chapter: {}", chapter));
+	fn prev_chapter(&mut self) -> Result<Option<usize>> {
+		let current = self.current_chapter();
+		if current == 0 {
+			Ok(None)
+		} else {
+			self.goto_chapter(current - 1)
 		}
-		Ok(())
+	}
+	fn goto_chapter(&mut self, chapter: usize) -> Result<Option<usize>> {
+		if chapter >= self.chapter_count() {
+			return Ok(None);
+		} else {
+			Ok(Some(chapter))
+		}
 	}
 	fn current_chapter(&self) -> usize { 0 }
 	fn title(&self) -> Option<&String> { None }

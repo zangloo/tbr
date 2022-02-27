@@ -8,7 +8,7 @@ use regex::Regex;
 use xmltree::Element;
 use zip::ZipArchive;
 
-use crate::book::{Book, EMPTY_CHAPTER_CONTENT, InvalidChapterError, Line, Loader};
+use crate::book::{Book, InvalidChapterError, Line, Loader};
 use crate::html_convertor::html_str_content;
 use crate::view::{Position, TraceInfo};
 
@@ -89,10 +89,39 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 		self.toc.len()
 	}
 
-	fn set_chapter(&mut self, chapter_index: usize) -> Result<()> {
-		load_chapter(&mut self.zip, &self.toc, &self.content_opf_dir, chapter_index, &mut self.chapter_cache)?;
-		self.chapter_index = chapter_index;
-		Ok(())
+	fn prev_chapter(&mut self) -> Result<Option<usize>> {
+		let mut current = self.current_chapter();
+		loop {
+			if current == 0 {
+				return Ok(None);
+			} else {
+				current -= 1;
+				load_chapter(&mut self.zip, &self.toc, &self.content_opf_dir, current, &mut self.chapter_cache)?;
+				let lines_count = self.chapter_cache.get(&current).unwrap().lines.len();
+				if lines_count > 0 {
+					self.chapter_index = current;
+					return Ok(Some(current));
+				}
+			}
+		}
+	}
+
+	fn goto_chapter(&mut self, chapter_index: usize) -> Result<Option<usize>> {
+		let mut current = chapter_index;
+		let chapter_count = self.chapter_count();
+		loop {
+			if current >= chapter_count {
+				return Ok(None);
+			} else {
+				load_chapter(&mut self.zip, &self.toc, &self.content_opf_dir, current, &mut self.chapter_cache)?;
+				let lines_count = self.chapter_cache.get(&current).unwrap().lines.len();
+				if lines_count > 0 {
+					self.chapter_index = current;
+					return Ok(Some(current));
+				}
+			}
+			current += 1;
+		}
 	}
 
 	fn current_chapter(&self) -> usize {
@@ -401,10 +430,7 @@ fn load_chapter<R: Read + Seek>(zip: &mut ZipArchive<R>, toc: &Vec<NavPoint>,
 			}
 			None => html_lines.len(),
 		};
-		let mut lines = html_lines.drain(start_index..end_index).collect::<Vec<Line>>();
-		if lines.is_empty() {
-			lines.push(Line::from(EMPTY_CHAPTER_CONTENT));
-		}
+		let lines = html_lines.drain(start_index..end_index).collect::<Vec<Line>>();
 		let mut id_map = HashMap::new();
 		all_id_map.retain(|id, position| {
 			if position.line >= start_index && position.line < end_index {
