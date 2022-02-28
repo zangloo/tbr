@@ -14,6 +14,7 @@ use crate::book::txt::TxtLoader;
 use crate::common::char_index_for_byte;
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
+use crate::list::ListEntry;
 use crate::view::TraceInfo;
 
 mod epub;
@@ -161,6 +162,9 @@ pub trait Book {
 			self.goto_chapter(current - 1)
 		}
 	}
+	fn next_chapter(&mut self) -> Result<Option<usize>> {
+		self.goto_chapter(self.current_chapter() + 1)
+	}
 	fn goto_chapter(&mut self, chapter: usize) -> Result<Option<usize>> {
 		if chapter >= self.chapter_count() {
 			return Ok(None);
@@ -170,7 +174,9 @@ pub trait Book {
 	}
 	fn current_chapter(&self) -> usize { 0 }
 	fn title(&self) -> Option<&String> { None }
-	fn chapter_title(&self, _chapter: usize) -> Option<&String> { None }
+	fn toc_index(&self) -> usize { 0 }
+	fn toc_list(&self) -> Option<Vec<ListEntry>> { None }
+	fn toc_position(&mut self, _toc_index: usize) -> Option<TraceInfo> { None }
 	fn lines(&self) -> &Vec<Line>;
 	fn leading_space(&self) -> usize { 2 }
 	fn link_position(&mut self, _line: usize, _link_index: usize) -> Option<TraceInfo> { None }

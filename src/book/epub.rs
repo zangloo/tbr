@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{Cursor, Read, Seek};
@@ -10,13 +11,13 @@ use zip::ZipArchive;
 
 use crate::book::{Book, InvalidChapterError, Line, Loader};
 use crate::html_convertor::html_str_content;
-use crate::view::{Position, TraceInfo};
+use crate::list::ListEntry;
+use crate::view::{NO_TITLE_TEXT, Position, TraceInfo};
 
 struct ManifestItem {
 	#[allow(dead_code)]
 	id: String,
 	href: String,
-	#[allow(dead_code)]
 	media_type: String,
 	#[allow(dead_code)]
 	properties: Option<String>,
@@ -53,6 +54,7 @@ struct Chapter {
 	title: String,
 	lines: Vec<Line>,
 	id_map: HashMap<String, Position>,
+	toc_index: usize,
 }
 
 struct EpubBook<R: Read + Seek> {
@@ -86,18 +88,18 @@ impl Loader for EpubLoader {
 
 impl<'a, R: Read + Seek> Book for EpubBook<R> {
 	fn chapter_count(&self) -> usize {
-		self.toc.len()
+		self.content_opf.spine.len()
 	}
 
 	fn prev_chapter(&mut self) -> Result<Option<usize>> {
-		let mut current = self.current_chapter();
+		let mut current = self.chapter_index;
 		loop {
 			if current == 0 {
 				return Ok(None);
 			} else {
 				current -= 1;
-				load_chapter(&mut self.zip, &self.toc, &self.content_opf_dir, current, &mut self.chapter_cache)?;
-				let lines_count = self.chapter_cache.get(&current).unwrap().lines.len();
+				let chapter = self.load_chapter(current)?;
+				let lines_count = chapter.lines.len();
 				if lines_count > 0 {
 					self.chapter_index = current;
 					return Ok(Some(current));
@@ -113,8 +115,8 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 			if current >= chapter_count {
 				return Ok(None);
 			} else {
-				load_chapter(&mut self.zip, &self.toc, &self.content_opf_dir, current, &mut self.chapter_cache)?;
-				let lines_count = self.chapter_cache.get(&current).unwrap().lines.len();
+				let chapter = self.load_chapter(current)?;
+				let lines_count = chapter.lines.len();
 				if lines_count > 0 {
 					self.chapter_index = current;
 					return Ok(Some(current));
@@ -129,11 +131,29 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 	}
 
 	fn title(&self) -> Option<&String> {
-		self.chapter_title(self.chapter_index)
+		Some(&self.chapter_cache.get(&self.chapter_index)?.title)
 	}
 
-	fn chapter_title(&self, chapter_index: usize) -> Option<&String> {
-		self.chapter_title(chapter_index)
+	fn toc_index(&self) -> usize {
+		self.chapter_cache
+			.get(&self.chapter_index)
+			.map_or(0, |c| c.toc_index)
+	}
+
+	fn toc_list(&self) -> Option<Vec<ListEntry>> {
+		let mut list = vec![];
+		for (index, np) in self.toc.iter().enumerate() {
+			let title = toc_title(np);
+			list.push(ListEntry::new(title, index));
+		}
+		Some(list)
+	}
+
+	fn toc_position(&mut self, toc_index: usize) -> Option<TraceInfo> {
+		let np = self.toc.get(toc_index)?;
+		let src_file = np.src_file.clone();
+		let src_anchor = np.src_anchor.clone();
+		self.target_position(&src_file, src_anchor)
 	}
 
 	fn lines(&self) -> &Vec<Line> {
@@ -157,31 +177,7 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 		let mut target_split = target.split('#');
 		let target_file = target_split.next()?;
 		let target_anchor = target_split.next().and_then(|a| Some(String::from(a))).or(None);
-		for (chapter_index, np) in self.toc.iter().enumerate() {
-			if target_file == np.src_file {
-				if target_anchor == np.src_anchor {
-					return Some(TraceInfo {
-						chapter: chapter_index,
-						line: 0,
-						position: 0,
-					});
-				}
-				if let Some(anchor) = &target_anchor {
-					if load_chapter(&mut self.zip, &self.toc, &self.content_opf_dir, chapter_index, &mut self.chapter_cache).is_err() {
-						return None;
-					}
-					let chapter = self.chapter_cache.get(&chapter_index)?;
-					if let Some(position) = chapter.id_map.get(anchor) {
-						return Some(TraceInfo {
-							chapter: chapter_index,
-							line: position.line,
-							position: position.position,
-						});
-					}
-				}
-			}
-		}
-		None
+		self.target_position(target_file, target_anchor)
 	}
 }
 
@@ -221,29 +217,76 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 		let ncx_text = zip_content(&mut zip, &ncx_path)?;
 		let toc = parse_ncx(&ncx_text)?;
 
-		let chapter_count = toc.len();
+		let chapter_count = content_opf.spine.len();
 		if chapter_index >= chapter_count {
 			chapter_index = chapter_count - 1;
 		}
-		let mut chapter_cache = HashMap::new();
-		load_chapter(&mut zip, &toc, &content_opf_dir, chapter_index, &mut chapter_cache)?;
-		Ok(EpubBook {
+		let chapter_cache = HashMap::new();
+		let mut book = EpubBook {
 			zip,
 			content_opf_dir,
 			content_opf,
 			toc,
 			chapter_cache,
 			chapter_index,
-		})
+		};
+		book.load_chapter(chapter_index)?;
+		Ok(book)
 	}
 
-	pub fn chapter_title(&self, chapter_index: usize) -> Option<&String> {
-		let np = self.toc.get(chapter_index)?;
-		let label = match &np.label {
-			Some(label) => label,
-			None => &np.src_file,
+	fn load_chapter(&mut self, chapter_index: usize) -> Result<&Chapter> {
+		let chapter = match self.chapter_cache.entry(chapter_index) {
+			Entry::Occupied(o) => o.into_mut(),
+			Entry::Vacant(v) => {
+				let spine = self.content_opf.spine.get(chapter_index).ok_or(Error::new(InvalidChapterError {}))?;
+				let item = self.content_opf.manifest.get(spine).ok_or(anyhow!("Invalid ref id: {}", spine))?;
+				if item.media_type != "application/xhtml+xml" {
+					return Err(anyhow!("Referenced content for {} is not valid.", spine));
+				}
+				let src_file = &item.href;
+				let mut full_path = self.content_opf_dir.clone();
+				full_path.push(src_file);
+				let full_path = full_path.into_os_string().into_string().unwrap();
+				let html_str = zip_content(&mut self.zip, &full_path)?;
+				let html_content = html_str_content(&html_str)?;
+				let (toc_index, title) = toc_index_for_chapter(chapter_index,
+					&src_file, &html_content.id_map, &self.content_opf, &self.toc);
+				let chapter = Chapter {
+					index: chapter_index,
+					path: src_file.clone(),
+					title: String::from(title),
+					lines: html_content.lines,
+					id_map: html_content.id_map,
+					toc_index,
+				};
+				v.insert(chapter)
+			}
 		};
-		Some(&label)
+		Ok(chapter)
+	}
+
+	fn target_position(&mut self, target_file: &str, target_anchor: Option<String>) -> Option<TraceInfo> {
+		for (chapter_index, item_id) in self.content_opf.spine.iter().enumerate() {
+			let manifest = self.content_opf.manifest.get(item_id)?;
+			if target_file == manifest.href {
+				let chapter = self.load_chapter(chapter_index).ok()?;
+				if let Some(anchor) = &target_anchor {
+					if let Some(position) = chapter.id_map.get(anchor) {
+						return Some(TraceInfo {
+							chapter: chapter_index,
+							line: position.line,
+							position: position.position,
+						});
+					}
+				}
+				return Some(TraceInfo {
+					chapter: chapter_index,
+					line: 0,
+					position: 0,
+				});
+			}
+		}
+		None
 	}
 }
 
@@ -381,73 +424,44 @@ fn is_encrypted<R: Read + Seek>(zip: &ZipArchive<R>) -> bool {
 	zip.file_names().find(|f| *f == "META-INF/encryption.xml").is_some()
 }
 
-fn load_chapter<R: Read + Seek>(zip: &mut ZipArchive<R>, toc: &Vec<NavPoint>,
-	content_opf_dir: &PathBuf, chapter_index: usize, chapter_cache: &mut HashMap<usize, Chapter>,
-) -> Result<()> {
-	if chapter_cache.contains_key(&chapter_index) {
-		return Ok(());
+fn toc_index_for_chapter<'a>(chapter_index: usize, chapter_path: &str, id_map: &HashMap<String, Position>,
+	opf: &ContentOPF, toc: &'a Vec<NavPoint>) -> (usize, &'a str) {
+	if toc.len() == 0 {
+		return (0, NO_TITLE_TEXT);
 	}
-	let np = toc.get(chapter_index).ok_or(Error::new(InvalidChapterError {}))?;
-	let src_file = &np.src_file;
-	let mut full_path = content_opf_dir.clone();
-	full_path.push(src_file);
-	let full_path = full_path.into_os_string().into_string().unwrap();
-	let html_str = zip_content(zip, &full_path)?;
-	let mut html_content = html_str_content(&html_str)?;
-	let html_lines = &mut html_content.lines;
-	let all_id_map = &mut html_content.id_map;
-
-	// load all chapter in this html file to cache
-	for index in (0..toc.len()).rev() {
-		let np = toc.get(index).unwrap();
-		if np.src_file != *src_file {
-			continue;
+	let mut file_matched = None;
+	for current_chapter in (0..=chapter_index).rev() {
+		for toc_index in 0..toc.len() {
+			let np = &toc[toc_index];
+			if current_chapter == chapter_index {
+				if chapter_path == np.src_file {
+					if let Some(anchor) = &np.src_anchor {
+						if id_map.contains_key(anchor) {
+							return (toc_index, toc_title(&np));
+						}
+					} else {
+						return (toc_index, toc_title(&np));
+					}
+				}
+			} else {
+				let spine = &opf.spine[current_chapter];
+				let manifest = &opf.manifest.get(spine).unwrap();
+				if manifest.href == np.src_file {
+					file_matched = Some((toc_index, toc_title(np).as_str()));
+				}
+			}
 		}
-		let start_anchor = &np.src_anchor;
-		let stop_anchor = if let Some(np2) = toc.get(index + 1) {
-			let next_src = &np2.src_file;
-			if next_src == src_file {
-				&np2.src_anchor
-			} else {
-				&None
-			}
-		} else {
-			&None
-		};
-		let start_index = match start_anchor {
-			Some(id) => if let Some(position) = all_id_map.get(id) {
-				position.line
-			} else {
-				0
-			}
-			None => 0,
-		};
-		let end_index = match stop_anchor {
-			Some(id) => if let Some(position) = all_id_map.get(id) {
-				position.line
-			} else {
-				html_lines.len()
-			}
-			None => html_lines.len(),
-		};
-		let lines = html_lines.drain(start_index..end_index).collect::<Vec<Line>>();
-		let mut id_map = HashMap::new();
-		all_id_map.retain(|id, position| {
-			if position.line >= start_index && position.line < end_index {
-				let line = position.line - start_index;
-				id_map.insert(id.clone(), Position::new(line, position.position));
-				false
-			} else {
-				true
-			}
-		});
-		let title = match &np.label {
-			Some(label) => label,
-			None => &np.src_file,
-		}.clone();
-		let chapter = Chapter { index, path: src_file.clone(), title, lines, id_map };
-		chapter_cache.insert(index, chapter);
+		if file_matched.is_some() {
+			break;
+		}
 	}
-	assert_eq!(html_lines.len(), 0);
-	Ok(())
+	file_matched.unwrap_or((toc.len() - 1, toc_title(&toc[toc.len() - 1])))
+}
+
+fn toc_title(nav_point: &NavPoint) -> &String {
+	let label = match &nav_point.label {
+		Some(label) => label,
+		None => &nav_point.src_file,
+	};
+	label
 }

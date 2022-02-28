@@ -16,6 +16,7 @@ mod han;
 mod xi;
 
 const TRACE_SIZE: usize = 100;
+pub const NO_TITLE_TEXT: &str = "No title";
 
 pub enum HighlightMode {
 	Search,
@@ -376,12 +377,10 @@ impl ReadingView {
 				self.search_prev(line, position)?;
 			}
 			Event::CtrlChar('d') => {
-				self.switch_chapter_internal(self.reading.chapter + 1)?;
+				self.switch_chapter(true)?;
 			}
 			Event::CtrlChar('b') => {
-				if self.reading.chapter > 0 {
-					self.switch_chapter_internal(self.reading.chapter - 1)?;
-				}
+				self.switch_chapter(false)?;
 			}
 			Event::Key(Key::Right) => self.goto_trace(false)?,
 			Event::Key(Key::Left) => self.goto_trace(true)?,
@@ -420,7 +419,7 @@ impl ReadingView {
 			self.render.redraw(self.book.lines(), &mut self.reading, &mut self.render_context);
 			self.push_trace(true);
 			Ok(true)
-		} else if self.switch_chapter_internal(self.reading.chapter + 1)? {
+		} else if self.switch_chapter(true)? {
 			Ok(true)
 		} else {
 			let book_index = self.reading.inner_book + 1;
@@ -474,15 +473,41 @@ impl ReadingView {
 		}
 	}
 
-	pub(crate) fn switch_chapter(&mut self, chapter: usize) -> String {
-		match self.switch_chapter_internal(chapter) {
-			Ok(_) => self.status_msg(),
-			Err(e) => e.to_string(),
+	pub(crate) fn goto_toc(&mut self, toc_index: usize) -> Option<String> {
+		if let Some(trace_info) = self.book.toc_position(toc_index) {
+			if self.reading.chapter != trace_info.chapter {
+				if let Some(new_chapter) = self.book.goto_chapter(trace_info.chapter).ok()? {
+					self.reading.chapter = new_chapter;
+					if new_chapter == trace_info.chapter {
+						self.reading.line = trace_info.line;
+						self.reading.position = trace_info.position;
+					} else {
+						// would happen???
+						self.reading.line = 0;
+						self.reading.position = 0;
+					}
+				} else {
+					return None;
+				}
+			} else {
+				self.reading.line = trace_info.line;
+				self.reading.position = trace_info.position;
+			}
+			self.render.redraw(self.book.lines(), &mut self.reading, &mut self.render_context);
+			self.push_trace(true);
+			Some(self.status_msg())
+		} else {
+			Some(String::from("Can't resolve location."))
 		}
 	}
 
-	fn switch_chapter_internal(&mut self, chapter: usize) -> Result<bool> {
-		if let Some(new_chapter) = self.book.goto_chapter(chapter)? {
+	fn switch_chapter(&mut self, forward: bool) -> Result<bool> {
+		let option = if forward {
+			self.book.next_chapter()?
+		} else {
+			self.book.prev_chapter()?
+		};
+		if let Some(new_chapter) = option {
 			self.reading.chapter = new_chapter;
 			self.reading.line = 0;
 			self.reading.position = 0;

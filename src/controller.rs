@@ -82,24 +82,18 @@ pub(crate) fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEn
 			.on_event('c', move |s| {
 				let reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
 				let book = reading_view.reading_book();
-				if book.chapter_count() == 1 {
+				let option = book.toc_list();
+				if option.is_none() {
 					drop(reading_view);
 					select_book(s);
 					return;
 				}
-				let li = ListIterator::new(&book, |book, position| {
-					if position >= book.chapter_count() {
-						None
-					} else {
-						Some(ListEntry::new(book.chapter_title(position)?, position))
-					}
-				});
-				let current_chapter = reading_view.reading_info().chapter;
-				let dialog = list_dialog("Select chapter", li, current_chapter, |s, chapter| {
+				let dialog = list_dialog("Select TOC", option.unwrap().into_iter(), book.toc_index(), move |s, new_index| {
 					let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
-					if reading_view.reading_info().chapter != chapter {
-						let status = reading_view.switch_chapter(chapter);
-						update_status(s, &status);
+					if reading_view.reading_book().toc_index() != new_index {
+						if let Some(status) = reading_view.goto_toc(new_index) {
+							update_status(s, &status);
+						}
 					}
 				});
 				s.add_layer(dialog);

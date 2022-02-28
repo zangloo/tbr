@@ -5,7 +5,7 @@ use cursive::event::Key::Esc;
 use cursive::traits::Scrollable;
 use cursive::views::{Dialog, OnEventView, SelectView};
 
-pub(crate) struct ListEntry<'a> {
+pub struct ListEntry<'a> {
 	pub title: &'a String,
 	pub value: usize,
 }
