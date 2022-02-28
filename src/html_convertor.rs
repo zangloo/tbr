@@ -16,17 +16,19 @@ use crate::common::plain_text;
 use crate::view::Position;
 
 pub struct HtmlContent {
+	pub title: Option<String>,
 	pub lines: Vec<Line>,
 	pub id_map: HashMap<String, Position>,
 }
 
 impl Default for HtmlContent {
 	fn default() -> Self {
-		HtmlContent { lines: vec![], id_map: HashMap::new() }
+		HtmlContent { title: None, lines: vec![], id_map: HashMap::new() }
 	}
 }
 
 struct ParseContext {
+	title: Option<String>,
 	buf: Line,
 	content: HtmlContent,
 }
@@ -49,6 +51,7 @@ pub(crate) fn html_str_content(str: &str) -> Result<HtmlContent> {
 		.read_from(&mut str.as_bytes())
 		.unwrap();
 	let mut context = ParseContext {
+		title: None,
 		buf: Default::default(),
 		content: Default::default(),
 	};
@@ -112,7 +115,26 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) {
 				context.content.id_map.insert(id, position);
 			}
 			match name.local {
-				local_name!("head") | local_name!("style") | local_name!("script") => {}
+				local_name!("title") => {
+					// title is in head, no other text should parsed
+					context.buf.clear();
+					process_children(handle, context);
+					context.buf.trim();
+					let mut string = context.buf.to_string();
+					for line in &mut context.content.lines {
+						line.trim();
+						if !line.is_empty() {
+							string.push_str(&line.to_string());
+						}
+					}
+					if !string.is_empty() {
+						context.title = Some(string);
+					}
+					// ensure no lines parsed
+					context.content.lines.clear();
+					context.buf.clear();
+				}
+				local_name!("style") | local_name!("script") => {}
 				local_name!("div") | local_name!("dt") => {
 					push_for_class(context, attrs);
 					process_children(handle, context);

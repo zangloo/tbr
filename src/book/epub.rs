@@ -12,7 +12,7 @@ use zip::ZipArchive;
 use crate::book::{Book, InvalidChapterError, Line, Loader};
 use crate::html_convertor::html_str_content;
 use crate::list::ListEntry;
-use crate::view::{NO_TITLE_TEXT, Position, TraceInfo};
+use crate::view::{Position, TraceInfo};
 
 struct ManifestItem {
 	#[allow(dead_code)]
@@ -249,8 +249,10 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 				let full_path = full_path.into_os_string().into_string().unwrap();
 				let html_str = zip_content(&mut self.zip, &full_path)?;
 				let html_content = html_str_content(&html_str)?;
-				let (toc_index, title) = toc_index_for_chapter(chapter_index,
+				let toc_index = toc_index_for_chapter(chapter_index,
 					&src_file, &html_content.id_map, &self.content_opf, &self.toc);
+				let title = html_content.title
+					.unwrap_or_else(|| toc_title(&self.toc[toc_index]).clone());
 				let chapter = Chapter {
 					index: chapter_index,
 					path: src_file.clone(),
@@ -425,9 +427,9 @@ fn is_encrypted<R: Read + Seek>(zip: &ZipArchive<R>) -> bool {
 }
 
 fn toc_index_for_chapter<'a>(chapter_index: usize, chapter_path: &str, id_map: &HashMap<String, Position>,
-	opf: &ContentOPF, toc: &'a Vec<NavPoint>) -> (usize, &'a str) {
+	opf: &ContentOPF, toc: &'a Vec<NavPoint>) -> usize {
 	if toc.len() == 0 {
-		return (0, NO_TITLE_TEXT);
+		return 0;
 	}
 	let mut file_matched = None;
 	for current_chapter in (0..=chapter_index).rev() {
@@ -437,17 +439,17 @@ fn toc_index_for_chapter<'a>(chapter_index: usize, chapter_path: &str, id_map: &
 				if chapter_path == np.src_file {
 					if let Some(anchor) = &np.src_anchor {
 						if id_map.contains_key(anchor) {
-							return (toc_index, toc_title(&np));
+							return toc_index;
 						}
 					} else {
-						return (toc_index, toc_title(&np));
+						return toc_index;
 					}
 				}
 			} else {
 				let spine = &opf.spine[current_chapter];
 				let manifest = &opf.manifest.get(spine).unwrap();
 				if manifest.href == np.src_file {
-					file_matched = Some((toc_index, toc_title(np).as_str()));
+					file_matched = Some(toc_index);
 				}
 			}
 		}
@@ -455,7 +457,13 @@ fn toc_index_for_chapter<'a>(chapter_index: usize, chapter_path: &str, id_map: &
 			break;
 		}
 	}
-	file_matched.unwrap_or((toc.len() - 1, toc_title(&toc[toc.len() - 1])))
+	file_matched.unwrap_or_else(|| {
+		if chapter_index == 0 {
+			0
+		} else {
+			toc.len() - 1
+		}
+	})
 }
 
 fn toc_title(nav_point: &NavPoint) -> &String {

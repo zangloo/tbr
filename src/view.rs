@@ -16,7 +16,6 @@ mod han;
 mod xi;
 
 const TRACE_SIZE: usize = 100;
-pub const NO_TITLE_TEXT: &str = "No title";
 
 pub enum HighlightMode {
 	Search,
