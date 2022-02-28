@@ -729,16 +729,16 @@ impl ReadingView {
 				if let Some(new_chapter) = self.book.goto_chapter(pos.chapter)? {
 					assert_eq!(new_chapter, pos.chapter);
 					self.reading.chapter = new_chapter;
-					self.reading.line = pos.line;
-					self.reading.position = pos.position;
-					if pos.position == 0 {
-						self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
-					} else {
-						self.render.prev_line(self.book.lines(), &mut self.reading, &mut self.render_context);
-					}
-					self.push_trace(true);
 				}
 			}
+			self.reading.line = pos.line;
+			self.reading.position = pos.position;
+			if pos.position == 0 {
+				self.render.redraw(self.book.lines(), &self.reading, &mut self.render_context);
+			} else {
+				self.render.prev_line(self.book.lines(), &mut self.reading, &mut self.render_context);
+			}
+			self.push_trace(true);
 		}
 		Ok(())
 	}
