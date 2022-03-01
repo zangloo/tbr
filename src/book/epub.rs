@@ -250,7 +250,7 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 				let html_str = zip_content(&mut self.zip, &full_path)?;
 				let html_content = html_str_content(&html_str)?;
 				let toc_index = toc_index_for_chapter(chapter_index,
-					&src_file, &html_content.id_map, &self.content_opf, &self.toc);
+				                                      &src_file, &html_content.id_map, &self.content_opf, &self.toc);
 				let title = html_content.title
 					.unwrap_or_else(|| toc_title(&self.toc[toc_index]).clone());
 				let chapter = Chapter {
@@ -453,17 +453,11 @@ fn toc_index_for_chapter<'a>(chapter_index: usize, chapter_path: &str, id_map: &
 				}
 			}
 		}
-		if file_matched.is_some() {
-			break;
+		if let Some(the_last_index_found) = file_matched {
+			return the_last_index_found;
 		}
 	}
-	file_matched.unwrap_or_else(|| {
-		if chapter_index == 0 {
-			0
-		} else {
-			toc.len() - 1
-		}
-	})
+	0
 }
 
 fn toc_title(nav_point: &NavPoint) -> &String {
