@@ -1,6 +1,5 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::fs::OpenOptions;
 use std::io::{Cursor, Read, Seek};
 use std::path::PathBuf;
 
@@ -69,15 +68,23 @@ struct EpubBook<R: Read + Seek> {
 	chapter_index: usize,
 }
 
-pub struct EpubLoader {}
+pub struct EpubLoader {
+	extensions: Vec<&'static str>,
+}
+
+impl EpubLoader {
+	pub(crate) fn new() -> Self {
+		let extensions = vec![".epub"];
+		EpubLoader { extensions }
+	}
+}
 
 impl Loader for EpubLoader {
-	fn support(&self, filename: &str) -> bool {
-		filename.to_lowercase().ends_with(".epub")
+	fn extensions(&self) -> &Vec<&'static str> {
+		&self.extensions
 	}
 
-	fn load_file(&self, filename: &str, chapter_index: usize) -> Result<Box<dyn Book>> {
-		let file = OpenOptions::new().read(true).open(filename)?;
+	fn load_file(&self, _filename: &str, file: std::fs::File, chapter_index: usize) -> Result<Box<dyn Book>> {
 		Ok(Box::new(EpubBook::new(file, chapter_index)?))
 	}
 

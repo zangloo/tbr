@@ -199,14 +199,22 @@ pub struct BookLoader {
 }
 
 pub(crate) trait Loader {
-	fn support(&self, filename: &str) -> bool;
-	fn load_file(&self, filename: &str, chapter: usize) -> Result<Box<dyn Book>> {
-		let mut file = OpenOptions::new().read(true).open(filename)?;
+	fn extensions(&self) -> &Vec<&'static str>;
+	fn support(&self, filename: &str) -> bool {
+		let filename = filename.to_lowercase();
+		for extension in self.extensions() {
+			if filename.ends_with(extension) {
+				return true;
+			}
+		}
+		false
+	}
+	fn load_file(&self, filename: &str, mut file: std::fs::File, chapter_index: usize) -> Result<Box<dyn Book>> {
 		let mut content: Vec<u8> = Vec::new();
 		file.read_to_end(&mut content)?;
-		self.load_buf(filename, content, chapter)
+		self.load_buf(filename, content, chapter_index)
 	}
-	fn load_buf(&self, filename: &str, buf: Vec<u8>, chapter: usize) -> Result<Box<dyn Book>>;
+	fn load_buf(&self, filename: &str, buf: Vec<u8>, chapter_index: usize) -> Result<Box<dyn Book>>;
 }
 
 impl BookLoader {
@@ -222,7 +230,10 @@ impl BookLoader {
 		for loader in self.loaders.iter() {
 			if loader.support(filename) {
 				let book = match content {
-					File(..) => loader.load_file(filename, chapter)?,
+					File(..) => {
+						let file = OpenOptions::new().read(true).open(filename)?;
+						loader.load_file(filename, file, chapter)?
+					}
 					Buf(buf) => loader.load_buf(filename, buf, chapter)?,
 				};
 				return Ok(book);
@@ -235,9 +246,9 @@ impl BookLoader {
 impl Default for BookLoader {
 	fn default() -> Self {
 		let mut loaders: Vec<Box<dyn Loader>> = Vec::new();
-		loaders.push(Box::new(TxtLoader {}));
-		loaders.push(Box::new(EpubLoader {}));
-		loaders.push(Box::new(HtmlLoader {}));
+		loaders.push(Box::new(TxtLoader::new()));
+		loaders.push(Box::new(EpubLoader::new()));
+		loaders.push(Box::new(HtmlLoader::new()));
 		BookLoader { loaders }
 	}
 }
