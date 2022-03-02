@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use cursive::Cursive;
 use cursive::event::Key::Esc;
 use cursive::traits::Scrollable;
@@ -13,26 +11,6 @@ pub struct ListEntry<'a> {
 impl<'a> ListEntry<'a> {
 	pub(crate) fn new(title: &'a String, value: usize) -> Self {
 		ListEntry { title, value }
-	}
-}
-
-impl<'a> Eq for ListEntry<'a> {}
-
-impl<'a> PartialEq<Self> for ListEntry<'a> {
-	fn eq(&self, other: &Self) -> bool {
-		self.title.eq(other.title)
-	}
-}
-
-impl<'a> PartialOrd<Self> for ListEntry<'a> {
-	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-		self.title.partial_cmp(other.title)
-	}
-}
-
-impl<'a> Ord for ListEntry<'a> {
-	fn cmp(&self, other: &Self) -> Ordering {
-		self.title.cmp(other.title)
 	}
 }
 
