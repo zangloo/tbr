@@ -218,7 +218,6 @@ fn select_theme(s: &mut Cursive) {
 			}
 			themes.push(ListEntry::new(&entry.0, idx));
 		}
-		themes.sort();
 		let dialog = list_dialog("Select theme", themes.into_iter(), 0, |s, selected| {
 			let theme = s.with_user_data(|controller_context: &mut ControllerContext| {
 				let theme_entries = &controller_context.theme_entries;

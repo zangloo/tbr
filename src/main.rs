@@ -2,6 +2,7 @@ extern crate core;
 #[macro_use]
 extern crate markup5ever;
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -44,6 +45,26 @@ struct Cli {
 struct Asset;
 
 struct ThemeEntry(String, Theme);
+
+impl Eq for ThemeEntry {}
+
+impl PartialEq<Self> for ThemeEntry {
+	fn eq(&self, other: &Self) -> bool {
+		self.0.eq(&other.0)
+	}
+}
+
+impl PartialOrd<Self> for ThemeEntry {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		self.0.partial_cmp(&other.0)
+	}
+}
+
+impl Ord for ThemeEntry {
+	fn cmp(&self, other: &Self) -> Ordering {
+		self.0.cmp(&other.0)
+	}
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct ReadingInfo {
@@ -147,7 +168,7 @@ fn file_path(filename: String) -> Result<String> {
 }
 
 fn load_config(filename: Option<String>, config_file: &PathBuf, themes_dir: &PathBuf, cache_dir: &PathBuf) -> Result<(Configuration, Vec<ThemeEntry>)> {
-	let (configuration, theme_entries) =
+	let (configuration, mut theme_entries) =
 		if config_file.as_path().is_file() {
 			let string = fs::read_to_string(config_file)?;
 			let mut configuration: Configuration = toml::from_str(&string)?;
@@ -211,6 +232,7 @@ fn load_config(filename: Option<String>, config_file: &PathBuf, themes_dir: &Pat
 				themes: themes_map,
 			}, theme_entries)
 		};
+	theme_entries.sort();
 	return Ok((configuration, theme_entries));
 }
 
