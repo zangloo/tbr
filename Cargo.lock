@@ -1040,6 +1040,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "strip_bom"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20cecc5f9998340da802809fe89e8a769b192960cf4dd77fccd9da7f60821d33"
+
+[[package]]
 name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1058,7 +1064,7 @@ dependencies = [
 
 [[package]]
 name = "tbr"
-version = "1.2.4"
+version = "1.2.5"
 dependencies = [
  "anyhow",
  "chardetng",
@@ -1074,6 +1080,7 @@ dependencies = [
  "rust-embed",
  "serde",
  "serde_derive",
+ "strip_bom",
  "toml",
  "unicode-width",
  "xmltree",

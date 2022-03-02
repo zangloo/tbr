@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Error, Result};
 use regex::Regex;
+use strip_bom::StripBom;
 use xmltree::Element;
 use zip::ZipArchive;
 
@@ -250,7 +251,7 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 				let html_str = zip_content(&mut self.zip, &full_path)?;
 				let html_content = html_str_content(&html_str)?;
 				let toc_index = toc_index_for_chapter(chapter_index,
-				                                      &src_file, &html_content.id_map, &self.content_opf, &self.toc);
+					&src_file, &html_content.id_map, &self.content_opf, &self.toc);
 				let title = html_content.title
 					.unwrap_or_else(|| toc_title(&self.toc[toc_index]).clone());
 				let chapter = Chapter {
@@ -343,7 +344,7 @@ fn parse_nav_points(nav_points_element: &Element, level: usize, nav_points: &mut
 }
 
 fn parse_ncx(text: &str) -> Result<Vec<NavPoint>> {
-	let ncx = xmltree::Element::parse(text.as_bytes())
+	let ncx = xmltree::Element::parse(text.strip_bom().as_bytes())
 		.map_err(|_e| anyhow!("Invalid XML"))?;
 	let nav_map = ncx
 		.get_child("navMap")
@@ -400,7 +401,7 @@ pub fn parse_spine(spine: &Element) -> Option<Spine> {
 }
 
 fn parse_content_opf(text: &str) -> Option<ContentOPF> {
-	let package = xmltree::Element::parse(text.as_bytes()).ok()?;
+	let package = xmltree::Element::parse(text.strip_bom().as_bytes()).ok()?;
 	let metadata = package.get_child("metadata")?;
 	let manifest = package.get_child("manifest")?;
 	let spine = package.get_child("spine")?;
