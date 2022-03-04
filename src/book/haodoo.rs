@@ -276,11 +276,11 @@ impl<R: Read + Seek> HaodooBook<R> {
 					}
 				};
 				let offset = if self.encrypt_chapter_index.is_some() {
+					decrypt_pdb(&mut encrypt_record);
 					ENCRYPT_MARK_LENGTH
 				} else {
 					0
 				};
-				decrypt_pdb(&mut encrypt_record);
 				let text = encode.decode(&mut encrypt_record[offset..]).0.to_string();
 				let lines = txt_lines(&text);
 				self.chapters[chapter_index].lines = Some(lines);
