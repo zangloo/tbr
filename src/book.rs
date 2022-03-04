@@ -9,6 +9,7 @@ use anyhow::{anyhow, Result};
 use regex::Regex;
 
 use crate::book::epub::EpubLoader;
+use crate::book::haodoo::HaodooLoader;
 use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
 use crate::common::char_index_for_byte;
@@ -20,6 +21,7 @@ use crate::view::TraceInfo;
 mod epub;
 mod txt;
 mod html;
+mod haodoo;
 
 pub const EMPTY_CHAPTER_CONTENT: &str = "No content.";
 
@@ -35,6 +37,9 @@ pub struct Link {
 
 impl Line {
 	pub fn push(&mut self, ch: char) {
+		if ch == '\0' {
+			return;
+		}
 		self.chars.push(ch);
 	}
 
@@ -177,11 +182,11 @@ pub trait Book {
 	fn next_chapter(&mut self) -> Result<Option<usize>> {
 		self.goto_chapter(self.current_chapter() + 1)
 	}
-	fn goto_chapter(&mut self, chapter: usize) -> Result<Option<usize>> {
-		if chapter >= self.chapter_count() {
+	fn goto_chapter(&mut self, chapter_index: usize) -> Result<Option<usize>> {
+		if chapter_index >= self.chapter_count() {
 			return Ok(None);
 		} else {
-			Ok(Some(chapter))
+			Ok(Some(chapter_index))
 		}
 	}
 	fn current_chapter(&self) -> usize { 0 }
@@ -249,6 +254,7 @@ impl Default for BookLoader {
 		loaders.push(Box::new(TxtLoader::new()));
 		loaders.push(Box::new(EpubLoader::new()));
 		loaders.push(Box::new(HtmlLoader::new()));
+		loaders.push(Box::new(HaodooLoader::new()));
 		BookLoader { loaders }
 	}
 }
