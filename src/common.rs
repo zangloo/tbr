@@ -1,8 +1,10 @@
 use std::borrow::Borrow;
-use anyhow::{Result};
+
+use anyhow::Result;
 use chardetng::EncodingDetector;
-use encoding_rs::UTF_8;
+use encoding_rs::{Encoding, UTF_8};
 use unicode_width::UnicodeWidthChar;
+
 use crate::book::Line;
 
 pub fn with_leading(text: &Line) -> bool {
@@ -23,17 +25,27 @@ pub fn length_with_leading(text: &Line, leading_space: usize) -> usize {
 }
 
 pub(crate) fn plain_text(content: Vec<u8>, full_scan: bool) -> Result<String> {
+	let encoding = detect_charset(&content, full_scan);
+	decode_text(content, encoding)
+}
+
+#[inline]
+pub(crate) fn detect_charset(content: &Vec<u8>, full_scan: bool) -> &'static Encoding {
 	let mut detector = EncodingDetector::new();
-	let text = if detector.feed(content.borrow(), full_scan) {
-		let encoding = detector.guess(None, true);
-		if encoding.eq(UTF_8) {
-			String::from_utf8(content)?
-		} else {
-			let (cow, ..) = encoding.decode(content.borrow());
-			String::from(cow)
-		}
+	if detector.feed(content, full_scan) {
+		detector.guess(None, true)
 	} else {
+		UTF_8
+	}
+}
+
+#[inline]
+pub(crate) fn decode_text(content: Vec<u8>, encoding: &'static Encoding) -> Result<String> {
+	let text = if encoding.eq(UTF_8) {
 		String::from_utf8(content)?
+	} else {
+		let (cow, ..) = encoding.decode(content.borrow());
+		String::from(cow)
 	};
 	Ok(text)
 }

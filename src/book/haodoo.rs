@@ -1,10 +1,11 @@
-use std::borrow::{BorrowMut};
+use std::borrow::BorrowMut;
 use std::io::{Cursor, Read, Seek, SeekFrom};
+
 use anyhow::{anyhow, Result};
 use encoding_rs::Encoding;
 
 use crate::book::{Book, Line, Loader};
-use crate::common::txt_lines;
+use crate::common::{decode_text, detect_charset, txt_lines};
 use crate::list::ListEntry;
 use crate::view::TraceInfo;
 
@@ -54,6 +55,7 @@ pub(crate) struct HaodooLoader {
 const HEADER_LENGTH: usize = 78;
 const PDB_ID: &str = "MTIT";
 const UPDB_ID: &str = "MTIU";
+const PALMDOC_ID: &str = "REAd";
 const PDB_SEPARATOR: [u8; 1] = [0x1b];
 const UPDB_TITLE_SEPARATOR: [u8; 4] = [0x0d, 0x00, 0x0a, 0x00];
 const UPDB_ESCAPE_SEPARATOR: [u8; 2] = [0x1b, 0x00];
@@ -69,6 +71,7 @@ const ENCRYPT_MARK_LENGTH: usize = ENCRYPT_MARK.len();
 enum PDBType {
 	PDB { encode: &'static Encoding },
 	UPDB { encode: &'static Encoding },
+	PalmDoc,
 }
 
 impl HaodooLoader {
@@ -124,6 +127,7 @@ fn parse_header<R: Read + Seek>(mut reader: R, current_chapter: usize) -> Result
 	let book_type = match book_id.as_str() {
 		PDB_ID => PDBType::PDB { encode: &encoding_rs::BIG5 },
 		UPDB_ID => PDBType::UPDB { encode: &encoding_rs::UTF_16LE },
+		PALMDOC_ID => PDBType::PalmDoc,
 		_ => return Err(anyhow!("Invalid book id: {}", book_id)),
 	};
 	//line records count
@@ -149,7 +153,11 @@ fn parse_header<R: Read + Seek>(mut reader: R, current_chapter: usize) -> Result
 
 impl<R: Read + Seek> Book for HaodooBook<R> {
 	fn chapter_count(&self) -> usize {
-		self.chapters.len()
+		if matches!(self.book_type, PDBType::PalmDoc) {
+			1
+		} else {
+			self.chapters.len()
+		}
 	}
 
 	fn goto_chapter(&mut self, chapter_index: usize) -> Result<Option<usize>> {
@@ -173,7 +181,11 @@ impl<R: Read + Seek> Book for HaodooBook<R> {
 	}
 
 	fn title(&self) -> Option<&String> {
-		Some(&self.chapters.get(self.chapter_index)?.title)
+		if matches!(self.book_type, PDBType::PalmDoc) {
+			None
+		} else {
+			Some(&self.chapters.get(self.chapter_index)?.title)
+		}
 	}
 
 	fn toc_index(&self) -> usize {
@@ -181,6 +193,9 @@ impl<R: Read + Seek> Book for HaodooBook<R> {
 	}
 
 	fn toc_list(&self) -> Option<Vec<ListEntry>> {
+		if matches!(self.book_type, PDBType::PalmDoc) {
+			return None;
+		}
 		let mut list = vec![];
 		for (index, chapter) in self.chapters.iter().enumerate() {
 			list.push(ListEntry::new(&chapter.title, index));
@@ -288,6 +303,25 @@ impl<R: Read + Seek> HaodooBook<R> {
 			PDBType::UPDB { encode } => {
 				self.parse_toc(&record, encode, &UPDB_ESCAPE_SEPARATOR, &UPDB_TITLE_SEPARATOR, 0)?;
 			}
+			PDBType::PalmDoc => {
+				let compression = record[1] == 2;
+				let text_count = read_u16(&record, 8);
+				let mut lines = vec![];
+				let mut encoding = None;
+				for index in 1..=text_count {
+					let mut record = self.read_record(index)?;
+					if compression {
+						record = decompress_palm_doc(record);
+					}
+					if encoding.is_none() {
+						encoding = Some(detect_charset(&record, false));
+					}
+					let text = decode_text(record, encoding.unwrap())?;
+					let mut sub_lines = txt_lines(&text);
+					lines.append(&mut sub_lines);
+				}
+				self.chapters.push(Chapter { title: String::from("None"), lines: Some(lines) });
+			}
 		}
 		Ok(())
 	}
@@ -305,6 +339,9 @@ impl<R: Read + Seek> HaodooBook<R> {
 			}
 			PDBType::UPDB { encode, .. } => {
 				encode.decode(&mut record)
+			}
+			PDBType::PalmDoc => {
+				panic!("no way")
 			}
 		}.0.to_string();
 		Ok(txt_lines(&text))
@@ -345,4 +382,52 @@ fn decrypt_pdb(record: &mut [u8]) {
 			break;
 		}
 	}
+}
+
+// Some text will corrupted when decompressed :(
+fn decompress_palm_doc(data: Vec<u8>) -> Vec<u8>
+{
+	let mut output = vec![];
+	let mut i = 0;
+
+	while i < data.len() {
+		// Get the next compressed input byte
+		let c = data[i];
+		i += 1;
+
+		if c >= 0x00C0 {
+			// type C command (space + char)
+			output.push(b' ');
+			output.push(c ^ 0x0080);
+			// output.push(c & 0x007F);
+		} else if c >= 0x0080 {
+			// type B command (sliding window sequence)
+
+			// Move this to high bits and read low bits
+			let c = ((c as u32) << 8) | data[i] as u32;
+			i += 1;
+			// 3 + low 3 bits (Beirne's 'n'+3)
+			let window_len = 3 + (c & 0x0007);
+			// next 11 bits (Beirne's 'm')
+			let window_dist = (c >> 3) & 0x07FF;
+			let mut window_copy_from = output.len() - window_dist as usize;
+			for _i in 0..window_len {
+				output.push(output[window_copy_from]);
+				window_copy_from += 1;
+			}
+		} else if c >= 0x0009 {
+			// self-representing, no command
+			output.push(c);
+		} else if c >= 0x0001 {
+			// type A command (next c chars are literal)
+			for _i in 0..c {
+				output.push(data[i]);
+				i += 1;
+			}
+		} else {
+			// c == 0, also self-representing
+			output.push(c);
+		}
+	}
+	output
 }
