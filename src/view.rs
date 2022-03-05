@@ -705,21 +705,6 @@ impl ReadingView {
 				x += wc;
 			}
 		}
-		// let option = self.render_context.special_char_map
-		// 	.get(&position)
-		// 	.and_then(|mode| {
-		// 		match mode {
-		// 			DrawCharMode::Link { line, link_index, .. }
-		// 			| DrawCharMode::HighlightLink { line, link_index, .. }
-		// 			| DrawCharMode::SearchOnLink { line, link_index } => {
-		// 				Some((line, link_index))
-		// 			}
-		// 			DrawCharMode::Search | DrawCharMode::Plain => None
-		// 		}
-		// 	});
-		// if let Some((line, link_index)) = option {
-		// 	self.goto_link(*line, *link_index)?;
-		// }
 		Ok(())
 	}
 
