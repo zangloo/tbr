@@ -156,7 +156,7 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) {
 				local_name!("a") => {
 					let start_line = context.content.lines.len();
 					let mut start_position = context.buf.len();
-					let end = process_children(handle, context);
+					process_children(handle, context);
 					if let Some(href) = attr_value("href", &attrs) {
 						let end_line = context.content.lines.len();
 						let end_position = context.buf.len();
@@ -174,7 +174,6 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) {
 							context.buf.add_link(&href, start_position, end_position);
 						}
 					}
-					end
 				}
 				_ => process_children(handle, context),
 			}
