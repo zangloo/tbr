@@ -16,7 +16,7 @@ use crate::common::char_index_for_byte;
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
 use crate::list::ListEntry;
-use crate::view::TraceInfo;
+use crate::common::TraceInfo;
 
 mod epub;
 mod txt;
@@ -25,9 +25,25 @@ mod haodoo;
 
 pub const EMPTY_CHAPTER_CONTENT: &str = "No content.";
 
+#[derive(Clone)]
+pub enum TextStyle {
+	Underline,
+	Border,
+	Scale(u8),
+}
+
+pub enum StylePosition {
+	Start,
+	Middle,
+	End,
+	Single,
+}
+
 pub struct Line {
 	chars: Vec<char>,
 	links: Vec<Link>,
+	image: bool,
+	styles: Vec<(TextStyle, Range<usize>)>,
 }
 
 pub struct Link {
@@ -129,11 +145,54 @@ impl Line {
 	pub fn link_at(&self, link_index: usize) -> Option<&Link> {
 		self.links.get(link_index)
 	}
+
+	pub fn is_image(&self) -> bool
+	{
+		self.image
+	}
+
+	// in percent
+	pub fn char_scale_at(&self, index: usize) -> u8
+	{
+		for (style, range) in &self.styles {
+			if range.contains(&index) {
+				match style {
+					TextStyle::Scale(scale) => return *scale,
+					_ => continue,
+				}
+			}
+		}
+		100
+	}
+
+	pub fn char_style_at(&self, index: usize) -> Option<(TextStyle, StylePosition)>
+	{
+		for (style, range) in &self.styles {
+			if range.contains(&index) {
+				match style {
+					TextStyle::Scale(_) => continue,
+					_ => {
+						let position = if range.len() == 1 {
+							StylePosition::Single
+						} else if index == range.start {
+							StylePosition::Start
+						} else if index == range.end - 1 {
+							StylePosition::End
+						} else {
+							StylePosition::Middle
+						};
+						return Some((style.clone(), position));
+					}
+				}
+			}
+		}
+		None
+	}
 }
 
 impl Default for Line {
 	fn default() -> Self {
-		Line { chars: vec![], links: vec![] }
+		Line { chars: vec![], links: vec![], image: false, styles: vec![] }
 	}
 }
 
@@ -143,7 +202,7 @@ impl From<&str> for Line {
 		for ch in str.chars() {
 			chars.push(ch);
 		}
-		Line { chars, links: vec![] }
+		Line { chars, links: vec![], image: false, styles: vec![] }
 	}
 }
 

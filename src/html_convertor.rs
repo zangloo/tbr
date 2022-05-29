@@ -13,7 +13,7 @@ use markup5ever_rcdom::NodeData::{Document, Element, Text};
 
 use crate::book::{EMPTY_CHAPTER_CONTENT, Line};
 use crate::common::plain_text;
-use crate::view::Position;
+use crate::common::Position;
 
 pub struct HtmlContent {
 	pub title: Option<String>,
@@ -134,13 +134,21 @@ fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) {
 					context.content.lines.clear();
 					context.buf.clear();
 				}
-				local_name!("style") | local_name!("script") => {}
+				local_name!("style") => {}
+				local_name!("script") => {}
 				local_name!("div") | local_name!("dt") => {
 					push_for_class(context, attrs);
 					process_children(handle, context);
 					push_for_class(context, attrs);
 				}
-				local_name!("p") | local_name!("h4") | local_name!("h3") | local_name!("h2") | local_name!("h1") | local_name!("li") => {
+				local_name!("p")
+				| local_name!("blockquote")
+				| local_name!("h5")
+				| local_name!("h4")
+				| local_name!("h3")
+				| local_name!("h2")
+				| local_name!("h1")
+				| local_name!("li") => {
 					if !context.buf.is_empty() {
 						push_buf(context);
 					}

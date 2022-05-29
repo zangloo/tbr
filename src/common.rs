@@ -1,11 +1,86 @@
 use std::borrow::Borrow;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chardetng::EncodingDetector;
+use cursive::theme::Theme;
 use encoding_rs::{Encoding, UTF_8};
 use unicode_width::UnicodeWidthChar;
 
 use crate::book::Line;
+use crate::{ReadingInfo, ThemeEntry};
+
+pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 33] = [
+	('「', '﹁'),
+	('」', '﹂'),
+	('〈', '︿'),
+	('〉', '﹀'),
+	('『', '﹃'),
+	('』', '﹄'),
+	('（', '︵'),
+	('）', '︶'),
+	('《', '︽'),
+	('》', '︾'),
+	('〔', '︹'),
+	('〕', '︺'),
+	('［', '︹'),
+	('］', '︺'),
+	('【', '︻'),
+	('】', '︼'),
+	('｛', '︷'),
+	('｝', '︸'),
+	('─', '︱'),
+	('…', '︙'),
+	('\t', '　'),
+	('(', '︵'),
+	(')', '︶'),
+	('[', '︹'),
+	(']', '︺'),
+	('<', '︻'),
+	('>', '︼'),
+	('{', '︷'),
+	('}', '︸'),
+	('-', '︱'),
+	('—', '︱'),
+	('〖', '︘'),
+	('〗', '︗'),
+];
+
+pub struct Position {
+	pub line: usize,
+	pub offset: usize,
+}
+
+impl Position {
+	pub fn new(line: usize, offset: usize) -> Self {
+		Position { line, offset }
+	}
+}
+
+pub struct TraceInfo {
+	pub chapter: usize,
+	pub line: usize,
+	pub offset: usize,
+}
+
+pub fn reading_info(history: &mut Vec<ReadingInfo>, current: &String) -> ReadingInfo {
+	let mut i = 0;
+	while i < history.len() {
+		if history[i].filename.eq(current) {
+			return history.remove(i);
+		}
+		i += 1;
+	}
+	ReadingInfo::new(&current)
+}
+
+pub fn get_theme<'a>(theme_name: &String, theme_entries: &'a Vec<ThemeEntry>) -> Result<&'a Theme> {
+	for entry in theme_entries {
+		if entry.0.eq(theme_name) {
+			return Ok(&entry.1);
+		}
+	}
+	Err(anyhow!("No theme defined: {}",theme_name))
+}
 
 pub fn with_leading(text: &Line) -> bool {
 	if let Some(leader) = text.char_at(0) {
@@ -55,7 +130,7 @@ pub(crate) fn plain_text_lines(content: Vec<u8>) -> Result<Vec<Line>> {
 	Ok(txt_lines(&text))
 }
 
-pub(crate) fn txt_lines(txt: &String) -> Vec<Line> {
+pub(crate) fn txt_lines(txt: &str) -> Vec<Line> {
 	let mut lines: Vec<Line> = vec![];
 	let mut line = Line::default();
 	for c in txt.chars() {

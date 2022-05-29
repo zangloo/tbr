@@ -12,7 +12,7 @@ use zip::ZipArchive;
 use crate::book::{Book, InvalidChapterError, Line, Loader};
 use crate::html_convertor::html_str_content;
 use crate::list::ListEntry;
-use crate::view::{Position, TraceInfo};
+use crate::common::{Position, TraceInfo};
 
 struct ManifestItem {
 	#[allow(dead_code)]
@@ -285,14 +285,14 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 						return Some(TraceInfo {
 							chapter: chapter_index,
 							line: position.line,
-							position: position.position,
+							offset: position.offset,
 						});
 					}
 				}
 				return Some(TraceInfo {
 					chapter: chapter_index,
 					line: 0,
-					position: 0,
+					offset: 0,
 				});
 			}
 		}

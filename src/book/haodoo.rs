@@ -7,7 +7,7 @@ use encoding_rs::Encoding;
 use crate::book::{Book, Line, Loader};
 use crate::common::{decode_text, detect_charset, txt_lines};
 use crate::list::ListEntry;
-use crate::view::TraceInfo;
+use crate::common::TraceInfo;
 
 ///
 // http://www.haodoo.net/?M=hd&P=mPDB22
@@ -204,7 +204,7 @@ impl<R: Read + Seek> Book for HaodooBook<R> {
 	}
 
 	fn toc_position(&mut self, toc_index: usize) -> Option<TraceInfo> {
-		Some(TraceInfo { chapter: toc_index, line: 0, position: 0 })
+		Some(TraceInfo { chapter: toc_index, line: 0, offset: 0 })
 	}
 
 	fn lines(&self) -> &Vec<Line> {

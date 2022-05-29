@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::book::{Book, Line, Loader};
 use crate::html_convertor::{html_content, HtmlContent};
-use crate::view::TraceInfo;
+use crate::common::TraceInfo;
 
 pub(crate) struct HtmlLoader {
 	extensions: Vec<&'static str>,
@@ -43,6 +43,6 @@ impl Book for HtmlBook {
 		split.next()?;
 		let anchor = split.next()?;
 		let position = self.content.id_map.get(anchor)?;
-		Some(TraceInfo { chapter: 0, line: position.line, position: position.position })
+		Some(TraceInfo { chapter: 0, line: position.line, offset: position.offset })
 	}
 }

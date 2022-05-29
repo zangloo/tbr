@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 
 use crate::book::{Book, EMPTY_CHAPTER_CONTENT};
-use crate::BookLoader;
+use crate::{BookLoader, ReadingInfo};
 use crate::container::zip::ZipLoader;
 
 mod zip;
@@ -71,6 +71,11 @@ impl AsRef<str> for BookName {
 }
 
 impl BookName {
+	#[cfg(feature = "gui")]
+	pub fn new(name: String, index: usize) -> Self
+	{
+		BookName { name, index }
+	}
 	pub fn name(&self) -> &String {
 		&self.name
 	}
@@ -100,4 +105,26 @@ impl Container for DummyContainer {
 pub enum BookContent {
 	File(String),
 	Buf(Vec<u8>),
+}
+
+pub fn load_container(container_manager: &ContainerManager, reading: &ReadingInfo) -> Result<Box<dyn Container>> {
+	let container = container_manager.open(&reading.filename)?;
+	let book_names = container.inner_book_names();
+	if book_names.len() == 0 {
+		return Err(anyhow!("No content supported."));
+	}
+	Ok(container)
+}
+
+pub fn load_book(container_manager: &ContainerManager, container: &mut Box<dyn Container>, reading: &mut ReadingInfo) -> Result<Box<dyn Book>> {
+	let book = container_manager.load_book(container, reading.inner_book, reading.chapter)?;
+	let lines = book.lines();
+	if reading.line >= lines.len() {
+		reading.line = lines.len() - 1;
+	}
+	let chars = lines[reading.line].len();
+	if reading.position >= chars {
+		reading.position = 0;
+	}
+	Ok(book)
 }
