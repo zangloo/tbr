@@ -1,17 +1,19 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::mem;
+use anyhow::{anyhow, Result};
+use cssparser::ToCss;
+use ego_tree::iter::Children;
+use ego_tree::NodeId;
+use parcel_css::properties::{border, font, Property};
+use parcel_css::properties::border::{Border, BorderSideWidth};
+use parcel_css::properties::font::FontSize;
+use parcel_css::rules::CssRule;
+use parcel_css::stylesheet::{ParserOptions, StyleSheet};
+use parcel_css::values::length::{Length, LengthPercentage, LengthValue};
+use parcel_css::values::percentage;
+use scraper::{Html, Node, Selector};
+use scraper::node::Element;
 
-use anyhow::Result;
-use html5ever::{parse_document, ParseOpts};
-use html5ever::tendril::TendrilSink;
-use html5ever::tree_builder::TreeBuilderOpts;
-use markup5ever::Attribute;
-use markup5ever::LocalName;
-use markup5ever_rcdom::{Handle, RcDom};
-use markup5ever_rcdom::NodeData::{Document, Element, Text};
-
-use crate::book::{EMPTY_CHAPTER_CONTENT, Line};
+use crate::book::{EMPTY_CHAPTER_CONTENT, Line, TextStyle};
 use crate::common::plain_text;
 use crate::common::Position;
 
@@ -21,56 +23,58 @@ pub struct HtmlContent {
 	pub id_map: HashMap<String, Position>,
 }
 
-impl Default for HtmlContent {
+impl Default for HtmlContent
+{
 	fn default() -> Self {
-		HtmlContent { title: None, lines: vec![], id_map: HashMap::new() }
+		HtmlContent { title: None, lines: vec![Line::default()], id_map: HashMap::new() }
 	}
 }
 
 struct ParseContext {
 	title: Option<String>,
-	buf: Line,
 	content: HtmlContent,
+	element_styles: HashMap<NodeId, Vec<TextStyle>>,
 }
 
-pub(crate) fn html_content(text: Vec<u8>) -> Result<HtmlContent> {
+pub(crate) fn html_content(text: Vec<u8>) -> Result<HtmlContent>
+{
 	let text = plain_text(text, false)?;
-	html_str_content(text.as_str())
+	html_str_content(&text, None::<fn(String) -> Option<&'static String>>)
 }
 
-pub(crate) fn html_str_content(str: &str) -> Result<HtmlContent> {
-	let opts = ParseOpts {
-		tree_builder: TreeBuilderOpts {
-			drop_doctype: true,
-			..Default::default()
-		},
-		..Default::default()
-	};
-	let dom = parse_document(RcDom::default(), opts)
-		.from_utf8()
-		.read_from(&mut str.as_bytes())
-		.unwrap();
+pub(crate) fn html_str_content<'a, F>(str: &str, file_resolver: Option<F>) -> Result<HtmlContent>
+	where F: Fn(String) -> Option<&'a String>
+{
+	let document = Html::parse_document(str);
+	let element_styles = load_styles(&document, file_resolver);
 	let mut context = ParseContext {
 		title: None,
-		buf: Default::default(),
 		content: Default::default(),
+		element_styles,
 	};
-	convert_dom_to_lines(&dom.document, &mut context);
-	if !context.buf.is_empty() {
-		context.content.lines.push(context.buf);
+
+	let body_selector = match Selector::parse("body") {
+		Ok(s) => s,
+		Err(_) => return Err(anyhow!("Failed parse html"))
+	};
+	let body = document.select(&body_selector).next().unwrap();
+	if let Some(id) = &body.value().id {
+		context.content.id_map.insert(id.to_string(), Position::new(0, 0));
 	}
-	if context.content.lines.is_empty() {
-		context.content.lines.push(Line::from(EMPTY_CHAPTER_CONTENT));
+	convert_dom_to_lines(body.children(), &mut context);
+	if context.content.lines.len() == 1 && context.content.lines[0].is_empty() {
+		context.content.lines[0].concat(EMPTY_CHAPTER_CONTENT);
 	}
 	Ok(context.content)
 }
 
-fn push_for_class(context: &mut ParseContext, attrs: &RefCell<Vec<Attribute>>) {
-	if !context.buf.is_empty() {
-		if let Some(class) = attr_value("class", attrs) {
+fn newline_for_class(context: &mut ParseContext, element: &Element)
+{
+	if !context.content.lines.last().unwrap().is_empty() {
+		if let Some(class) = element.attr("class") {
 			for class_name in DIV_PUSH_CLASSES {
 				if class.contains(class_name) {
-					push_buf(context);
+					context.content.lines.push(Line::default());
 					return;
 				}
 			}
@@ -78,130 +82,335 @@ fn push_for_class(context: &mut ParseContext, attrs: &RefCell<Vec<Attribute>>) {
 	}
 }
 
-fn push_buf(context: &mut ParseContext) {
-	// ignore empty line if prev line is empty too.
-	context.buf.trim();
-	if context.buf.is_empty() {
-		let line_count = context.content.lines.len();
-		if line_count == 0 || context.content.lines[line_count - 1].is_empty() {
+fn new_line(context: &mut ParseContext, ignore_empty_buf: bool)
+{
+	let mut empyt_count = 0;
+	// no more then 2 empty lines
+	for line in context.content.lines.iter().rev() {
+		if line.is_empty() {
+			empyt_count += 1;
+			if empyt_count == 2 {
+				return;
+			}
+		} else if empyt_count == 0 {
+			break;
+		} else if ignore_empty_buf {
 			return;
 		}
 	}
-	let buf = mem::take(&mut context.buf);
-	context.content.lines.push(buf);
+	context.content.lines.push(Line::default())
 }
 
 const DIV_PUSH_CLASSES: [&str; 3] = ["contents", "toc", "mulu"];
 
-fn convert_dom_to_lines(handle: &Handle, context: &mut ParseContext) {
-	match &handle.data {
-		Text { contents } => {
-			let mut space_prev = true;
-			for c in contents.borrow().chars() {
-				if c.is_whitespace() {
-					if !space_prev && !context.buf.is_empty() {
-						context.buf.push(' ');
-						space_prev = true;
+fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
+{
+	for child in children {
+		match child.value() {
+			Node::Text(contents) => {
+				let string = contents.text.to_string();
+				let text = string.trim();
+				let line = context.content.lines.last_mut().unwrap();
+				if text.len() > 0 {
+					if line.len() > 0
+						&& line.char_at(line.len() - 1).unwrap().is_ascii_alphanumeric()
+						&& text.chars().next().unwrap().is_ascii_alphanumeric() {
+						line.push(' ');
 					}
+					line.concat(text);
+				}
+			}
+			Node::Element(element) => {
+				let position = Position::new(
+					context.content.lines.len() - 1,
+					context.content.lines.last().unwrap().len());
+				if let Some(id) = &element.id {
+					context.content.id_map.insert(id.to_string(), position.clone());
+				}
+				let mut element_styles = if let Some(styles) = context.element_styles.remove(&child.id()) {
+					styles
 				} else {
-					space_prev = false;
-					context.buf.push(c);
-				}
-			}
-		}
-		Element { name, attrs, .. } => {
-			if let Some(id) = attr_value("id", &attrs) {
-				let position = Position::new(context.content.lines.len(), context.buf.len());
-				context.content.id_map.insert(id, position);
-			}
-			match name.local {
-				local_name!("title") => {
-					// title is in head, no other text should parsed
-					context.buf.clear();
-					process_children(handle, context);
-					context.buf.trim();
-					let mut string = context.buf.to_string();
-					for line in &mut context.content.lines {
-						line.trim();
-						if !line.is_empty() {
-							string.push_str(&line.to_string());
-						}
-					}
-					if !string.is_empty() {
-						context.title = Some(string);
-					}
-					// ensure no lines parsed
-					context.content.lines.clear();
-					context.buf.clear();
-				}
-				local_name!("style") => {}
-				local_name!("script") => {}
-				local_name!("div") | local_name!("dt") => {
-					push_for_class(context, attrs);
-					process_children(handle, context);
-					push_for_class(context, attrs);
-				}
-				local_name!("p")
-				| local_name!("blockquote")
-				| local_name!("h5")
-				| local_name!("h4")
-				| local_name!("h3")
-				| local_name!("h2")
-				| local_name!("h1")
-				| local_name!("li") => {
-					if !context.buf.is_empty() {
-						push_buf(context);
-					}
-					process_children(handle, context);
-					push_buf(context);
-				}
-				local_name!("br") => {
-					if !context.buf.is_empty() {
-						push_buf(context);
-					}
-					process_children(handle, context)
-				}
-				local_name!("a") => {
-					let start_line = context.content.lines.len();
-					let mut start_position = context.buf.len();
-					let end = process_children(handle, context);
-					if let Some(href) = attr_value("href", &attrs) {
-						let end_line = context.content.lines.len();
-						let end_position = context.buf.len();
-						if start_line != end_line {
-							for line_index in start_line..end_line {
-								let line = &mut context.content.lines[line_index];
-								let len = line.len();
-								if start_position < len {
-									line.add_link(&href, start_position, len);
-								}
-								start_position = 0;
+					vec![]
+				};
+				match element.name.local {
+					local_name!("title") => {
+						// title is in head, no other text should parsed
+						reset_lines(context);
+						convert_dom_to_lines(child.children(), context);
+						let mut title = String::new();
+						for line in &mut context.content.lines {
+							if !line.is_empty() {
+								title.push_str(&line.to_string());
 							}
 						}
-						if start_position < end_position {
-							context.buf.add_link(&href, start_position, end_position);
+						if !title.is_empty() {
+							context.title = Some(title);
 						}
+						// ensure no lines parsed
+						reset_lines(context);
+						context.content.id_map.clear()
 					}
-					end
+					local_name!("script") => {}
+					local_name!("div") | local_name!("dt") => {
+						newline_for_class(context, element);
+						convert_dom_to_lines(child.children(), context);
+						newline_for_class(context, element);
+					}
+					local_name!("p")
+					| local_name!("blockquote")
+					| local_name!("tr")
+					| local_name!("h5")
+					| local_name!("h4")
+					| local_name!("h3")
+					| local_name!("h2")
+					| local_name!("h1")
+					| local_name!("li") => {
+						new_line(context, true);
+						convert_dom_to_lines(child.children(), context);
+						new_line(context, false);
+					}
+					local_name!("br") => {
+						new_line(context, true);
+						convert_dom_to_lines(child.children(), context);
+					}
+					local_name!("a") => {
+						if let Some(href) = element.attr("href") {
+							element_styles.push(TextStyle::Link(href.to_string()));
+						}
+						convert_dom_to_lines(child.children(), context);
+					}
+					_ => convert_dom_to_lines(child.children(), context),
 				}
-				_ => process_children(handle, context),
+				if element_styles.len() > 0 {
+					let mut offset = position.offset;
+					for i in position.line..context.content.lines.len() {
+						let line = &mut context.content.lines[i];
+						let range = offset..line.len();
+						for style in &element_styles {
+							line.push_style(style.clone(), range.clone());
+						}
+						offset = 0;
+					}
+				}
 			}
+			Node::Document {} => convert_dom_to_lines(child.children(), context),
+			_ => {}
 		}
-		Document {} => process_children(handle, context),
-		_ => {}
 	}
 }
 
-fn attr_value(attr_name: &str, attrs: &RefCell<Vec<Attribute>>) -> Option<String> {
-	let attrs = attrs.borrow();
-	let attr = attrs.iter().find(move |attr| {
-		attr.name.local == LocalName::from(attr_name)
-	})?;
-	Some(attr.value.to_string())
+#[inline]
+fn reset_lines(context: &mut ParseContext)
+{
+	context.content.lines.clear();
+	context.content.lines.push(Line::default());
 }
 
-fn process_children(handle: &Handle, context: &mut ParseContext) {
-	for child in handle.children.borrow().iter() {
-		convert_dom_to_lines(&child, context)
+fn load_styles<'a, F>(document: &Html, file_resolver: Option<F>) -> HashMap<NodeId, Vec<TextStyle>>
+	where F: Fn(String) -> Option<&'a String>
+{
+	let mut element_styles = HashMap::new();
+	let stylesheets = if let Some(file_resolver) = file_resolver {
+		let mut stylesheets: Vec<StyleSheet> = vec![];
+		if let Ok(link_selector) = Selector::parse("link") {
+			let selection = document.select(&link_selector);
+			for element in selection.into_iter() {
+				if let Some(href) = element.value().attr("href") {
+					if href.to_lowercase().ends_with(".css") {
+						if let Some(content) = file_resolver(href.to_string()) {
+							if let Ok(style_sheet) = StyleSheet::parse(&href, &content, ParserOptions::default()) {
+								stylesheets.push(style_sheet);
+							}
+						}
+					}
+				}
+			}
+		}
+		if stylesheets.len() == 0 {
+			return element_styles;
+		}
+		stylesheets
+	} else {
+		return element_styles;
+	};
+
+	for style_sheet in stylesheets {
+		for rule in &style_sheet.rules.0 {
+			if let CssRule::Style(style_rule) = rule {
+				let mut styles = vec![];
+				for property in &style_rule.declarations.declarations {
+					if let Some(style) = convert_style(property) {
+						styles.push(style);
+					}
+				}
+				if styles.len() == 0 {
+					continue;
+				}
+				for selector in &style_rule.selectors.0 {
+					for component in selector.iter() {
+						let component_str = component.to_css_string();
+						if let Ok(selector) = Selector::parse(&component_str) {
+							for element in document.select(&selector) {
+								element_styles.insert(element.id(), styles.clone());
+							}
+						};
+					}
+				}
+			}
+		}
+	}
+	element_styles
+}
+
+const HTML_DEFAULT_FONT_SIZE: f32 = 16.0;
+
+#[inline]
+fn convert_style(property: &Property) -> Option<TextStyle>
+{
+	match property {
+		Property::Border(border) => border_style(border),
+		Property::BorderWidth(width)
+		if border_width(&width.top)
+			| border_width(&width.left)
+			| border_width(&width.right)
+			| border_width(&width.bottom) => {
+			Some(TextStyle::Border)
+		}
+		Property::FontSize(size) => Some(font_size(size)),
+		Property::TextDecorationLine(line, _) => Some(TextStyle::Line(*line)),
+		_ => None,
+	}
+}
+
+#[inline]
+fn font_size_level(level: u8) -> TextStyle
+{
+	let scale: f32 = match level {
+		1 => 3.0 / 5.0,
+		2 => 8.0 / 9.0,
+		3 => 1.0,
+		4 => 6.0 / 5.0,
+		5 => 3.0 / 2.0,
+		6 => 2.0 / 1.0,
+		7 => 3.0 / 1.0,
+		_ => 1.0 // no other level
+	};
+	TextStyle::FontSize { scale, relative: false }
+}
+
+fn font_size(size: &FontSize) -> TextStyle
+{
+	match size {
+		FontSize::Length(lp) => match lp {
+			LengthPercentage::Dimension(lv) => {
+				let (scale, relative) = length_value(lv, HTML_DEFAULT_FONT_SIZE);
+				TextStyle::FontSize { scale, relative }
+			}
+			LengthPercentage::Percentage(percentage::Percentage(p)) =>
+				TextStyle::FontSize { scale: (*p / 100 as f32), relative: true },
+			LengthPercentage::Calc(_) => // 视而不见
+				TextStyle::FontSize { scale: 1.0, relative: false }
+		}
+		FontSize::Absolute(size) => match size {
+			font::AbsoluteFontSize::XXSmall => font_size_level(1),
+			font::AbsoluteFontSize::XSmall => TextStyle::FontSize { scale: 3.0 / 4.0, relative: false },
+			font::AbsoluteFontSize::Small => font_size_level(2),
+			font::AbsoluteFontSize::Medium => font_size_level(3),
+			font::AbsoluteFontSize::Large => font_size_level(4),
+			font::AbsoluteFontSize::XLarge => font_size_level(5),
+			font::AbsoluteFontSize::XXLarge => font_size_level(6),
+		}
+		FontSize::Relative(size) => match size {
+			font::RelativeFontSize::Smaller => font_size_level(2),
+			font::RelativeFontSize::Larger => font_size_level(4),
+		}
+	}
+}
+
+#[inline]
+fn border_style(border: &Border) -> Option<TextStyle>
+{
+	match border.style {
+		border::LineStyle::Inset
+		| border::LineStyle::Groove
+		| border::LineStyle::Outset
+		| border::LineStyle::Ridge
+		| border::LineStyle::Dotted
+		| border::LineStyle::Dashed
+		| border::LineStyle::Solid
+		| border::LineStyle::Double
+		if border_width(&border.width) => Some(TextStyle::Border),
+		_ => None
+	}
+}
+
+#[inline]
+fn border_width(width: &BorderSideWidth) -> bool
+{
+	match width {
+		BorderSideWidth::Thin => true,
+		BorderSideWidth::Medium => true,
+		BorderSideWidth::Thick => true,
+		BorderSideWidth::Length(l) => length(l) > 0.0,
+	}
+}
+
+#[inline]
+fn length(length: &Length) -> f32
+{
+	match length {
+		Length::Value(value) => length_value(value, 1.0).0,
+		Length::Calc(_) => 1.0,
+	}
+}
+
+fn length_value(value: &LengthValue, default_size: f32) -> (f32, bool)
+{
+	match value {
+		LengthValue::Px(v) => (v / default_size as f32, false),
+		LengthValue::Em(v) => (*v, true),
+		LengthValue::Rem(v) => (*v, false),
+		// 没见过，无视之
+		LengthValue::In(_)
+		| LengthValue::Cm(_)
+		| LengthValue::Mm(_)
+		| LengthValue::Q(_)
+		| LengthValue::Pt(_)
+		| LengthValue::Pc(_)
+		| LengthValue::Ex(_)
+		| LengthValue::Rex(_)
+		| LengthValue::Ch(_)
+		| LengthValue::Rch(_)
+		| LengthValue::Cap(_)
+		| LengthValue::Rcap(_)
+		| LengthValue::Ic(_)
+		| LengthValue::Ric(_)
+		| LengthValue::Lh(_)
+		| LengthValue::Rlh(_)
+		| LengthValue::Vw(_)
+		| LengthValue::Lvw(_)
+		| LengthValue::Svw(_)
+		| LengthValue::Dvw(_)
+		| LengthValue::Vh(_)
+		| LengthValue::Lvh(_)
+		| LengthValue::Svh(_)
+		| LengthValue::Dvh(_)
+		| LengthValue::Vi(_)
+		| LengthValue::Svi(_)
+		| LengthValue::Lvi(_)
+		| LengthValue::Dvi(_)
+		| LengthValue::Vb(_)
+		| LengthValue::Svb(_)
+		| LengthValue::Lvb(_)
+		| LengthValue::Dvb(_)
+		| LengthValue::Vmin(_)
+		| LengthValue::Svmin(_)
+		| LengthValue::Lvmin(_)
+		| LengthValue::Dvmin(_)
+		| LengthValue::Vmax(_)
+		| LengthValue::Svmax(_)
+		| LengthValue::Lvmax(_)
+		| LengthValue::Dvmax(_)
+		=> (1.0, false),
 	}
 }

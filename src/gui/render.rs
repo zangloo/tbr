@@ -1,9 +1,9 @@
 use eframe::egui::{Align2, FontFamily, FontId, Rect, Rounding, Stroke, Ui};
 use eframe::emath::{Pos2, Vec2};
 use eframe::epaint::Color32;
-use crate::book::{Book, Line, StylePosition, TextStyle};
+
+use crate::book::{Book, Colors, Line, StylePosition, TextStyle};
 use crate::common::Position;
-use crate::gui::Colors;
 use crate::gui::render::han::GuiHanRender;
 use crate::gui::render::xi::GuiXiRender;
 use crate::ReadingInfo;
@@ -14,7 +14,7 @@ mod xi;
 pub(crate) struct DrawChar
 {
 	pub char: char,
-	pub font_size: u8,
+	pub font_size: f32,
 	pub color: Color32,
 	pub background: Option<Color32>,
 	pub style: Option<(TextStyle, StylePosition)>,
@@ -79,18 +79,18 @@ pub(crate) trait GuiRender {
 		let mut offset = reading.position;
 		let mut draw_context = self.create_draw_context(ui, rect, colors, font_size, default_char_size);
 		for (index, line) in book.lines()[reading.line..].iter().enumerate() {
-			if line.is_image() {
+			if let Some((target, offset)) = line.with_image() {
 				return if reading.line == index {
 					let mut draw_line = self.create_draw_line(default_char_size);
 					draw_line.chars.push(DrawChar {
 						char: 'I',
-						font_size: 100,
+						font_size: 1.0,
 						color: colors.color,
 						background: None,
-						style: None,
+						style: Some((TextStyle::Image(target.to_string()), StylePosition::Single)),
 
 						line: index,
-						offset: 0,
+						offset,
 						rect: rect.clone(),
 						draw_offset: Pos2::ZERO,
 					});
@@ -138,7 +138,7 @@ pub(crate) trait GuiRender {
 	}
 }
 
-pub(crate) fn measure_char_size(ui: &mut Ui, char: char, font_size: u8) -> Vec2 {
+pub(crate) fn measure_char_size(ui: &mut Ui, char: char, font_size: f32) -> Vec2 {
 	let old_clip_rect = ui.clip_rect();
 	ui.set_clip_rect(Rect::NOTHING);
 	let rect = paint_char(ui, char, font_size, &Pos2::ZERO, Align2::LEFT_TOP, Color32::BLACK);
@@ -147,24 +147,20 @@ pub(crate) fn measure_char_size(ui: &mut Ui, char: char, font_size: u8) -> Vec2 
 }
 
 #[inline]
-pub(crate) fn paint_char(ui: &Ui, char: char, font_size: u8, position: &Pos2, align: Align2, color: Color32) -> Rect {
+pub(crate) fn paint_char(ui: &Ui, char: char, font_size: f32, position: &Pos2, align: Align2, color: Color32) -> Rect {
 	let rect = ui.painter().text(
 		*position,
 		align,
 		char,
-		FontId::new(font_size as f32, FontFamily::Proportional),
+		FontId::new(font_size, FontFamily::Proportional),
 		color);
 	rect
 }
 
 #[inline]
-pub(crate) fn scale_font_size(font_size: u8, percent: u8) -> u8
+pub(crate) fn scale_font_size(font_size: u8, scale: f32) -> f32
 {
-	if percent == 100 {
-		return font_size;
-	} else {
-		return font_size * percent / 100;
-	}
+	return font_size as f32 * scale;
 }
 
 pub(crate) fn create_render(render_type: &str) -> Box<dyn GuiRender>

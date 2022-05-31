@@ -1,6 +1,6 @@
 use eframe::egui::{Rect, Ui, Vec2};
-use crate::book::Line;
-use crate::gui::Colors;
+
+use crate::book::{Colors, Line};
 use crate::gui::render::{DrawContext, DrawLine, GuiRender};
 
 pub(crate) struct GuiXiRender {}

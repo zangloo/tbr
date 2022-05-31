@@ -45,6 +45,7 @@ pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 33] = [
 	('〗', '︗'),
 ];
 
+#[derive(Clone)]
 pub struct Position {
 	pub line: usize,
 	pub offset: usize,

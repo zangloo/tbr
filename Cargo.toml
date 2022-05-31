@@ -16,27 +16,30 @@ default = ["gui"]
 gui = []
 
 [dependencies]
-anyhow = "1.0.53"
-clap = { version = "3.0.13", features = ["derive"] }
-dirs = "4.0.0"
-serde = { version = "1.0.136", features = ["derive"] }
-serde_derive = "1.0.136"
-toml = "0.5.8"
-rust-embed = "6.3.0"
-xmltree = "0.10.3"
-html5ever = "0.25.1"
-markup5ever = "0.10.1"
-markup5ever_rcdom = "0.1.0"
-cursive = { version = "0.17.0", features = ["toml"] }
-unicode-width = "0.1.9"
-regex = "1.5.4"
-chardetng = "0.1.17"
-encoding_rs = "0.8.30"
-zip = "0.5.13"
-lexical-sort = "0.3.1"
-strip_bom = "1.0.0"
+anyhow = "1.0"
+clap = { version = "3.0", features = ["derive"] }
+dirs = "4.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_derive = "1.0"
+toml = "0.5"
+rust-embed = "6.3"
+xmltree = "0.10"
+cursive = { version = "0.17", features = ["toml"] }
+unicode-width = "0.1"
+regex = "1.5"
+chardetng = "0.1"
+encoding_rs = "0.8"
+zip = "0.5"
+lexical-sort = "0.3"
+strip_bom = "1.0"
 
 eframe = "0.18"
 egui_extras = { version = "0.18", features = ["svg"] }
 rfd = "0.8"
 static-files = "0.2"
+path-absolutize = "3.0"
+markup5ever = "0.10"
+scraper = "0.12"
+cssparser = "0.29"
+parcel_css = "1.0.0-alpha"
+ego-tree = "0.6"

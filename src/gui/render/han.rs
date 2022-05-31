@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use eframe::egui::{Align2, Color32, Pos2, Rect, Ui, Vec2};
-use crate::book::{Line, StylePosition};
+
+use crate::book::{Colors, Line, StylePosition, TextStyle};
 use crate::common::{HAN_RENDER_CHARS_PAIRS, with_leading};
-use crate::gui::Colors;
 use crate::gui::render::{DrawChar, DrawContext, DrawLine, GuiRender, paint_char, scale_font_size};
 
 pub(crate) struct GuiHanRender {
@@ -61,8 +61,8 @@ impl GuiRender for GuiHanRender
 			}
 			let char = text.char_at(i).unwrap();
 			let char = self.map_char(char);
-			let char_scale = text.char_scale_at(i);
-			let font_size = scale_font_size(draw_context.font_size, char_scale);
+			let char_style = text.char_style_at(i, &draw_context.colors);
+			let font_size = scale_font_size(draw_context.font_size, char_style.font_scale);
 			let mut rect = paint_char(
 				draw_context.ui,
 				char,
@@ -72,24 +72,26 @@ impl GuiRender for GuiHanRender
 				Color32::BLACK);
 
 			let mut draw_height = rect.height();
-			let (draw_offset, style) = if let Some((style, position)) = text.char_style_at(i) {
+			let (draw_offset, style) = if let Some(position) = char_style.border {
 				match position {
 					StylePosition::Start => {
 						let space = draw_height / 2.0;
 						draw_height += space;
 						rect.max.y += space;
-						(Pos2::new(0.0, space), Some((style, position)))
+						(Pos2::new(0.0, space), Some((TextStyle::Border, position)))
 					}
 					StylePosition::Middle | StylePosition::Single => {
-						(Pos2::ZERO, Some((style, position)))
+						(Pos2::ZERO, Some((TextStyle::Border, position)))
 					}
 					StylePosition::End => {
 						let space = draw_height / 2.0;
 						draw_height += space;
 						rect.max.y += space;
-						(Pos2::ZERO, Some((style, position)))
+						(Pos2::ZERO, Some((TextStyle::Border, position)))
 					}
 				}
+			} else if let Some((line, position)) = char_style.line {
+				(Pos2::ZERO, Some((TextStyle::Line(line), position)))
 			} else {
 				(Pos2::ZERO, None)
 			};
@@ -111,8 +113,8 @@ impl GuiRender for GuiHanRender
 			let dc = DrawChar {
 				char,
 				font_size,
-				color: draw_context.colors.color,
-				background: None,
+				color: char_style.color,
+				background: char_style.background,
 				style,
 				line,
 				offset: i,

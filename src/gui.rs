@@ -10,13 +10,13 @@ use std::path::PathBuf;
 use anyhow::Result;
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::egui;
-use eframe::egui::{Button, Color32, FontData, FontDefinitions, ImageButton, PointerButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
+use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, ImageButton, PointerButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::emath::vec2;
 use eframe::glow::Context;
 use egui_extras::RetainedImage;
 
 use crate::{Asset, Configuration, ContainerManager, ReadingInfo, ThemeEntry};
-use crate::book::{Book, Line};
+use crate::book::{Book, Colors, Line};
 use crate::common::{get_theme, Position, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::gui::render::{create_render, DrawLine, GuiRender, measure_char_size};
@@ -86,15 +86,6 @@ fn load_icons() -> Result<HashMap<String, RetainedImage>>
 		}
 	}
 	Ok(map)
-}
-
-pub(crate) struct Colors
-{
-	color: Color32,
-	background: Color32,
-	highlight: Color32,
-	highlight_background: Color32,
-	link: Color32,
 }
 
 fn convert_colors(theme: &Theme) -> Colors
@@ -233,9 +224,9 @@ impl eframe::App for ReaderApp {
 				}
 			});
 		});
-		egui::CentralPanel::default().show(ctx, |ui| {
+		egui::CentralPanel::default().frame(Frame::default().fill(self.colors.background)).show(ctx, |ui| {
 			if self.font_size != self.configuration.gui.font_size {
-				self.default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size);
+				self.default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
 				self.font_size = self.configuration.gui.font_size;
 			}
 			let size = ui.available_size();

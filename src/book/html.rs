@@ -38,7 +38,7 @@ impl Book for HtmlBook {
 	fn link_position(&mut self, line: usize, link_index: usize) -> Option<TraceInfo> {
 		let text = &self.content.lines.get(line)?;
 		let link = text.link_at(link_index)?;
-		let link_target = link.target.as_str();
+		let link_target = link.target;
 		let mut split = link_target.split('#');
 		split.next()?;
 		let anchor = split.next()?;

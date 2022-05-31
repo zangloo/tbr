@@ -150,15 +150,18 @@ pub(crate) trait Render {
 			None => DrawCharMode::Plain,
 		};
 		let text = &lines[line];
-		for (link_index, link) in text.link_iter().enumerate() {
+		if let Some(m) = text.link_iter(true, |link| {
 			if link.range.start <= position && link.range.end > position {
-				match mode {
-					DrawCharMode::Plain => mode = DrawCharMode::Link { line, link_index },
-					DrawCharMode::Search => mode = DrawCharMode::SearchOnLink { line, link_index },
-					_ => {}
+				let m = match mode {
+					DrawCharMode::Plain => Some(DrawCharMode::Link { line, link_index: link.index }),
+					DrawCharMode::Search => Some(DrawCharMode::SearchOnLink { line, link_index: link.index }),
+					_ => None
 				};
-				break;
+				return (true, m);
 			}
+			(false, None)
+		}) {
+			mode = m;
 		}
 		DrawChar { char, mode }
 	}
@@ -373,12 +376,14 @@ impl ReadingView {
 				match self.reading.highlight {
 					Some(HighlightInfo { mode: HighlightMode::Search, line, start, end }) => {
 						let text = &self.book.lines()[line];
-						for (link_index, link) in text.link_iter().enumerate() {
+						if let Some(link_index) = text.link_iter(true, |link| {
 							let range = &link.range;
 							if range.start <= start && range.end >= end {
-								self.goto_link(line, link_index)?;
-								break;
+								return (true, Some(link.index));
 							}
+							(false, None)
+						}) {
+							self.goto_link(line, link_index)?;
 						}
 					}
 					Some(HighlightInfo { mode: HighlightMode::Link(link_index), line, .. }) => {
@@ -615,16 +620,19 @@ impl ReadingView {
 		let lines = self.book.lines();
 		let mut text = &lines[line];
 		'outer: loop {
-			for (link_index, link) in text.link_iter().rev().enumerate() {
+			if let Some(highlight) = text.link_iter(false, |link| {
 				if link.range.end <= position {
-					reading.highlight = Some(HighlightInfo {
+					return (true, Some(HighlightInfo {
 						line,
 						start: link.range.start,
 						end: link.range.end,
-						mode: HighlightMode::Link(link_index),
-					});
-					break 'outer;
+						mode: HighlightMode::Link(link.index),
+					}));
 				}
+				(false, None)
+			}) {
+				reading.highlight = Some(highlight);
+				break 'outer;
 			}
 			if line == 0 {
 				break;
@@ -646,16 +654,19 @@ impl ReadingView {
 		let lines = self.book.lines();
 		'outer: for index in line..lines.len() {
 			let text = &lines[index];
-			for (link_index, link) in text.link_iter().enumerate() {
+			if let Some(highlight) = text.link_iter(true, |link| {
 				if link.range.start >= position {
-					reading.highlight = Some(HighlightInfo {
+					return (true, Some(HighlightInfo {
 						line: index,
 						start: link.range.start,
 						end: link.range.end,
-						mode: HighlightMode::Link(link_index),
-					});
-					break 'outer;
+						mode: HighlightMode::Link(link.index),
+					}));
 				}
+				(false, None)
+			}) {
+				reading.highlight = Some(highlight);
+				break 'outer;
 			}
 			position = 0;
 		}

@@ -2,8 +2,8 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io::{Cursor, Read, Seek};
 use std::path::PathBuf;
-
 use anyhow::{anyhow, Error, Result};
+use path_absolutize::Absolutize;
 use regex::Regex;
 use strip_bom::StripBom;
 use xmltree::Element;
@@ -65,6 +65,7 @@ struct EpubBook<R: Read + Seek> {
 	content_opf: ContentOPF,
 	toc: Vec<NavPoint>,
 	chapter_cache: HashMap<usize, Chapter>,
+	css_cache: HashMap<String, String>,
 	chapter_index: usize,
 }
 
@@ -172,7 +173,7 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 		let chapter = self.chapter_cache.get(&self.chapter_index).unwrap();
 		let text = &chapter.lines.get(line)?;
 		let link = text.link_at(link_index)?;
-		let mut link_target = link.target.as_str();
+		let mut link_target = link.target;
 
 		let mut current_path = PathBuf::from(&chapter.path);
 		current_path.pop();
@@ -195,7 +196,7 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 		if is_encrypted(&zip) {
 			return Err(anyhow!("Encrypted epub."));
 		}
-		let container_text = zip_content(&mut zip, "META-INF/container.xml")?;
+		let container_text = zip_string(&mut zip, "META-INF/container.xml")?;
 		// TODO: make this more robust
 		let content_opf_re = Regex::new(r#"rootfile full-path="(\S*)""#).unwrap();
 
@@ -207,9 +208,11 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 			Some(p) => p.to_path_buf(),
 			None => PathBuf::new(),
 		};
-		let content_opf_text = zip_content(&mut zip, &content_opf_path)?;
+		let content_opf_text = zip_string(&mut zip, &content_opf_path)?;
 		let content_opf = parse_content_opf(&content_opf_text)
 			.ok_or(anyhow!("Malformatted content.opf file"))?;
+
+		let css_cache = load_css(&mut zip, &content_opf.manifest)?;
 
 		let mut nxc_path = content_opf_dir.clone();
 		nxc_path.push(
@@ -222,7 +225,7 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 		// TODO: check if this would always work
 		let ncx_path = nxc_path.into_os_string().into_string().unwrap();
 		// println!("ncx path: {}", &ncx_path);
-		let ncx_text = zip_content(&mut zip, &ncx_path)?;
+		let ncx_text = zip_string(&mut zip, &ncx_path)?;
 		let toc = parse_ncx(&ncx_text)?;
 
 		let chapter_count = content_opf.spine.len();
@@ -237,6 +240,7 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 			toc,
 			chapter_cache,
 			chapter_index,
+			css_cache,
 		};
 		book.load_chapter(chapter_index)?;
 		Ok(book)
@@ -255,8 +259,22 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 				let mut full_path = self.content_opf_dir.clone();
 				full_path.push(src_file);
 				let full_path = full_path.into_os_string().into_string().unwrap();
-				let html_str = zip_content(&mut self.zip, &full_path)?;
-				let html_content = html_str_content(&html_str)?;
+				let html_str = zip_string(&mut self.zip, &full_path)?;
+				// setup css resolver
+				let cwd_path = if full_path.starts_with("/") {
+					full_path.to_string()
+				} else {
+					"/".to_owned() + &full_path
+				};
+				let mut cwd = PathBuf::from(cwd_path);
+				cwd.pop();
+				let css_cache = &self.css_cache;
+				let html_content = html_str_content(&html_str, Some(|path| {
+					let path = cwd.join(path);
+					let absolut_path = path.absolutize().unwrap();
+					let path_str = absolut_path.to_str().unwrap();
+					css_cache.get(path_str)
+				}))?;
 				let toc_index = toc_index_for_chapter(chapter_index,
 					&src_file, &html_content.id_map, &self.content_opf, &self.toc);
 				let title = html_content.title
@@ -300,10 +318,36 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 	}
 }
 
-fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<String> {
+#[inline]
+fn zip_string<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<String> {
+	let buf = zip_content(zip, name)?;
+	Ok(String::from_utf8(buf)?)
+}
+
+#[inline]
+fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Vec<u8>> {
 	let mut buf = vec![];
 	zip.by_name(name)?.read_to_end(&mut buf)?;
-	Ok(String::from_utf8(buf)?)
+	Ok(buf)
+}
+
+
+fn load_css<R: Read + Seek>(zip: &mut ZipArchive<R>, manifest: &Manifest) -> Result<HashMap<String, String>>
+{
+	let mut cache = HashMap::new();
+	for (_, item) in manifest {
+		if item.media_type == "text/css" {
+			if let Ok(content) = zip_string(zip, &item.href) {
+				let absolut_path = if item.href.starts_with("/") {
+					item.href.clone()
+				} else {
+					"/".to_owned() + &item.href
+				};
+				cache.insert(absolut_path, content);
+			}
+		}
+	}
+	Ok(cache)
 }
 
 fn parse_nav_points(nav_points_element: &Element, level: usize, nav_points: &mut Vec<NavPoint>) {
@@ -351,7 +395,7 @@ fn parse_nav_points(nav_points_element: &Element, level: usize, nav_points: &mut
 }
 
 fn parse_ncx(text: &str) -> Result<Vec<NavPoint>> {
-	let ncx = xmltree::Element::parse(text.strip_bom().as_bytes())
+	let ncx = Element::parse(text.strip_bom().as_bytes())
 		.map_err(|_e| anyhow!("Invalid XML"))?;
 	let nav_map = ncx
 		.get_child("navMap")
@@ -408,7 +452,7 @@ pub fn parse_spine(spine: &Element) -> Option<Spine> {
 }
 
 fn parse_content_opf(text: &str) -> Option<ContentOPF> {
-	let package = xmltree::Element::parse(text.strip_bom().as_bytes()).ok()?;
+	let package = Element::parse(text.strip_bom().as_bytes()).ok()?;
 	let metadata = package.get_child("metadata")?;
 	let manifest = package.get_child("manifest")?;
 	let spine = package.get_child("spine")?;

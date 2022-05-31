@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::slice::Iter;
 
 use anyhow::{anyhow, Result};
+use eframe::egui::Color32;
 use regex::Regex;
 
 use crate::book::epub::EpubLoader;
@@ -25,11 +26,32 @@ mod haodoo;
 
 pub const EMPTY_CHAPTER_CONTENT: &str = "No content.";
 
+type TextDecorationLine = parcel_css::properties::text::TextDecorationLine;
+
 #[derive(Clone)]
 pub enum TextStyle {
-	Underline,
+	Line(TextDecorationLine),
 	Border,
-	Scale(u8),
+	FontSize { scale: f32, relative: bool },
+	Image(String),
+	Link(String),
+}
+
+pub struct CharStyle {
+	pub font_scale: f32,
+	pub color: Color32,
+	pub background: Option<Color32>,
+	pub line: Option<(TextDecorationLine, StylePosition)>,
+	pub border: Option<StylePosition>,
+}
+
+pub struct Colors
+{
+	pub color: Color32,
+	pub background: Color32,
+	pub highlight: Color32,
+	pub highlight_background: Color32,
+	pub link: Color32,
 }
 
 pub enum StylePosition {
@@ -41,26 +63,35 @@ pub enum StylePosition {
 
 pub struct Line {
 	chars: Vec<char>,
-	links: Vec<Link>,
-	image: bool,
 	styles: Vec<(TextStyle, Range<usize>)>,
 }
 
-pub struct Link {
-	pub target: String,
-	pub range: Range<usize>,
+pub struct Link<'a> {
+	pub index: usize,
+	pub target: &'a str,
+	pub range: &'a Range<usize>,
 }
 
 impl Line {
+	pub fn concat(&mut self, str: &str) {
+		if str.len() == 0 {
+			return;
+		}
+		for ch in str.chars() {
+			self.chars.push(ch);
+		}
+	}
+
+	pub fn push_style(&mut self, style: TextStyle, range: Range<usize>)
+	{
+		self.styles.push((style, range));
+	}
+
 	pub fn push(&mut self, ch: char) {
 		if ch == '\0' {
 			return;
 		}
 		self.chars.push(ch);
-	}
-
-	pub fn clear(&mut self) {
-		self.chars.clear();
 	}
 
 	pub fn to_string(&self) -> String {
@@ -90,32 +121,6 @@ impl Line {
 		self.chars.iter()
 	}
 
-	pub fn trim(&mut self) {
-		for index in (0..self.chars.len()).rev() {
-			if self.chars[index].is_whitespace() {
-				self.chars.pop();
-			} else {
-				break;
-			}
-		}
-		let mut trim_start = 0;
-		for (index, ch) in self.chars.iter().enumerate() {
-			if ch.is_whitespace() {
-				trim_start = index + 1;
-			} else {
-				break;
-			}
-		}
-		if trim_start == 0 {
-			return;
-		}
-		if trim_start == self.chars.len() {
-			self.chars.clear();
-			return;
-		}
-		self.chars.drain(0..trim_start);
-	}
-
 	pub fn search_pattern(&self, regex: &Regex, start: Option<usize>, stop: Option<usize>, rev: bool) -> Option<Range<usize>> {
 		let mut line = String::new();
 		let start = start.unwrap_or(0);
@@ -133,76 +138,107 @@ impl Line {
 		Some(Range { start: match_start + start, end: match_end + start })
 	}
 
-	pub fn add_link(&mut self, target: &str, start: usize, end: usize) {
-		let link = Link { target: String::from(target), range: Range { start, end } };
-		self.links.push(link);
-	}
-
-	pub fn link_iter(&self) -> Iter<Link> {
-		self.links.iter()
-	}
-
-	pub fn link_at(&self, link_index: usize) -> Option<&Link> {
-		self.links.get(link_index)
-	}
-
-	pub fn is_image(&self) -> bool
+	pub fn link_iter<F, T>(&self, forward: bool, f: F) -> Option<T>
+		where F: Fn(Link) -> (bool, Option<T>),
 	{
-		self.image
-	}
-
-	// in percent
-	pub fn char_scale_at(&self, index: usize) -> u8
-	{
-		for (style, range) in &self.styles {
-			if range.contains(&index) {
-				match style {
-					TextStyle::Scale(scale) => return *scale,
-					_ => continue,
-				}
-			}
-		}
-		100
-	}
-
-	pub fn char_style_at(&self, index: usize) -> Option<(TextStyle, StylePosition)>
-	{
-		for (style, range) in &self.styles {
-			if range.contains(&index) {
-				match style {
-					TextStyle::Scale(_) => continue,
-					_ => {
-						let position = if range.len() == 1 {
-							StylePosition::Single
-						} else if index == range.start {
-							StylePosition::Start
-						} else if index == range.end - 1 {
-							StylePosition::End
-						} else {
-							StylePosition::Middle
-						};
-						return Some((style.clone(), position));
+		let range = 0..self.styles.len();
+		let indeies: Vec<usize> = if forward {
+			range.collect()
+		} else {
+			range.rev().collect()
+		};
+		for index in indeies {
+			let style = &self.styles[index];
+			match style {
+				(TextStyle::Link(target), range) => {
+					let (stop, found) = f(Link {
+						index,
+						target: target.as_str(),
+						range,
+					});
+					if stop {
+						return found;
 					}
 				}
+				_ => continue,
 			}
 		}
 		None
+	}
+
+	pub fn link_at(&self, link_index: usize) -> Option<Link> {
+		if let Some((TextStyle::Link(target), range)) = self.styles.get(link_index) {
+			Some(Link {
+				index: link_index,
+				target: target.as_str(),
+				range,
+			})
+		} else {
+			None
+		}
+	}
+
+	pub fn with_image(&self) -> Option<(&str, usize)>
+	{
+		for style in &self.styles {
+			match style {
+				(TextStyle::Image(target), range) => return Some((target.as_str(), range.start)),
+				_ => continue,
+			}
+		}
+		None
+	}
+
+	#[cfg(feature = "gui")]
+	pub fn char_style_at(&self, index: usize, colors: &Colors) -> CharStyle
+	{
+		#[inline]
+		fn style_position(index: usize, range: &Range<usize>) -> StylePosition
+		{
+			if range.len() == 1 {
+				StylePosition::Single
+			} else if index == range.start {
+				StylePosition::Start
+			} else if index == range.end - 1 {
+				StylePosition::End
+			} else {
+				StylePosition::Middle
+			}
+		}
+		let mut char_style = CharStyle {
+			font_scale: 1.0,
+			color: colors.color,
+			background: None,
+			line: None,
+			border: None,
+		};
+		for (style, range) in &self.styles {
+			if range.contains(&index) {
+				match style {
+					TextStyle::FontSize { scale, relative } => {
+						if *relative {
+							char_style.font_scale *= scale;
+						} else {
+							char_style.font_scale = *scale;
+						}
+					}
+					TextStyle::Image(_) => continue,
+					TextStyle::Link(_) => {
+						char_style.line = Some((TextDecorationLine::Underline, style_position(index, range)));
+						char_style.color = colors.link;
+					}
+					TextStyle::Border => char_style.border = Some(style_position(index, range)),
+					TextStyle::Line(line) => char_style.line = Some((*line, style_position(index, range))),
+				}
+			}
+		}
+		char_style
 	}
 }
 
 impl Default for Line {
 	fn default() -> Self {
-		Line { chars: vec![], links: vec![], image: false, styles: vec![] }
-	}
-}
-
-impl From<&str> for Line {
-	fn from(str: &str) -> Self {
-		let mut chars = vec![];
-		for ch in str.chars() {
-			chars.push(ch);
-		}
-		Line { chars, links: vec![], image: false, styles: vec![] }
+		Line { chars: vec![], styles: vec![] }
 	}
 }
 
@@ -335,31 +371,3 @@ impl Display for InvalidChapterError {
 }
 
 impl Error for InvalidChapterError {}
-
-#[cfg(test)]
-mod tests {
-	use crate::book::Line;
-
-	#[test]
-	fn test_trim() {
-		let result = Line::from("测 \t试");
-		let mut s = Line::from(" \t 测 \t试  ");
-		s.trim();
-		assert_eq!(s == result, true);
-		let mut s = Line::from("\t测 \t试  ");
-		s.trim();
-		assert_eq!(s == result, true);
-		let mut s = Line::from("测 \t试  ");
-		s.trim();
-		assert_eq!(s == result, true);
-		let mut s = Line::from(" \t 测 \t试");
-		s.trim();
-		assert_eq!(s == result, true);
-		let mut s = Line::from("测 \t试");
-		s.trim();
-		assert_eq!(s == result, true);
-		let mut s = Line::from("   \t    ");
-		s.trim();
-		assert_eq!(s == Line::from(""), true);
-	}
-}
