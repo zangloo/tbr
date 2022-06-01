@@ -45,6 +45,7 @@ pub struct CharStyle {
 	pub border: Option<StylePosition>,
 }
 
+#[derive(Clone)]
 pub struct Colors
 {
 	pub color: Color32,
@@ -73,6 +74,15 @@ pub struct Link<'a> {
 }
 
 impl Line {
+	#[cfg(test)]
+	pub fn new(str: &str) -> Self {
+		let mut chars = vec![];
+		for ch in str.chars() {
+			chars.push(ch);
+		}
+		Line { chars, styles: vec![] }
+	}
+
 	pub fn concat(&mut self, str: &str) {
 		if str.len() == 0 {
 			return;

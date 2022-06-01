@@ -32,7 +32,7 @@ macro_rules! version_string {
     () => ( concat!(description!(), " v", version!()) )
 }
 
-struct ControllerContext {
+struct TerminalContext {
 	configuration: Configuration,
 	theme_entries: Vec<ThemeEntry>,
 }
@@ -48,7 +48,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 	let theme = get_theme(&configuration.theme_name, &theme_entries)?;
 	app.set_theme(theme.clone());
 	let reading_view = ReadingView::new(&configuration.render_type, reading.clone(), &configuration.search_pattern)?;
-	app.set_user_data(ControllerContext { configuration, theme_entries });
+	app.set_user_data(TerminalContext { configuration, theme_entries });
 	let status_view = LinearLayout::horizontal()
 		.child(TextView::new(&reading_view.status_msg())
 			.no_wrap()
@@ -89,7 +89,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 	app.run();
 	let reading_view: ViewRef<ReadingView> = app.find_name(TEXT_VIEW_NAME).unwrap();
 	let reading_now = reading_view.reading_info();
-	let controller_context: ControllerContext = app.take_user_data().unwrap();
+	let controller_context: TerminalContext = app.take_user_data().unwrap();
 	configuration = controller_context.configuration;
 	configuration.current = Some(reading_now.filename.clone());
 	configuration.search_pattern = reading_view.search_pattern().clone();
@@ -106,7 +106,7 @@ pub(crate) fn update_status_callback(status: String) -> Callback {
 
 fn switch_render(s: &mut Cursive) {
 	let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
-	s.with_user_data(|controller_context: &mut ControllerContext| {
+	s.with_user_data(|controller_context: &mut TerminalContext| {
 		let configuration = &mut controller_context.configuration;
 		configuration.render_type = String::from(match configuration.render_type.as_str() {
 			"han" => "xi",
@@ -147,7 +147,7 @@ fn select_book(s: &mut Cursive) {
 
 fn select_history(s: &mut Cursive)
 {
-	let option = s.with_user_data(|controller_context: &mut ControllerContext| {
+	let option = s.with_user_data(|controller_context: &mut TerminalContext| {
 		let configuration = &mut controller_context.configuration;
 		let history = &configuration.history;
 		let size = history.len();
@@ -167,7 +167,7 @@ fn select_history(s: &mut Cursive)
 		let dialog = list_dialog("Reopen", li, 0, |s, selected| {
 			let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
 			let reading_now = reading_view.reading_info();
-			let msg = s.with_user_data(|controller_context: &mut ControllerContext| {
+			let msg = s.with_user_data(|controller_context: &mut TerminalContext| {
 				let configuration = &mut controller_context.configuration;
 				let history = &mut configuration.history;
 				let position = history.len() - selected - 1;
@@ -192,7 +192,7 @@ fn select_history(s: &mut Cursive)
 }
 
 fn select_theme(s: &mut Cursive) {
-	let option = s.with_user_data(|controller_context: &mut ControllerContext| {
+	let option = s.with_user_data(|controller_context: &mut TerminalContext| {
 		let configuration = &mut controller_context.configuration;
 		let theme_entries = &controller_context.theme_entries;
 		if theme_entries.len() <= 1 {
@@ -206,7 +206,7 @@ fn select_theme(s: &mut Cursive) {
 			themes.push(ListEntry::new(&entry.0, idx));
 		}
 		let dialog = list_dialog("Select theme", themes.into_iter(), 0, |s, selected| {
-			let theme = s.with_user_data(|controller_context: &mut ControllerContext| {
+			let theme = s.with_user_data(|controller_context: &mut TerminalContext| {
 				let theme_entries = &controller_context.theme_entries;
 				controller_context.configuration.theme_name = theme_entries[selected].0.clone();
 				let theme = &theme_entries[selected].1;
@@ -243,7 +243,8 @@ fn setup_search_view(app: &mut Cursive) {
 	let search_pattern = reading_view.search_pattern();
 	setup_input_view(app, SEARCH_LABEL_TEXT, search_pattern, |s, pattern| {
 		let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
-		reading_view.search(pattern)
+		reading_view.search(pattern)?;
+		Ok(())
 	});
 }
 

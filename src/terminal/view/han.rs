@@ -3,25 +3,25 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::book::Line;
 use crate::common::{HAN_RENDER_CHARS_PAIRS, length_with_leading, with_leading};
-use crate::ReadingInfo;
-use crate::terminal::view::{DrawChar, Position, Render, RenderContext};
+use crate::controller::HighlightInfo;
+use crate::terminal::view::{DrawChar, Position, Render, RenderContext, TerminalRender};
 
 pub struct Han {
 	chars_map: HashMap<char, char>,
 	line_count: usize,
 }
 
-impl Default for Han {
-	fn default() -> Self {
+impl Han {
+	pub fn new() -> Self
+	{
 		Han {
 			chars_map: HAN_RENDER_CHARS_PAIRS.into_iter().collect(),
 			line_count: 1,
 		}
 	}
-}
 
-impl Han {
-	fn setup_print_lines(&mut self, draw_lines: &Vec<Vec<DrawChar>>, context: &mut RenderContext) {
+	fn setup_print_lines(&mut self, draw_lines: &Vec<Vec<DrawChar>>, context: &mut RenderContext)
+	{
 		let print_lines = &mut context.print_lines;
 		print_lines.clear();
 		let line_count = self.line_count;
@@ -49,7 +49,7 @@ impl Han {
 					print_line.push(DrawChar::space());
 				}
 				let dc = chars.next();
-				self.append_char(print_line, dc);
+				append_char(print_line, dc);
 			}
 			need_split_space = true;
 		}
@@ -61,53 +61,58 @@ impl Han {
 			}
 		}
 	}
-	fn append_char(&self, line: &mut Vec<DrawChar>, dc_option: Option<&DrawChar>) {
-		match dc_option {
-			Some(dc) => {
-				match dc.char.width() {
-					Some(s) => {
-						line.push(DrawChar::new(dc.char, dc.mode.clone()));
-						if s == 1 {
-							line.push(DrawChar::new(' ', dc.mode.clone()));
-						}
-					}
-					None => {
-						line.push(DrawChar::new(' ', dc.mode.clone()));
-						line.push(DrawChar::new(' ', dc.mode.clone()));
-					}
-				}
-			}
-			None => {
-				line.push(DrawChar::space());
-				line.push(DrawChar::space());
-			}
-		};
-	}
 
 	fn map_char(&self, ch: char) -> char {
 		*self.chars_map.get(&ch).unwrap_or(&ch)
 	}
 }
 
-impl Render for Han {
-	fn resized(&mut self, context: &mut RenderContext) {
+fn append_char(line: &mut Vec<DrawChar>, dc_option: Option<&DrawChar>) {
+	match dc_option {
+		Some(dc) => {
+			match dc.char.width() {
+				Some(s) => {
+					line.push(DrawChar::new(dc.char, dc.mode.clone()));
+					if s == 1 {
+						line.push(DrawChar::new(' ', dc.mode.clone()));
+					}
+				}
+				None => {
+					line.push(DrawChar::new(' ', dc.mode.clone()));
+					line.push(DrawChar::new(' ', dc.mode.clone()));
+				}
+			}
+		}
+		None => {
+			line.push(DrawChar::space());
+			line.push(DrawChar::space());
+		}
+	};
+}
+
+impl TerminalRender for Han
+{
+	fn resized(&mut self, context: &RenderContext)
+	{
 		let width = context.width;
 		self.line_count = if width % 3 == 2 { width / 3 + 1 } else { width / 3 };
 	}
+}
 
-	fn redraw(&mut self, lines: &Vec<Line>, reading: &ReadingInfo, context: &mut RenderContext) {
+impl Render<RenderContext> for Han {
+	fn redraw(&mut self, lines: &Vec<Line>, new_line: usize, new_offset: usize, highlight: &Option<HighlightInfo>, context: &mut RenderContext) -> Option<Position> {
+		let mut line = new_line;
+		let mut offset = new_offset;
 		let height = context.height;
-		let mut line = reading.line;
-		let mut position = reading.position;
 		let leading_space = context.leading_space;
 		let mut text = &lines[line];
 		let mut line_length = text.len();
 		let mut draw_lines: Vec<Vec<DrawChar>> = vec![];
 		for _x in 0..self.line_count {
-			let left = line_length - position;
+			let left = line_length - offset;
 			let mut charts_to_draw = if left >= context.height { context.height } else { left };
 			let mut draw_line = vec![];
-			if position == 0 && left > 0 {
+			if offset == 0 && left > 0 {
 				if with_leading(text) {
 					for _i in 0..leading_space {
 						draw_line.push(DrawChar::space());
@@ -118,141 +123,129 @@ impl Render for Han {
 				}
 			}
 			for _y in 0..charts_to_draw {
-				let char = text.char_at(position).unwrap();
+				let char = text.char_at(offset).unwrap();
 				let draw_char = self.map_char(char);
-				let dc = self.setup_draw_char(draw_char, line, position, lines, reading);
+				let dc = self.setup_draw_char(draw_char, line, offset, lines, highlight);
 				draw_line.push(dc);
-				position += 1;
+				offset += 1;
 			}
 			draw_lines.push(draw_line);
-			if position == line_length {
+			if offset == line_length {
 				line += 1;
 				if line == lines.len() {
 					self.setup_print_lines(&draw_lines, context);
-					context.next = None;
-					return;
+					return None;
 				}
 				text = &lines[line];
 				line_length = text.len();
-				position = 0;
+				offset = 0;
 			}
 		}
 		self.setup_print_lines(&draw_lines, context);
-		context.next = Some(Position {
+		Some(Position {
 			line,
-			offset: position,
-		});
+			offset,
+		})
 	}
 
-	fn prev(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
+	fn prev(&mut self, lines: &Vec<Line>, new_line: usize, new_offset: usize, context: &mut RenderContext) -> Position
+	{
 		let height = context.height;
-		let mut line = reading.line;
-		let mut position = reading.position;
+		let mut line = new_line;
+		let mut offset = new_offset;
 		let leading_space = context.leading_space;
-		if position == 0 {
+		if offset == 0 {
 			line -= 1;
-			position = length_with_leading(&lines[line], leading_space);
+			offset = length_with_leading(&lines[line], leading_space);
 		}
 		for _x in 0..self.line_count {
-			if position <= height {
+			if offset <= height {
 				if line == 0 {
-					reading.line = 0;
-					reading.position = 0;
-					return self.redraw(lines, reading, context);
+					return Position::new(0, 0);
 				}
 				line -= 1;
-				position = length_with_leading(&lines[line], leading_space);
+				offset = length_with_leading(&lines[line], leading_space);
 			} else {
-				position -= height;
+				offset -= height;
 			}
 		}
 		let text = &lines[line];
-		if position == length_with_leading(text, leading_space) {
-			position = 0;
+		if offset == length_with_leading(text, leading_space) {
+			offset = 0;
 			line += 1;
 		} else {
 			let mut p = height;
-			while p < position {
+			while p < offset {
 				p += height;
 			}
-			position = p;
+			offset = p;
 			if with_leading(text) {
-				position -= leading_space;
+				offset -= leading_space;
 			}
 		}
-		reading.line = line;
-		reading.position = position;
-		self.redraw(lines, reading, context)
+		Position::new(line, offset)
 	}
 
-	fn next_line(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
+	fn next_line(&mut self, lines: &Vec<Line>, new_line: usize, new_offset: usize, context: &mut RenderContext) -> Position {
 		let height = context.height;
-		let mut line = reading.line;
+		let mut line = new_line;
+		let mut offset = new_offset;
 		let text = &lines[line];
 		let text_length = length_with_leading(text, context.leading_space);
-		let mut position = reading.position;
-		if position == 0 {
+		if offset == 0 {
 			if text_length <= height {
 				line += 1;
 			} else if with_leading(text) {
-				position = height - context.leading_space;
+				offset = height - context.leading_space;
 			} else {
-				position = height;
+				offset = height;
 			}
 		} else {
-			position += height;
-			if position + context.leading_space >= text_length {
-				position = 0;
+			offset += height;
+			if offset + context.leading_space >= text_length {
+				offset = 0;
 				line += 1;
 			}
 		}
-		reading.line = line;
-		reading.position = position;
-		self.redraw(lines, reading, context)
+		Position::new(line, offset)
 	}
 
-	fn prev_line(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
+	fn prev_line(&mut self, lines: &Vec<Line>, new_line: usize, new_offset: usize, context: &mut RenderContext) -> Position {
 		let height = context.height;
-		let mut line = reading.line;
-		let mut position = reading.position;
-		if position == 0 {
+		let mut line = new_line;
+		let mut offset = new_offset;
+		if offset == 0 {
 			if line == 0 {
-				context.next = None;
-				return;
+				return Position::new(line, offset);
 			} else {
 				line -= 1;
 				let text = &lines[line];
 				let text_length = length_with_leading(text, context.leading_space);
 				if text_length <= height {
-					position = 0;
+					offset = 0;
 				} else {
-					position = height;
-					while position + height < text_length - 1 {
-						position += height;
+					offset = height;
+					while offset + height < text_length - 1 {
+						offset += height;
 					}
 					if with_leading(text) {
-						position -= context.leading_space;
+						offset -= context.leading_space;
 					}
 				}
 			}
-		} else if position < height {
-			position = 0
+		} else if offset < height {
+			offset = 0
 		} else {
-			position -= height;
+			offset -= height;
 		}
-		reading.line = line;
-		reading.position = position;
-		self.redraw(lines, reading, context)
+		Position::new(line, offset)
 	}
 
-	fn setup_highlight(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
-		let highlight = &reading.highlight.as_ref().unwrap();
-		let highlight_line = highlight.line;
-		let highlight_start = highlight.start;
+	fn setup_highlight(&mut self, lines: &Vec<Line>, highlight_line: usize, highlight_start: usize, context: &mut RenderContext) -> Position {
 		let height = context.height;
-		let mut position = 0;
+		let mut offset = 0;
 		loop {
-			if position == 0 {
+			if offset == 0 {
 				let leading = if with_leading(&lines[highlight_line]) {
 					context.leading_space
 				} else {
@@ -261,15 +254,14 @@ impl Render for Han {
 				if height - leading > highlight_start {
 					break;
 				} else {
-					position = height - leading;
+					offset = height - leading;
 				}
-			} else if position + height > highlight_start {
+			} else if offset + height > highlight_start {
 				break;
 			} else {
-				position += height;
+				offset += height;
 			}
 		}
-		reading.line = highlight_line;
-		reading.position = position;
+		Position::new(highlight_line, offset)
 	}
 }

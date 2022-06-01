@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use eframe::egui::{Align2, Color32, Pos2, Rect, Ui, Vec2};
 
-use crate::book::{Colors, Line, StylePosition, TextStyle};
+use crate::book::{Line, StylePosition, TextStyle};
 use crate::common::{HAN_RENDER_CHARS_PAIRS, with_leading};
-use crate::gui::render::{DrawChar, DrawContext, DrawLine, GuiRender, paint_char, scale_font_size};
+use crate::controller::{HighlightInfo, Render};
+use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size};
+use crate::Position;
 
-pub(crate) struct GuiHanRender {
+pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
 }
 
@@ -25,29 +27,51 @@ impl GuiHanRender
 	}
 }
 
+impl Render<Ui> for GuiHanRender {
+	fn redraw(&mut self, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position> {
+		self.gui_redraw(lines, line, offset, highlight, ui)
+	}
+
+	fn prev(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
+		todo!()
+	}
+
+	fn next_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
+		todo!()
+	}
+
+	fn prev_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
+		todo!()
+	}
+
+	fn setup_highlight(&mut self, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position {
+		todo!()
+	}
+}
+
 impl GuiRender for GuiHanRender
 {
 	#[inline]
-	fn create_draw_context<'a>(&self, ui: &'a Ui, rect: &'a Rect, colors: &'a Colors, font_size: u8, default_char_size: &Vec2) -> DrawContext<'a>
+	fn reset_render_context(&self, render_context: &mut RenderContext)
 	{
-		let max_page_size = rect.width();
-		let baseline = rect.max.x;
-		let leading_space = default_char_size.y * 2.0;
-		DrawContext::new(ui, rect, colors, max_page_size, baseline, font_size, default_char_size, leading_space)
+		render_context.max_page_size = render_context.rect.width();
+		render_context.line_base = render_context.rect.max.x;
+		render_context.leading_space = render_context.default_font_measure.y * 2.0;
+		render_context.render_lines.clear();
 	}
 
 	#[inline]
-	fn create_draw_line(&self, default_char_size: &Vec2) -> DrawLine
+	fn create_render_line(&self, default_char_size: &Vec2) -> RenderLine
 	{
 		let width = default_char_size.x;
 		let space = width / 2.0;
-		DrawLine::new(width, space)
+		RenderLine::new(width, space)
 	}
 
-	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, draw_context: &mut DrawContext) -> Vec<DrawLine>
+	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, ui: &mut Ui, draw_context: &mut RenderContext) -> Vec<RenderLine>
 	{
 		let mut draw_lines = vec![];
-		let mut draw_line = self.create_draw_line(&draw_context.default_char_size);
+		let mut draw_line = self.create_render_line(&draw_context.default_font_measure);
 		if start_offset == end_offset {
 			draw_lines.push(draw_line);
 			return draw_lines;
@@ -64,7 +88,7 @@ impl GuiRender for GuiHanRender
 			let char_style = text.char_style_at(i, &draw_context.colors);
 			let font_size = scale_font_size(draw_context.font_size, char_style.font_scale);
 			let mut rect = paint_char(
-				draw_context.ui,
+				ui,
 				char,
 				font_size,
 				&Pos2::new(draw_context.line_base, top),
@@ -100,7 +124,7 @@ impl GuiRender for GuiHanRender
 				let line_delta = draw_line.draw_size + draw_line.line_space;
 				draw_context.line_base -= line_delta;
 				draw_lines.push(draw_line);
-				draw_line = self.create_draw_line(&draw_context.default_char_size);
+				draw_line = self.create_render_line(&draw_context.default_font_measure);
 				rect = Rect {
 					min: Pos2::new(rect.min.x - line_delta, rect.min.y - top + draw_context.rect.min.y),
 					max: Pos2::new(rect.max.x - line_delta, rect.max.y - top + draw_context.rect.min.y),
@@ -110,7 +134,7 @@ impl GuiRender for GuiHanRender
 				draw_line.draw_size = draw_width;
 				draw_line.line_space = draw_width / 2.0;
 			}
-			let dc = DrawChar {
+			let dc = RenderChar {
 				char,
 				font_size,
 				color: char_style.color,
@@ -131,6 +155,6 @@ impl GuiRender for GuiHanRender
 		return draw_lines;
 	}
 
-	fn draw_style(&self, text: &Line, draw_text: &DrawLine, ui: &mut Ui)
+	fn draw_style(&self, text: &Line, draw_text: &RenderLine, ui: &mut Ui)
 	{}
 }

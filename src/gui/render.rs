@@ -1,17 +1,19 @@
+use std::sync::{Arc, RwLock};
 use eframe::egui::{Align2, FontFamily, FontId, Rect, Rounding, Stroke, Ui};
 use eframe::emath::{Pos2, Vec2};
 use eframe::epaint::Color32;
 
-use crate::book::{Book, Colors, Line, StylePosition, TextStyle};
+use crate::book::{Colors, Line, StylePosition, TextStyle};
 use crate::common::Position;
+use crate::controller::{HighlightInfo, Render};
 use crate::gui::render::han::GuiHanRender;
 use crate::gui::render::xi::GuiXiRender;
-use crate::ReadingInfo;
+use crate::gui::render_context_id;
 
 mod han;
 mod xi;
 
-pub(crate) struct DrawChar
+pub(crate) struct RenderChar
 {
 	pub char: char,
 	pub font_size: f32,
@@ -25,78 +27,76 @@ pub(crate) struct DrawChar
 	pub draw_offset: Pos2,
 }
 
-pub(crate) struct DrawLine
+pub(crate) struct RenderLine
 {
-	chars: Vec<DrawChar>,
+	chars: Vec<RenderChar>,
 	draw_size: f32,
 	line_space: f32,
 }
 
-impl DrawLine
+impl RenderLine
 {
 	fn new(draw_size: f32, line_space: f32) -> Self
 	{
-		DrawLine { chars: vec![], draw_size, line_space }
+		RenderLine { chars: vec![], draw_size, line_space }
 	}
 }
 
-pub(crate) struct DrawContext<'a>
+pub(super) struct RenderContext
 {
-	ui: &'a Ui,
 	// draw rect
-	rect: &'a Rect,
-	colors: &'a Colors,
-	// for calculate chars in single line
-	max_page_size: f32,
-	// current line base
-	line_base: f32,
+	pub rect: Rect,
+	pub colors: Colors,
 	// font size in configuration
-	font_size: u8,
+	pub font_size: u8,
 	// default single char size
-	default_char_size: Vec2,
-	leading_space: f32,
+	pub default_font_measure: Vec2,
+
+	pub leading_space: f32,
+	// for calculate chars in single line
+	pub max_page_size: f32,
+	// current line base
+	pub line_base: f32,
+	pub render_lines: Vec<RenderLine>,
 }
 
-impl<'a> DrawContext<'a>
-{
-	pub fn new(ui: &'a Ui, rect: &'a Rect, colors: &'a Colors, max_page_size: f32, line_base: f32, font_size: u8, default_char_size: &Vec2, leading_space: f32) -> Self
-	{
-		DrawContext { ui, rect, colors, max_page_size, line_base, font_size, default_char_size: default_char_size.clone(), leading_space }
-	}
-}
+pub(super) trait GuiRender: Render<Ui> {
+	// return (max_page_size, baseline, leading_space)
+	fn reset_render_context(&self, render_context: &mut RenderContext);
+	fn create_render_line(&self, default_font_measure: &Vec2) -> RenderLine;
+	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
+	fn draw_style(&self, text: &Line, draw_text: &RenderLine, ui: &mut Ui);
 
-pub(crate) trait GuiRender {
-	fn create_draw_context<'a>(&self, ui: &'a Ui, rect: &'a Rect, colors: &'a Colors, font_size: u8, default_char_size: &Vec2) -> DrawContext<'a>;
-	fn create_draw_line(&self, default_char_size: &Vec2) -> DrawLine;
-	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, context: &mut DrawContext) -> Vec<DrawLine>;
-	fn draw_style(&self, text: &Line, draw_text: &DrawLine, ui: &mut Ui);
-
-	fn redraw(&self, book: &Box<dyn Book>, reading: &ReadingInfo, colors: &Colors, font_size: u8, default_char_size: &Vec2,
-		rect: &Rect, draw_lines: &mut Vec<DrawLine>, ui: &Ui) -> Option<Position>
+	fn gui_redraw(&self, lines: &Vec<Line>, reading_line: usize, reading_offset: usize,
+		highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
 	{
-		draw_lines.clear();
+		let render_context: Arc<RwLock<RenderContext>> = ui.data().get_temp(render_context_id()).unwrap();
+		let mut context = match render_context.write() {
+			Ok(c) => c,
+			Err(e) => panic!("{}", e.to_string()),
+		};
+		context.render_lines.clear();
 		let mut drawn_size = 0.0;
-		let mut offset = reading.position;
-		let mut draw_context = self.create_draw_context(ui, rect, colors, font_size, default_char_size);
-		for (index, line) in book.lines()[reading.line..].iter().enumerate() {
+		let mut offset = reading_offset;
+		for (index, line) in lines[reading_line..].iter().enumerate() {
 			if let Some((target, offset)) = line.with_image() {
-				return if reading.line == index {
-					let mut draw_line = self.create_draw_line(default_char_size);
-					draw_line.chars.push(DrawChar {
+				return if reading_line == index {
+					let mut draw_line = self.create_render_line(&context.default_font_measure);
+					draw_line.chars.push(RenderChar {
 						char: 'I',
 						font_size: 1.0,
-						color: colors.color,
+						color: context.colors.color,
 						background: None,
 						style: Some((TextStyle::Image(target.to_string()), StylePosition::Single)),
 
 						line: index,
 						offset,
-						rect: rect.clone(),
+						rect: context.rect.clone(),
 						draw_offset: Pos2::ZERO,
 					});
-					draw_lines.push(draw_line);
+					context.render_lines.push(draw_line);
 					let next_line = index + 1;
-					if next_line < book.lines().len() {
+					if next_line < lines.len() {
 						Some(Position::new(next_line, 0))
 					} else {
 						None
@@ -105,29 +105,30 @@ pub(crate) trait GuiRender {
 					Some(Position::new(index, 0))
 				};
 			}
-			let wrapped_lines = self.wrap_line(&line, index, offset, line.len(), &mut draw_context);
+			let wrapped_lines = self.wrap_line(&line, index, offset, line.len(), ui, &mut context);
 			offset = 0;
 			for wrapped_line in wrapped_lines {
 				drawn_size += wrapped_line.draw_size + wrapped_line.line_space;
-				if drawn_size > draw_context.max_page_size {
+				if drawn_size > context.max_page_size {
 					let next = if let Some(char) = wrapped_line.chars.first() {
 						Some(Position::new(index, char.offset))
 					} else {
 						Some(Position::new(index, 0))
 					};
-					draw_lines.push(wrapped_line);
+					context.render_lines.push(wrapped_line);
 					return next;
 				}
-				draw_lines.push(wrapped_line);
+				context.render_lines.push(wrapped_line);
 			}
 		}
+		self.draw(&context.render_lines, ui);
 		None
 	}
 
-	fn draw(&self, draw_lines: &Vec<DrawLine>, ui: &mut Ui)
+	fn draw(&self, render_lines: &Vec<RenderLine>, ui: &mut Ui)
 	{
-		for draw_line in draw_lines {
-			for dc in &draw_line.chars {
+		for render_line in render_lines {
+			for dc in &render_line.chars {
 				if let Some(bg) = dc.background {
 					ui.painter().rect(dc.rect.clone(), Rounding::none(), bg, Stroke::default());
 				}
@@ -147,7 +148,7 @@ pub(crate) fn measure_char_size(ui: &mut Ui, char: char, font_size: f32) -> Vec2
 }
 
 #[inline]
-pub(crate) fn paint_char(ui: &Ui, char: char, font_size: f32, position: &Pos2, align: Align2, color: Color32) -> Rect {
+pub(super) fn paint_char(ui: &Ui, char: char, font_size: f32, position: &Pos2, align: Align2, color: Color32) -> Rect {
 	let rect = ui.painter().text(
 		*position,
 		align,
@@ -158,12 +159,12 @@ pub(crate) fn paint_char(ui: &Ui, char: char, font_size: f32, position: &Pos2, a
 }
 
 #[inline]
-pub(crate) fn scale_font_size(font_size: u8, scale: f32) -> f32
+pub(super) fn scale_font_size(font_size: u8, scale: f32) -> f32
 {
 	return font_size as f32 * scale;
 }
 
-pub(crate) fn create_render(render_type: &str) -> Box<dyn GuiRender>
+pub(super) fn create_render(render_type: &str) -> Box<dyn GuiRender>
 {
 	if render_type == "han" {
 		Box::new(GuiHanRender::new())

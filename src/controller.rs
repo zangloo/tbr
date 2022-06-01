@@ -1,0 +1,579 @@
+use std::marker::PhantomData;
+use anyhow::{anyhow, Result};
+use regex::Regex;
+
+use crate::{ContainerManager, Position, ReadingInfo};
+use crate::book::{Book, Line};
+use crate::common::TraceInfo;
+use crate::container::{Container, load_book, load_container};
+
+const TRACE_SIZE: usize = 100;
+
+pub trait Render<C> {
+	// return next
+	fn redraw(&mut self, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, context: &mut C) -> Option<Position>;
+	// return new position
+	fn prev(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut C) -> Position;
+	// return new position
+	fn next_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut C) -> Position;
+	// return new position
+	fn prev_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut C) -> Position;
+	// move to highlight line if not displayed in current view
+	fn setup_highlight(&mut self, lines: &Vec<Line>, line: usize, start: usize, context: &mut C) -> Position;
+}
+
+pub enum HighlightMode {
+	Search,
+	Link(usize),
+}
+
+impl Clone for HighlightMode {
+	fn clone(&self) -> Self {
+		match self {
+			HighlightMode::Search => HighlightMode::Search,
+			HighlightMode::Link(link_index) => HighlightMode::Link(*link_index),
+		}
+	}
+}
+
+pub struct HighlightInfo {
+	pub line: usize,
+	pub start: usize,
+	pub end: usize,
+	pub mode: HighlightMode,
+}
+
+pub struct Controller<C, R: Render<C> + ?Sized>
+{
+	_render_context: PhantomData<C>,
+	pub container_manager: ContainerManager,
+	pub container: Box<dyn Container>,
+	pub book: Box<dyn Book>,
+	pub reading: ReadingInfo,
+	pub search_pattern: Option<String>,
+	pub render: Box<R>,
+
+	trace: Vec<TraceInfo>,
+	current_trace: usize,
+	highlight: Option<HighlightInfo>,
+	next: Option<Position>,
+}
+
+impl<C, R: Render<C> + ?Sized> Controller<C, R>
+{
+	pub fn new(mut reading: ReadingInfo, search_pattern: &Option<String>, render: Box<R>) -> Result<Self>
+	{
+		let container_manager = Default::default();
+		let mut container = load_container(&container_manager, &reading)?;
+		let book = load_book(&container_manager, &mut container, &mut reading)?;
+		Controller::from_data(reading, search_pattern, container_manager, container, book, render)
+	}
+
+	#[inline]
+	pub fn from_data(reading: ReadingInfo, search_pattern: &Option<String>, container_manager: ContainerManager, container: Box<dyn Container>, book: Box<dyn Book>, render: Box<R>) -> Result<Self>
+	{
+		let trace = vec![TraceInfo { chapter: reading.chapter, line: reading.line, offset: reading.position }];
+		Ok(Controller {
+			_render_context: PhantomData,
+			container_manager,
+			container,
+			book,
+			reading,
+			search_pattern: search_pattern.clone(),
+			trace,
+			current_trace: 0,
+			highlight: None,
+			next: None,
+			render,
+		})
+	}
+	#[inline]
+	pub fn reading_container(&self) -> &Box<dyn Container>
+	{
+		&self.container
+	}
+
+	#[inline]
+	pub fn reading_book(&self) -> &Box<dyn Book>
+	{
+		&self.book
+	}
+
+	#[inline]
+	pub fn reading_info(&self) -> &ReadingInfo
+	{
+		&self.reading
+	}
+
+	#[inline]
+	pub fn redraw(&mut self, context: &mut C)
+	{
+		let next = self.render.redraw(
+			self.book.lines(),
+			self.reading.line,
+			self.reading.position,
+			&self.highlight,
+			context);
+		self.next = next;
+	}
+
+	#[inline]
+	pub fn redraw_at(&mut self, line: usize, offset: usize, context: &mut C)
+	{
+		let next = self.render.redraw(
+			self.book.lines(),
+			line,
+			offset,
+			&self.highlight,
+			context);
+		self.reading.line = line;
+		self.reading.position = offset;
+		self.next = next;
+		self.push_trace(true);
+	}
+
+	#[inline]
+	pub fn search_pattern(&self) -> &Option<String>
+	{
+		&self.search_pattern
+	}
+
+	pub fn status_msg(&self) -> String
+	{
+		let title = match self.book.title() {
+			Some(t) => t,
+			None => {
+				let names = self.container.inner_book_names();
+				if names.len() == 1 {
+					&self.reading.filename
+				} else {
+					let name = &names[self.reading.inner_book];
+					name.name()
+				}
+			}
+		};
+		format!("{}({}:{})", title, self.book.lines().len(), self.reading.line)
+	}
+
+	pub fn search(&mut self, pattern: &str, context: &mut C) -> Result<()>
+	{
+		self.search_pattern = Some(String::from(pattern));
+		self.search_next(self.reading.line, self.reading.position, context)
+	}
+
+	pub fn switch_container(&mut self, mut reading: ReadingInfo, context: &mut C) -> Result<String> {
+		let mut container = load_container(&self.container_manager, &reading)?;
+		let book = load_book(&self.container_manager, &mut container, &mut reading)?;
+		self.container = container;
+		self.book = book;
+		self.reading = reading;
+		self.redraw(context);
+		Ok(self.status_msg())
+	}
+
+	pub fn switch_book(&mut self, reading: ReadingInfo, context: &mut C) -> String
+	{
+		match self.do_switch_book(reading, context) {
+			Ok(..) => self.status_msg(),
+			Err(e) => e.to_string(),
+		}
+	}
+
+	fn do_switch_book(&mut self, mut reading: ReadingInfo, context: &mut C) -> Result<()>
+	{
+		let book = load_book(&self.container_manager, &mut self.container, &mut reading)?;
+		self.book = book;
+		self.reading = reading;
+		self.trace.clear();
+		self.trace.push(TraceInfo { chapter: self.reading.chapter, line: self.reading.line, offset: self.reading.position });
+		self.current_trace = 0;
+		self.redraw(context);
+		Ok(())
+	}
+
+	pub fn goto_line(&mut self, line: usize, context: &mut C) -> Result<()>
+	{
+		let lines = &self.book.lines();
+		if line > lines.len() || line == 0 {
+			return Err(anyhow!("Invalid line number: {}", line));
+		}
+		self.redraw_at(line - 1, 0, context);
+		Ok(())
+	}
+
+	pub fn next_page(&mut self, context: &mut C) -> Result<()> {
+		if let Some(next) = &self.next {
+			let line = next.line;
+			let offset = next.offset;
+			self.redraw_at(line, offset, context);
+		} else if !self.switch_chapter(true, context)? {
+			let book_index = self.reading.inner_book + 1;
+			let book_count = self.container.inner_book_names().len();
+			if book_index < book_count {
+				let reading = ReadingInfo::new(&self.reading.filename)
+					.with_inner_book(book_index);
+				self.do_switch_book(reading, context)?;
+			}
+		}
+		Ok(())
+	}
+
+	pub fn prev_page(&mut self, context: &mut C) -> Result<()>
+	{
+		if self.reading.line == 0 && self.reading.position == 0 {
+			let reading = &mut self.reading;
+			if let Some(current_chapter) = self.book.prev_chapter()? {
+				reading.chapter = current_chapter;
+				let lines = self.book.lines();
+				// prev need decrease this invalid reading.line
+				let position = self.render.prev(lines, lines.len(), 0, context);
+				self.redraw_at(position.line, position.offset, context);
+			} else {
+				if reading.inner_book > 0 {
+					let mut new_reading = ReadingInfo::new(&reading.filename)
+						.with_inner_book(reading.inner_book - 1)
+						.with_last_chapter();
+					self.book = load_book(&self.container_manager, &mut self.container, &mut new_reading)?;
+					let lines = self.book.lines();
+					let position = self.render.prev(lines, lines.len(), lines[new_reading.line - 1].len(), context);
+					new_reading.chapter = self.book.current_chapter();
+					new_reading.line = position.line;
+					new_reading.position = position.offset;
+					self.reading = new_reading;
+					self.trace.clear();
+					self.trace.push(TraceInfo { chapter: self.reading.chapter, line: self.reading.line, offset: self.reading.position });
+					self.current_trace = 0;
+					self.redraw(context);
+				}
+			}
+		} else {
+			let position = self.render.prev(self.book.lines(), self.reading.line, self.reading.position, context);
+			self.redraw_at(position.line, position.offset, context);
+		}
+		Ok(())
+	}
+
+	pub fn goto_end(&mut self, context: &mut C)
+	{
+		let lines = self.book.lines();
+		let position = self.render.prev(lines, lines.len(), 0, context);
+		self.redraw_at(position.line, position.offset, context);
+	}
+
+	pub fn step_prev(&mut self, context: &mut C)
+	{
+		let reading = &self.reading;
+		let position = self.render.prev_line(self.book.lines(), reading.line, reading.position, context);
+		self.redraw_at(position.line, position.offset, context);
+	}
+
+	pub fn step_next(&mut self, context: &mut C)
+	{
+		if self.next.is_some() {
+			let reading = &self.reading;
+			let position = self.render.next_line(self.book.lines(), reading.line, reading.position, context);
+			self.redraw_at(position.line, position.offset, context);
+		}
+	}
+
+	pub fn goto_toc(&mut self, toc_index: usize, context: &mut C) -> Option<String> {
+		if let Some(trace_info) = self.book.toc_position(toc_index) {
+			if self.reading.chapter != trace_info.chapter {
+				if let Ok(Some(new_chapter)) = self.book.goto_chapter(trace_info.chapter) {
+					self.reading.chapter = new_chapter;
+					if new_chapter == trace_info.chapter {
+						self.reading.line = trace_info.line;
+						self.reading.position = trace_info.offset;
+					} else {
+						// would happen???
+						self.reading.line = 0;
+						self.reading.position = 0;
+					}
+				} else {
+					return None;
+				}
+			} else {
+				self.reading.line = trace_info.line;
+				self.reading.position = trace_info.offset;
+			}
+			self.push_trace(true);
+			self.redraw(context);
+			Some(self.status_msg())
+		} else {
+			Some(String::from("Can't resolve location."))
+		}
+	}
+
+	pub fn switch_chapter(&mut self, forward: bool, context: &mut C) -> Result<bool> {
+		let option = if forward {
+			self.book.next_chapter()?
+		} else {
+			self.book.prev_chapter()?
+		};
+		if let Some(new_chapter) = option {
+			self.reading.chapter = new_chapter;
+			self.reading.line = 0;
+			self.reading.position = 0;
+			self.push_trace(true);
+			self.redraw(context);
+			Ok(true)
+		} else {
+			Ok(false)
+		}
+	}
+
+	pub fn search_again(&mut self, forward: bool, context: &mut C) -> Result<()>
+	{
+		let (line, position) = match &self.highlight {
+			Some(HighlightInfo { mode: HighlightMode::Search, line, start, end }) => (*line, if forward { *end } else { *start }),
+			None | Some(HighlightInfo { mode: HighlightMode::Link(..), .. }) => (self.reading.line, self.reading.position),
+		};
+		if forward {
+			self.search_next(line, position, context)?;
+		} else {
+			self.search_prev(line, position, context)?;
+		}
+		Ok(())
+	}
+
+	pub fn search_next(&mut self, start_line: usize, start_position: usize, context: &mut C) -> Result<()> {
+		let search_text = match &self.search_pattern {
+			Some(text) => text,
+			None => return Ok(()),
+		};
+		let book = &self.book;
+		let lines = book.lines();
+		let regex = Regex::new(search_text.as_str())?;
+		let mut position = start_position;
+		for idx in start_line..lines.len() {
+			let line = &lines[idx];
+			if let Some(range) = line.search_pattern(&regex, Some(position), None, false) {
+				self.highlight = Some(HighlightInfo {
+					line: idx,
+					start: range.start,
+					end: range.end,
+					mode: HighlightMode::Search,
+				});
+				self.highlight_setup(context);
+				return Ok(());
+			}
+			position = 0;
+		}
+		Ok(())
+	}
+
+	pub fn search_prev(&mut self, start_line: usize, start_position: usize, context: &mut C) -> Result<()> {
+		let search_text = match &self.search_pattern {
+			Some(text) => text,
+			None => return Ok(()),
+		};
+		let lines = self.book.lines();
+		let regex = Regex::new(search_text.as_str())?;
+		for idx in (0..=start_line).rev() {
+			let range = if idx == start_line {
+				if start_position == 0 {
+					continue;
+				} else {
+					lines[idx].search_pattern(&regex, None, Some(start_position), true)
+				}
+			} else {
+				lines[idx].search_pattern(&regex, None, None, true)
+			};
+			if let Some(range) = range {
+				self.highlight = Some(HighlightInfo {
+					line: idx,
+					start: range.start,
+					end: range.end,
+					mode: HighlightMode::Search,
+				});
+				self.highlight_setup(context);
+				return Ok(());
+			}
+		}
+		Ok(())
+	}
+
+	fn push_trace(&mut self, clear_highlight: bool) {
+		let reading = &self.reading;
+		let trace = &mut self.trace;
+		let last = &trace[self.current_trace];
+		if last.chapter == reading.chapter && last.line == reading.line && last.offset == reading.position {
+			return;
+		}
+		trace.drain(self.current_trace + 1..);
+		trace.push(TraceInfo { chapter: reading.chapter, line: reading.line, offset: reading.position });
+		if trace.len() > TRACE_SIZE {
+			trace.drain(0..1);
+		} else {
+			self.current_trace += 1;
+		}
+		if clear_highlight {
+			self.highlight = None;
+		}
+	}
+
+	pub fn goto_trace(&mut self, backward: bool, context: &mut C) -> Result<()>
+	{
+		let reading = &mut self.reading;
+		if backward {
+			if self.current_trace == 0 {
+				return Ok(());
+			} else {
+				self.current_trace -= 1;
+			}
+		} else if self.current_trace == self.trace.len() - 1 {
+			return Ok(());
+		} else {
+			self.current_trace += 1;
+		}
+		let current_trace = &self.trace[self.current_trace];
+		if reading.chapter == current_trace.chapter {
+			reading.line = current_trace.line;
+			reading.position = current_trace.offset;
+		} else if let Some(new_chapter) = self.book.goto_chapter(current_trace.chapter)? {
+			assert_eq!(new_chapter, current_trace.chapter);
+			reading.chapter = new_chapter;
+			reading.line = current_trace.line;
+			reading.position = current_trace.offset;
+		} else {
+			return Ok(());
+		}
+		self.highlight = None;
+		self.redraw(context);
+		Ok(())
+	}
+
+	pub fn switch_link_prev(&mut self, context: &mut C)
+	{
+		let (mut line, mut position) = match &self.highlight {
+			Some(HighlightInfo { mode: HighlightMode::Link(..), line, start, .. }) => (*line, *start),
+			None | Some(HighlightInfo { mode: HighlightMode::Search, .. }) => (self.reading.line, self.reading.position)
+		};
+		let lines = self.book.lines();
+		let mut text = &lines[line];
+		loop {
+			if let Some(highlight) = text.link_iter(false, |link| {
+				if link.range.end <= position {
+					return (true, Some(HighlightInfo {
+						line,
+						start: link.range.start,
+						end: link.range.end,
+						mode: HighlightMode::Link(link.index),
+					}));
+				}
+				(false, None)
+			}) {
+				self.highlight = Some(highlight);
+				break true;
+			}
+			if line == 0 {
+				break false;
+			}
+			line -= 1;
+			text = &lines[line];
+			position = text.len();
+		};
+		self.highlight_setup(context);
+	}
+
+	pub fn switch_link_next(&mut self, context: &mut C)
+	{
+		let (line, mut position) = match &self.highlight {
+			Some(HighlightInfo { mode: HighlightMode::Link(..), line, end, .. }) => (*line, *end),
+			None | Some(HighlightInfo { mode: HighlightMode::Search, .. }) => (self.reading.line, self.reading.position),
+		};
+		let lines = self.book.lines();
+		for index in line..lines.len() {
+			let text = &lines[index];
+			if let Some(highlight) = text.link_iter(true, |link| {
+				if link.range.start >= position {
+					return (true, Some(HighlightInfo {
+						line: index,
+						start: link.range.start,
+						end: link.range.end,
+						mode: HighlightMode::Link(link.index),
+					}));
+				}
+				(false, None)
+			}) {
+				self.highlight = Some(highlight);
+				break;
+			}
+			position = 0;
+		}
+		self.highlight_setup(context);
+	}
+
+	pub fn try_goto_link(&mut self, context: &mut C) -> Result<()>
+	{
+		match self.highlight {
+			Some(HighlightInfo { mode: HighlightMode::Search, line, start, end }) => {
+				let text = &self.book.lines()[line];
+				if let Some(link_index) = text.link_iter(true, |link| {
+					let range = &link.range;
+					if range.start <= start && range.end >= end {
+						return (true, Some(link.index));
+					}
+					(false, None)
+				}) {
+					self.goto_link(line, link_index, context)?;
+				}
+			}
+			Some(HighlightInfo { mode: HighlightMode::Link(link_index), line, .. }) => {
+				self.goto_link(line, link_index, context)?;
+			}
+			None => {}
+		}
+		Ok(())
+	}
+
+	pub fn goto_link(&mut self, line: usize, link_index: usize, context: &mut C) -> Result<()>
+	{
+		if let Some(pos) = self.book.link_position(line, link_index) {
+			if pos.chapter != self.book.current_chapter() {
+				if let Some(new_chapter) = self.book.goto_chapter(pos.chapter)? {
+					assert_eq!(new_chapter, pos.chapter);
+					self.reading.chapter = new_chapter;
+				}
+			}
+			self.reading.line = pos.line;
+			self.reading.position = pos.offset;
+			self.push_trace(true);
+			if pos.offset == 0 {
+				self.redraw(context);
+			} else {
+				self.step_prev(context);
+			}
+		}
+		Ok(())
+	}
+
+	fn highlight_setup(&mut self, context: &mut C)
+	{
+		if let Some(highlight) = &self.highlight {
+			let highlight_line = highlight.line;
+			let highlight_start = highlight.start;
+			let reading_line = self.reading.line;
+			let reading_position = self.reading.position;
+			let in_current_screen = if (highlight_line == reading_line && highlight_start >= reading_position) || (highlight_line > reading_line) {
+				match &self.next {
+					Some(next) => if (highlight_line == next.line && highlight_start < next.offset) || (highlight_line < next.line) {
+						true
+					} else {
+						false
+					}
+					None => true,
+				}
+			} else {
+				false
+			};
+			if !in_current_screen {
+				let position = self.render.setup_highlight(self.book.lines(), highlight_line, highlight_start, context);
+				self.reading.line = position.line;
+				self.reading.position = position.offset;
+				self.push_trace(false);
+			}
+		}
+		self.redraw(context);
+	}
+}

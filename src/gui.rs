@@ -7,19 +7,21 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::ops::Index;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use anyhow::Result;
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::egui;
-use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, ImageButton, PointerButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
+use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, Id, ImageButton, PointerButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::emath::vec2;
 use eframe::glow::Context;
 use egui_extras::RetainedImage;
 
-use crate::{Asset, Configuration, ContainerManager, ReadingInfo, ThemeEntry};
+use crate::{Asset, Configuration, ReadingInfo, ThemeEntry};
 use crate::book::{Book, Colors, Line};
-use crate::common::{get_theme, Position, reading_info, txt_lines};
+use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
-use crate::gui::render::{create_render, DrawLine, GuiRender, measure_char_size};
+use crate::controller::Controller;
+use crate::gui::render::{create_render, GuiRender, measure_char_size, RenderContext};
 
 const ICON_SIZE: f32 = 32.0;
 const README_TEXT_FILENAME: &str = "readme";
@@ -163,20 +165,12 @@ fn setup_fonts(ctx: &egui::Context, font_paths: &HashSet<PathBuf>) -> Result<()>
 struct ReaderApp {
 	configuration: Configuration,
 	theme_entries: Vec<ThemeEntry>,
-	colors: Colors,
 	images: HashMap<String, RetainedImage>,
-	container_manager: ContainerManager,
-	container: Box<dyn Container>,
-	book: Box<dyn Book>,
-	reading: ReadingInfo,
-	render: Box<dyn GuiRender>,
+	controller: Controller<Ui, dyn GuiRender>,
 
 	popup: Option<Pos2>,
-	draw_rect: Rect,
-	draw_lines: Vec<DrawLine>,
-	next: Option<Position>,
-	font_size: u8,
-	default_font_measure: Vec2,
+	response_rect: Rect,
+	context: Arc<RwLock<RenderContext>>,
 }
 
 impl ReaderApp {
@@ -224,34 +218,42 @@ impl eframe::App for ReaderApp {
 				}
 			});
 		});
-		egui::CentralPanel::default().frame(Frame::default().fill(self.colors.background)).show(ctx, |ui| {
-			if self.font_size != self.configuration.gui.font_size {
-				self.default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
-				self.font_size = self.configuration.gui.font_size;
-			}
-			let size = ui.available_size();
-			let mut response = ui.allocate_response(size, Sense::click_and_drag());
-			let rect = &response.rect;
-			let margin = self.default_font_measure.y / 2.0;
-			let draw_rect = Rect::from_min_max(
-				Pos2::new(rect.min.x + margin, rect.min.y + margin),
-				Pos2::new(rect.max.x - margin, rect.max.y - margin));
-			if rect.min != self.draw_rect.min || rect.max != self.draw_rect.max {
-				self.draw_rect = rect.clone();
-				ui.set_clip_rect(Rect::NOTHING);
-				self.next = self.render.redraw(&self.book, &self.reading, &self.colors, self.font_size, &self.default_font_measure, &draw_rect, &mut self.draw_lines, ui);
-			}
-			ui.set_clip_rect(draw_rect);
-			self.render.draw(&self.draw_lines, ui);
-			self.setup_popup(ui, &mut response);
-			response
-		});
+		if let Ok(mut context) = self.context.clone().write() {
+			egui::CentralPanel::default().frame(Frame::default().fill(context.colors.background)).show(ctx, |ui| {
+				if context.font_size != self.configuration.gui.font_size {
+					context.default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
+					context.font_size = self.configuration.gui.font_size;
+				}
+				let size = ui.available_size();
+				let mut response = ui.allocate_response(size, Sense::click_and_drag());
+				self.setup_popup(ui, &mut response);
+				let rect = &response.rect;
+				if rect.min != self.response_rect.min || rect.max != self.response_rect.max {
+					self.response_rect = rect.clone();
+					let margin = context.default_font_measure.y / 2.0;
+					let draw_rect = Rect::from_min_max(
+						Pos2::new(rect.min.x + margin, rect.min.y + margin),
+						Pos2::new(rect.max.x - margin, rect.max.y - margin));
+					context.rect = draw_rect.clone();
+					ui.set_clip_rect(Rect::NOTHING);
+					self.controller.render.reset_render_context(&mut context);
+					ui.data().insert_temp(render_context_id(), self.context.clone());
+					drop(context);
+					ui.set_clip_rect(draw_rect);
+					self.controller.redraw(ui);
+				} else {
+					ui.set_clip_rect(context.rect);
+					self.controller.render.draw(&context.render_lines, ui);
+				}
+				response
+			});
+		}
 	}
 
 	fn on_exit(&mut self, _gl: &Context) {
-		if self.reading.filename != README_TEXT_FILENAME {
-			self.configuration.current = Some(self.reading.filename.clone());
-			self.configuration.history.push(self.reading.clone());
+		if self.controller.reading.filename != README_TEXT_FILENAME {
+			self.configuration.current = Some(self.controller.reading.filename.clone());
+			self.configuration.history.push(self.controller.reading.clone());
 		}
 		if let Err(e) = self.configuration.save() {
 			println!("Failed save configuration: {}", e.to_string());
@@ -280,6 +282,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 		let book: Box<dyn Book> = Box::new(ReadmeBook::new());
 		(container, book, ReadingInfo::new(README_TEXT_FILENAME))
 	};
+	let controller = Controller::from_data(reading, &configuration.search_pattern, container_manager, container, book, render)?;
 
 	let options = eframe::NativeOptions {
 		drag_and_drop_support: true,
@@ -292,25 +295,33 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 			if let Err(e) = setup_fonts(&cc.egui_ctx, &configuration.gui.fonts) {
 				println!("Failed setup fonts: {}", e.to_string());
 			}
+			let context = RenderContext {
+				rect: Rect::NOTHING,
+				colors,
+				font_size: 0,
+				default_font_measure: Vec2::ZERO,
+				leading_space: 0.0,
+				max_page_size: 0.0,
+				line_base: 0.0,
+				render_lines: vec![],
+			};
 			let app = ReaderApp {
 				configuration,
 				theme_entries,
-				colors,
 				images,
-				container_manager,
-				container,
-				book,
-				reading,
-				render,
+				controller,
 
 				popup: None,
-				draw_rect: Rect::NOTHING,
-				draw_lines: vec![],
-				next: None,
-				font_size: 0,
-				default_font_measure: Vec2::ZERO,
+				response_rect: Rect::NOTHING,
+				context: Arc::new(RwLock::new(context)),
 			};
 			Box::new(app)
 		}),
 	);
+}
+
+#[inline]
+pub fn render_context_id() -> Id
+{
+	Id::new("render_context")
 }

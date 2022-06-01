@@ -20,8 +20,8 @@ use serde_derive::{Deserialize, Serialize};
 use toml;
 
 use crate::book::BookLoader;
+use crate::common::Position;
 use crate::container::ContainerManager;
-use terminal::view::HighlightInfo;
 
 mod terminal;
 mod common;
@@ -29,6 +29,7 @@ mod list;
 mod book;
 mod html_convertor;
 mod container;
+mod controller;
 #[cfg(feature = "gui")]
 mod gui;
 
@@ -81,8 +82,6 @@ pub struct ReadingInfo {
 	line: usize,
 	position: usize,
 	ts: u64,
-	#[serde(skip)]
-	highlight: Option<HighlightInfo>,
 }
 
 impl ReadingInfo {
@@ -94,7 +93,6 @@ impl ReadingInfo {
 			line: 0,
 			position: 0,
 			ts: 0,
-			highlight: None,
 		}
 	}
 	pub(crate) fn with_last_chapter(mut self) -> Self {
@@ -123,7 +121,6 @@ impl Clone for ReadingInfo {
 			line: self.line,
 			position: self.position,
 			ts: ReadingInfo::now(),
-			highlight: None,
 		}
 	}
 }
@@ -263,7 +260,7 @@ fn load_config(filename: Option<String>, config_file: PathBuf, themes_dir: &Path
 			let filepath = file_path(filename);
 
 			(Configuration {
-				render_type: String::from("xi"),
+				render_type: String::from("han"),
 				search_pattern: None,
 				current: filepath,
 				history: vec![],

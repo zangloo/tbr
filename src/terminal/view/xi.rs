@@ -1,45 +1,39 @@
 use crate::book::Line;
 use crate::common::{char_width, with_leading};
-use crate::ReadingInfo;
-use crate::terminal::view::{DrawChar, DrawCharMode, Position, Render, RenderContext};
+use crate::controller::HighlightInfo;
+use crate::terminal::view::{DrawChar, DrawCharMode, Position, Render, RenderContext, TerminalRender};
 
 const TAB_SIZE: usize = 4;
 
 pub struct Xi {}
 
-impl Default for Xi {
-	fn default() -> Self {
-		Xi {}
-	}
-}
+impl TerminalRender for Xi {}
 
-impl Render for Xi {
-	fn redraw(&mut self, lines: &Vec<Line>, reading: &ReadingInfo, context: &mut RenderContext) {
+impl Render<RenderContext> for Xi {
+	fn redraw(&mut self, lines: &Vec<Line>, line: usize, mut offset: usize, highlight: &Option<HighlightInfo>, context: &mut RenderContext) -> Option<Position> {
 		let height = context.height;
 		let width = context.width;
-		let mut position = reading.position;
 		context.print_lines.clear();
-		for line in reading.line..lines.len() {
+		for line in line..lines.len() {
 			let text = &lines[line];
-			let wrapped_breaks = self.wrap_line(text, position, usize::MAX, width, context, Some(WrapLineDrawingContext {
-				line,
-				reading,
-				lines,
-			}));
+			let wrapped_breaks = self.wrap_line(text, offset, usize::MAX, width,
+				Some(WrapLineDrawingContext {
+					line,
+					highlight,
+					lines,
+				}), context);
 			let current_lines = context.print_lines.len();
 			if current_lines == height {
-				if line >= lines.len() - 1 {
-					context.next = None;
+				return if line >= lines.len() - 1 {
+					None
 				} else {
-					context.next = Some(Position { line: line + 1, offset: 0 });
-				}
-				return;
+					Some(Position { line: line + 1, offset: 0 })
+				};
 			} else if current_lines > height {
 				let gap = current_lines - height;
-				context.next = Some(Position { line, offset: wrapped_breaks[wrapped_breaks.len() - gap] });
-				return;
+				return Some(Position { line, offset: wrapped_breaks[wrapped_breaks.len() - gap] });
 			}
-			position = 0;
+			offset = 0;
 		}
 		let blank_lines = height - context.print_lines.len();
 		for _x in 0..blank_lines {
@@ -49,23 +43,23 @@ impl Render for Xi {
 			}
 			context.print_lines.push(print_line);
 		}
-		context.next = None;
+		None
 	}
 
-	fn prev(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
+	fn prev(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut RenderContext) -> Position {
 		let height = context.height;
 		let width = context.width;
-		let (mut line, mut end_position) = if reading.position == 0 {
-			(reading.line - 1, usize::MAX)
+		let (mut line, mut end_position) = if offset == 0 {
+			(line - 1, usize::MAX)
 		} else {
-			(reading.line, reading.position)
+			(line, offset)
 		};
 		let mut rows = 0;
 		let position;
 		context.print_lines.clear();
 		loop {
 			let text = &lines[line];
-			let wrapped_breaks = self.wrap_line(text, 0, end_position, width, context, None);
+			let wrapped_breaks = self.wrap_line(text, 0, end_position, width, None, context);
 			end_position = usize::MAX;
 			let new_lines = wrapped_breaks.len();
 			rows += new_lines;
@@ -79,56 +73,44 @@ impl Render for Xi {
 			}
 			line -= 1;
 		}
-		reading.line = line;
-		reading.position = position;
-		self.redraw(lines, reading, context);
+		Position::new(line, position)
 	}
 
-	fn next_line(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
-		let line = reading.line;
+	fn next_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut RenderContext) -> Position {
 		let width = context.width;
 		let text = &lines[line];
-		let position = reading.position;
-		let wrapped_breaks = self.wrap_line(text, position, usize::MAX, width, context, None);
-		if wrapped_breaks.len() == 1 {
-			reading.line += 1;
-			reading.position = 0;
+		let wrapped_breaks = self.wrap_line(text, offset, usize::MAX, width, None, context);
+		let (new_line, new_offset) = if wrapped_breaks.len() == 1 {
+			(line + 1, 0)
 		} else {
-			reading.position = wrapped_breaks[1];
-		}
-		self.redraw(lines, reading, context);
-	}
-
-	fn prev_line(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
-		let width = context.width;
-		let (text, line, position) = if reading.position == 0 {
-			let line = if reading.line == 0 {
-				return;
-			} else {
-				reading.line - 1
-			};
-			let text = &lines[line];
-			(text, line, usize::MAX)
-		} else {
-			let line = reading.line;
-			(&lines[line], line, reading.position)
+			(line, wrapped_breaks[1])
 		};
-		let wrapped_breaks = self.wrap_line(text, 0, position, width, context, None);
-		let breaks_count = wrapped_breaks.len();
-		reading.line = line;
-		reading.position = wrapped_breaks[breaks_count - 1];
-		self.redraw(lines, reading, context);
+		Position::new(new_line, new_offset)
 	}
 
-	fn setup_highlight(&mut self, lines: &Vec<Line>, reading: &mut ReadingInfo, context: &mut RenderContext) {
-		let highlight = &reading.highlight.as_ref().unwrap();
-		let highlight_line = highlight.line;
-		let highlight_start = highlight.start;
+	fn prev_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut RenderContext) -> Position {
+		let width = context.width;
+		let (text, new_line, new_offset) = if offset == 0 {
+			let new_line = if line == 0 {
+				return Position::new(0, 0);
+			} else {
+				line - 1
+			};
+			let text = &lines[new_line];
+			(text, new_line, usize::MAX)
+		} else {
+			(&lines[line], line, offset)
+		};
+		let wrapped_breaks = self.wrap_line(text, 0, new_offset, width, None, context);
+		let breaks_count = wrapped_breaks.len();
+		Position::new(new_line, wrapped_breaks[breaks_count - 1])
+	}
+
+	fn setup_highlight(&mut self, lines: &Vec<Line>, highlight_line: usize, highlight_start: usize, context: &mut RenderContext) -> Position {
 		let width = context.width;
 		let text = &lines[highlight_line];
-		let wrapped_breaks = self.wrap_line(text, 0, highlight_start + 1, width, context, None);
-		reading.line = highlight_line;
-		reading.position = wrapped_breaks[wrapped_breaks.len() - 1];
+		let wrapped_breaks = self.wrap_line(text, 0, highlight_start + 1, width, None, context);
+		Position::new(highlight_line, wrapped_breaks[wrapped_breaks.len() - 1])
 	}
 }
 
@@ -141,13 +123,18 @@ fn fill_print_line(print_line: &mut Vec<DrawChar>, chars: usize) {
 
 struct WrapLineDrawingContext<'a> {
 	line: usize,
-	reading: &'a ReadingInfo,
+	highlight: &'a Option<HighlightInfo>,
 	lines: &'a Vec<Line>,
 }
 
-impl Xi {
-	fn wrap_line(&mut self, text: &Line, start_position: usize, end_position: usize, width: usize,
-		context: &mut RenderContext, draw_context: Option<WrapLineDrawingContext>) -> Vec<usize> {
+impl Xi
+{
+	pub fn new() -> Self
+	{
+		Xi {}
+	}
+
+	fn wrap_line(&mut self, text: &Line, start_position: usize, end_position: usize, width: usize, draw_context: Option<WrapLineDrawingContext>, context: &mut RenderContext) -> Vec<usize> {
 		let with_leading_space = if context.leading_space > 0 {
 			start_position == 0 && with_leading(text)
 		} else {
@@ -237,7 +224,7 @@ impl Xi {
 				}
 			} else {
 				let dc = match &draw_context {
-					Some(context) => self.setup_draw_char(*char, context.line, position, context.lines, context.reading),
+					Some(context) => self.setup_draw_char(*char, context.line, position, context.lines, context.highlight),
 					None => DrawChar::new(*char, DrawCharMode::Plain),
 				};
 				print_line.push(dc);
@@ -262,7 +249,6 @@ impl Xi {
 #[cfg(test)]
 mod tests {
 	use crate::book::Line;
-	use crate::ReadingInfo;
 	use crate::terminal::view::{DrawChar, DrawCharMode, Render, RenderContext};
 	use crate::terminal::view::xi::{fill_print_line, Xi};
 
@@ -281,50 +267,37 @@ mod tests {
 	#[test]
 	fn test_wrap() {
 		let mut lines = vec![];
-		lines.push(Line::from("SIGNET"));
-		lines.push(Line::from("Published by New American Library, a division of Penguin Group (USA) Inc., 375 Hudson Street, New York, New York 10014, USA Penguin Group (Canada), 90 Eglinton Avenue East, Suite 700, Toronto, Ontario M4P 2Y3, Canada (a division of Pearson Penguin Canada Inc.) Penguin Books Ltd., 80 Strand, London WC2R 0RL, England Penguin Ireland, 25 St. Stephen’s Green, Dublin 2, Ireland (a division of Penguin Books Ltd.) Penguin Group (Australia), 250 Camberwell Road, Camberwell, Victoria 3124, Australia (a division of Pearson Australia Group Pty. Ltd.) Penguin Books India Pvt. Ltd., 11 Community Centre, Panchsheel Park, New Delhi - 110 017, India Penguin Group (NZ), 67 Apollo Drive, Mairangi Bay, Albany, Auckland 1311, New Zealand (a division of Pearson New Zealand Ltd.) Penguin Books (South Africa) (Pty.) Ltd., 24 Sturdee Avenue, Rosebank, Johannesburg 2196, South Africa"));
-		lines.push(Line::from("Penguin Books Ltd., Registered Offices: 80 Strand, London WC2R 0RL, England"));
-		lines.push(Line::from("Published by Signet, an imprint of New American Library, a division of Penguin Group (USA) Inc. Previously published in a Viking edition. First Signet Printing, August 1983 70"));
-		lines.push(Line::from("Copyright © Stephen King, 1982"));
-		lines.push(Line::from("All rights reserved"));
-		lines.push(Line::from("eISBN : 978-1-101-13808-3"));
-		lines.push(Line::from("Grateful acknowledgment is made to the following for permission to reprint copyrighted material."));
-		lines.push(Line::from("Beechwood Music Corporation and Castle Music Pty. Limited:Portions of lyrics from “Tie Me Kangaroo Down, Sport,” by Rolf Harris. Copyright © Castle Music Pty. Limited, 1960. Assigned to and copyrighted © Beechwood Music Corp., 1961 for the United States and Canada. Copyright © Castle Music Pty. Limited for other territories. Used by permission. All rights reserved."));
-		lines.push(Line::from("Big Seven Music Corporation:Portions of lyrics from “Party Doll,” by Buddy Knox and Jimmy Bowen. Copyright © Big Seven Music Corp., 1956. Portions of lyrics from “Sorry (I Ran All the Way Home)” by Zwirn/Giosasi. Copyright © Big Seven Music Corp., 1959. All rights reserved."));
-		lines.push(Line::from("Holt, Rinehart and Winston, Publishers; Jonathan Cape Ltd.; and the Estate of Robert Frost:Two lines from “Mending Wall” from The Poetry of Robert Frost,edited by Edward Connery Lathem. Copyright ©Holt, Rinehart and Winston, 1930, 1939, 1969. Copyright © Robert Frost, 1958. Copyright © Lesley Frost Ballantine, 1967."));
-		lines.push(Line::from("REGISTERED TRADEMARK—MARCA REGISTRADA"));
-		lines.push(Line::from("Without limiting the rights under copyright reserved above, no part of this publication may be reproduced, stored in or introduced into a retrieval system, or transmitted, in any form, or by any means (electronic, mechanical, photocopying, recording, or otherwise), without the prior written permission of both the copyright owner and the above publisher of this book."));
-		lines.push(Line::from("PUBLISHER’S NOTE"));
-		lines.push(Line::from("These are works of fiction. Names, characters, places, and incidents either are the product of the author’s imagination or are used fictitiously, and any resemblance to actual persons, living or dead, business establishments, events, or locales is entirely coincidental."));
-		lines.push(Line::from("The publisher does not have any control over and does not assume any responsibility for author or third-party Web sites or their content."));
-		lines.push(Line::from("The scanning, uploading, and distribution of this book via the Internet or via any other means without the permission of the publisher is illegal and punishable by law. Please purchase only authorized electronic editions, and do not participate in or encourage electronic piracy of copyrighted materials. Your support of the author’s rights is appreciated."));
-		lines.push(Line::from("http://us.penguingroup.com"));
+		lines.push(Line::new("SIGNET"));
+		lines.push(Line::new("Published by New American Library, a division of Penguin Group (USA) Inc., 375 Hudson Street, New York, New York 10014, USA Penguin Group (Canada), 90 Eglinton Avenue East, Suite 700, Toronto, Ontario M4P 2Y3, Canada (a division of Pearson Penguin Canada Inc.) Penguin Books Ltd., 80 Strand, London WC2R 0RL, England Penguin Ireland, 25 St. Stephen’s Green, Dublin 2, Ireland (a division of Penguin Books Ltd.) Penguin Group (Australia), 250 Camberwell Road, Camberwell, Victoria 3124, Australia (a division of Pearson Australia Group Pty. Ltd.) Penguin Books India Pvt. Ltd., 11 Community Centre, Panchsheel Park, New Delhi - 110 017, India Penguin Group (NZ), 67 Apollo Drive, Mairangi Bay, Albany, Auckland 1311, New Zealand (a division of Pearson New Zealand Ltd.) Penguin Books (South Africa) (Pty.) Ltd., 24 Sturdee Avenue, Rosebank, Johannesburg 2196, South Africa"));
+		lines.push(Line::new("Penguin Books Ltd., Registered Offices: 80 Strand, London WC2R 0RL, England"));
+		lines.push(Line::new("Published by Signet, an imprint of New American Library, a division of Penguin Group (USA) Inc. Previously published in a Viking edition. First Signet Printing, August 1983 70"));
+		lines.push(Line::new("Copyright © Stephen King, 1982"));
+		lines.push(Line::new("All rights reserved"));
+		lines.push(Line::new("eISBN : 978-1-101-13808-3"));
+		lines.push(Line::new("Grateful acknowledgment is made to the following for permission to reprint copyrighted material."));
+		lines.push(Line::new("Beechwood Music Corporation and Castle Music Pty. Limited:Portions of lyrics from “Tie Me Kangaroo Down, Sport,” by Rolf Harris. Copyright © Castle Music Pty. Limited, 1960. Assigned to and copyrighted © Beechwood Music Corp., 1961 for the United States and Canada. Copyright © Castle Music Pty. Limited for other territories. Used by permission. All rights reserved."));
+		lines.push(Line::new("Big Seven Music Corporation:Portions of lyrics from “Party Doll,” by Buddy Knox and Jimmy Bowen. Copyright © Big Seven Music Corp., 1956. Portions of lyrics from “Sorry (I Ran All the Way Home)” by Zwirn/Giosasi. Copyright © Big Seven Music Corp., 1959. All rights reserved."));
+		lines.push(Line::new("Holt, Rinehart and Winston, Publishers; Jonathan Cape Ltd.; and the Estate of Robert Frost:Two lines from “Mending Wall” from The Poetry of Robert Frost,edited by Edward Connery Lathem. Copyright ©Holt, Rinehart and Winston, 1930, 1939, 1969. Copyright © Robert Frost, 1958. Copyright © Lesley Frost Ballantine, 1967."));
+		lines.push(Line::new("REGISTERED TRADEMARK—MARCA REGISTRADA"));
+		lines.push(Line::new("Without limiting the rights under copyright reserved above, no part of this publication may be reproduced, stored in or introduced into a retrieval system, or transmitted, in any form, or by any means (electronic, mechanical, photocopying, recording, or otherwise), without the prior written permission of both the copyright owner and the above publisher of this book."));
+		lines.push(Line::new("PUBLISHER’S NOTE"));
+		lines.push(Line::new("These are works of fiction. Names, characters, places, and incidents either are the product of the author’s imagination or are used fictitiously, and any resemblance to actual persons, living or dead, business establishments, events, or locales is entirely coincidental."));
+		lines.push(Line::new("The publisher does not have any control over and does not assume any responsibility for author or third-party Web sites or their content."));
+		lines.push(Line::new("The scanning, uploading, and distribution of this book via the Internet or via any other means without the permission of the publisher is illegal and punishable by law. Please purchase only authorized electronic editions, and do not participate in or encourage electronic piracy of copyrighted materials. Your support of the author’s rights is appreciated."));
+		lines.push(Line::new("http://us.penguingroup.com"));
 
-		let mut xi = Xi {};
-		let mut reading = ReadingInfo {
-			filename: "dummy".to_string(),
-			inner_book: 0,
-			chapter: 0,
-			line: 0,
-			position: 0,
-			ts: 0,
-			highlight: None,
-		};
 		let mut context = RenderContext {
 			width: TEST_WIDTH,
 			height: 23,
 			print_lines: vec![],
-			search_color: Default::default(),
-			link_color: Default::default(),
-			highlight_link_color: Default::default(),
-			color: Default::default(),
 			leading_space: 2,
-			next: None,
 		};
+		let mut xi = Xi {};
 		// first page draw resul verify
-		xi.redraw(&lines, &reading, &mut context);
-		assert!(context.next.is_some());
-		let next = &context.next.as_ref().unwrap();
+		let next = xi.redraw(&lines, 0, 0, &None, &mut context);
+
+		assert!(next.is_some());
+		let next = next.unwrap();
 		assert_eq!(next.line, 8);
 		assert_eq!(next.offset, 77);
 
@@ -360,14 +333,13 @@ mod tests {
 		}
 
 		// 2nd page draw resul verify
-		reading.line = next.line;
-		reading.position = next.offset;
-		xi.redraw(&lines, &reading, &mut context);
+		let next = xi.redraw(&lines, next.line, next.offset, &None, &mut context);
 
-		assert!(context.next.is_some());
-		let next = context.next.as_ref().unwrap();
+		assert!(next.is_some());
+		let next = next.unwrap();
 		assert_eq!(next.line, 14);
 		assert_eq!(next.offset, 234);
+
 		let mut result_lines = vec![];
 		result_lines.push(to_draw_line("from “Tie Me Kangaroo Down, Sport,” by Rolf Harris. Copyright © Castle Music"));
 		result_lines.push(to_draw_line("Pty. Limited, 1960. Assigned to and copyrighted © Beechwood Music Corp., 1961"));
@@ -400,11 +372,9 @@ mod tests {
 		}
 
 		// 3rd page draw resul verify
-		reading.line = next.line;
-		reading.position = next.offset;
-		xi.redraw(&lines, &reading, &mut context);
+		let next = xi.redraw(&lines, next.line, next.offset, &None, &mut context);
 
-		assert!(context.next.is_none());
+		assert!(next.is_none());
 		let mut result_lines = vec![];
 		result_lines.push(to_draw_line("or locales is entirely coincidental."));
 		result_lines.push(to_draw_line("  The publisher does not have any control over and does not assume any"));
