@@ -7,7 +7,7 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::ops::Index;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::egui;
@@ -170,7 +170,7 @@ struct ReaderApp {
 
 	popup: Option<Pos2>,
 	response_rect: Rect,
-	context: Arc<RwLock<RenderContext>>,
+	context: Arc<Mutex<RenderContext>>,
 }
 
 impl ReaderApp {
@@ -218,7 +218,7 @@ impl eframe::App for ReaderApp {
 				}
 			});
 		});
-		if let Ok(mut context) = self.context.clone().write() {
+		if let Ok(mut context) = self.context.clone().lock() {
 			egui::CentralPanel::default().frame(Frame::default().fill(context.colors.background)).show(ctx, |ui| {
 				if context.font_size != self.configuration.gui.font_size {
 					context.default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
@@ -313,7 +313,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 
 				popup: None,
 				response_rect: Rect::NOTHING,
-				context: Arc::new(RwLock::new(context)),
+				context: Arc::new(Mutex::new(context)),
 			};
 			Box::new(app)
 		}),

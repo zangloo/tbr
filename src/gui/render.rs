@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use eframe::egui::{Align2, FontFamily, FontId, Rect, Rounding, Stroke, Ui};
 use eframe::emath::{Pos2, Vec2};
 use eframe::epaint::Color32;
@@ -70,8 +70,8 @@ pub(super) trait GuiRender: Render<Ui> {
 	fn gui_redraw(&self, lines: &Vec<Line>, reading_line: usize, reading_offset: usize,
 		highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
 	{
-		let render_context: Arc<RwLock<RenderContext>> = ui.data().get_temp(render_context_id()).unwrap();
-		let mut context = match render_context.write() {
+		let render_context: Arc<Mutex<RenderContext>> = ui.data().get_temp(render_context_id()).unwrap();
+		let mut context = match render_context.lock() {
 			Ok(c) => c,
 			Err(e) => panic!("{}", e.to_string()),
 		};
