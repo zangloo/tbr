@@ -243,7 +243,7 @@ impl eframe::App for ReaderApp {
 					self.controller.redraw(ui);
 				} else {
 					ui.set_clip_rect(context.rect);
-					self.controller.render.draw(&context.render_lines, ui);
+					self.controller.render.draw(&context, ui);
 				}
 				response
 			});

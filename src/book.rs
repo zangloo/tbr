@@ -41,8 +41,8 @@ pub struct CharStyle {
 	pub font_scale: f32,
 	pub color: Color32,
 	pub background: Option<Color32>,
-	pub line: Option<(TextDecorationLine, StylePosition)>,
-	pub border: Option<StylePosition>,
+	pub line: Option<(TextDecorationLine, Range<usize>)>,
+	pub border: Option<Range<usize>>,
 }
 
 #[derive(Clone)]
@@ -53,13 +53,6 @@ pub struct Colors
 	pub highlight: Color32,
 	pub highlight_background: Color32,
 	pub link: Color32,
-}
-
-pub enum StylePosition {
-	Start,
-	Middle,
-	End,
-	Single,
 }
 
 pub struct Line {
@@ -202,19 +195,6 @@ impl Line {
 	#[cfg(feature = "gui")]
 	pub fn char_style_at(&self, index: usize, colors: &Colors) -> CharStyle
 	{
-		#[inline]
-		fn style_position(index: usize, range: &Range<usize>) -> StylePosition
-		{
-			if range.len() == 1 {
-				StylePosition::Single
-			} else if index == range.start {
-				StylePosition::Start
-			} else if index == range.end - 1 {
-				StylePosition::End
-			} else {
-				StylePosition::Middle
-			}
-		}
 		let mut char_style = CharStyle {
 			font_scale: 1.0,
 			color: colors.color,
@@ -234,11 +214,11 @@ impl Line {
 					}
 					TextStyle::Image(_) => continue,
 					TextStyle::Link(_) => {
-						char_style.line = Some((TextDecorationLine::Underline, style_position(index, range)));
+						char_style.line = Some((TextDecorationLine::Underline, range.clone()));
 						char_style.color = colors.link;
 					}
-					TextStyle::Border => char_style.border = Some(style_position(index, range)),
-					TextStyle::Line(line) => char_style.line = Some((*line, style_position(index, range))),
+					TextStyle::Border => char_style.border = Some(range.clone()),
+					TextStyle::Line(line) => char_style.line = Some((*line, range.clone())),
 				}
 			}
 		}

@@ -49,12 +49,13 @@ impl GuiRender for GuiXiRender
 		todo!()
 	}
 
-	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, ui: &mut Ui, draw_context: &mut RenderContext) -> Vec<RenderLine>
+	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>
 	{
 		todo!()
 	}
 
-	fn draw_style(&self, text: &Line, draw_text: &RenderLine, ui: &mut Ui) {
+	fn draw_style(&self, draw_text: &RenderLine, ui: &mut Ui)
+	{
 		todo!()
 	}
 }

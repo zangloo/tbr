@@ -1,9 +1,10 @@
-use std::sync::{Arc, Mutex, RwLock};
+use std::ops::Range;
+use std::sync::{Arc, Mutex};
 use eframe::egui::{Align2, FontFamily, FontId, Rect, Rounding, Stroke, Ui};
 use eframe::emath::{Pos2, Vec2};
 use eframe::epaint::Color32;
 
-use crate::book::{Colors, Line, StylePosition, TextStyle};
+use crate::book::{Colors, Line, TextStyle};
 use crate::common::Position;
 use crate::controller::{HighlightInfo, Render};
 use crate::gui::render::han::GuiHanRender;
@@ -13,13 +14,12 @@ use crate::gui::render_context_id;
 mod han;
 mod xi;
 
-pub(crate) struct RenderChar
-{
+pub(super) struct RenderChar {
 	pub char: char,
 	pub font_size: f32,
 	pub color: Color32,
 	pub background: Option<Color32>,
-	pub style: Option<(TextStyle, StylePosition)>,
+	pub style: Option<(TextStyle, Range<usize>)>,
 
 	pub line: usize,
 	pub offset: usize,
@@ -27,8 +27,7 @@ pub(crate) struct RenderChar
 	pub draw_offset: Pos2,
 }
 
-pub(crate) struct RenderLine
-{
+pub(super) struct RenderLine {
 	chars: Vec<RenderChar>,
 	draw_size: f32,
 	line_space: f32,
@@ -64,8 +63,8 @@ pub(super) trait GuiRender: Render<Ui> {
 	// return (max_page_size, baseline, leading_space)
 	fn reset_render_context(&self, render_context: &mut RenderContext);
 	fn create_render_line(&self, default_font_measure: &Vec2) -> RenderLine;
-	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
-	fn draw_style(&self, text: &Line, draw_text: &RenderLine, ui: &mut Ui);
+	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
+	fn draw_style(&self, draw_text: &RenderLine, ui: &mut Ui);
 
 	fn gui_redraw(&self, lines: &Vec<Line>, reading_line: usize, reading_offset: usize,
 		highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
@@ -87,7 +86,7 @@ pub(super) trait GuiRender: Render<Ui> {
 						font_size: 1.0,
 						color: context.colors.color,
 						background: None,
-						style: Some((TextStyle::Image(target.to_string()), StylePosition::Single)),
+						style: Some((TextStyle::Image(target.to_string()), offset..offset + 1)),
 
 						line: index,
 						offset,
@@ -105,7 +104,7 @@ pub(super) trait GuiRender: Render<Ui> {
 					Some(Position::new(index, 0))
 				};
 			}
-			let wrapped_lines = self.wrap_line(&line, index, offset, line.len(), ui, &mut context);
+			let wrapped_lines = self.wrap_line(&line, index, offset, line.len(), highlight, ui, &mut context);
 			offset = 0;
 			for wrapped_line in wrapped_lines {
 				drawn_size += wrapped_line.draw_size + wrapped_line.line_space;
@@ -121,13 +120,13 @@ pub(super) trait GuiRender: Render<Ui> {
 				context.render_lines.push(wrapped_line);
 			}
 		}
-		self.draw(&context.render_lines, ui);
+		self.draw(&context, ui);
 		None
 	}
 
-	fn draw(&self, render_lines: &Vec<RenderLine>, ui: &mut Ui)
+	fn draw(&self, context: &RenderContext, ui: &mut Ui)
 	{
-		for render_line in render_lines {
+		for render_line in &context.render_lines {
 			for dc in &render_line.chars {
 				if let Some(bg) = dc.background {
 					ui.painter().rect(dc.rect.clone(), Rounding::none(), bg, Stroke::default());
@@ -135,11 +134,26 @@ pub(super) trait GuiRender: Render<Ui> {
 				let draw_position = Pos2::new(dc.rect.min.x + dc.draw_offset.x, dc.rect.min.y + dc.draw_offset.y);
 				paint_char(ui, dc.char, dc.font_size, &draw_position, Align2::LEFT_TOP, dc.color);
 			}
+			self.draw_style(render_line, ui);
 		}
 	}
 }
 
-pub(crate) fn measure_char_size(ui: &mut Ui, char: char, font_size: f32) -> Vec2 {
+#[inline]
+pub(self) fn update_for_highlight(line: usize, offset: usize, background: Option<Color32>, colors: &Colors, highlight: &Option<HighlightInfo>) -> Option<Color32>
+{
+	if let Some(highlight) = highlight {
+		if highlight.line == line && highlight.start <= offset && highlight.end > offset {
+			Some(colors.highlight_background)
+		} else {
+			background
+		}
+	} else {
+		background
+	}
+}
+
+pub(super) fn measure_char_size(ui: &mut Ui, char: char, font_size: f32) -> Vec2 {
 	let old_clip_rect = ui.clip_rect();
 	ui.set_clip_rect(Rect::NOTHING);
 	let rect = paint_char(ui, char, font_size, &Pos2::ZERO, Align2::LEFT_TOP, Color32::BLACK);
