@@ -13,7 +13,7 @@ pub trait Render<C> {
 	// return next
 	fn redraw(&mut self, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, context: &mut C) -> Option<Position>;
 	// return new position
-	fn prev(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut C) -> Position;
+	fn prev_page(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut C) -> Position;
 	// return new position
 	fn next_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut C) -> Position;
 	// return new position
@@ -226,7 +226,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				reading.chapter = current_chapter;
 				let lines = self.book.lines();
 				// prev need decrease this invalid reading.line
-				let position = self.render.prev(lines, lines.len(), 0, context);
+				let position = self.render.prev_page(lines, lines.len(), 0, context);
 				self.redraw_at(position.line, position.offset, context);
 			} else {
 				if reading.inner_book > 0 {
@@ -235,7 +235,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 						.with_last_chapter();
 					self.book = load_book(&self.container_manager, &mut self.container, &mut new_reading)?;
 					let lines = self.book.lines();
-					let position = self.render.prev(lines, lines.len(), lines[new_reading.line - 1].len(), context);
+					let position = self.render.prev_page(lines, lines.len(), lines[new_reading.line - 1].len(), context);
 					new_reading.chapter = self.book.current_chapter();
 					new_reading.line = position.line;
 					new_reading.position = position.offset;
@@ -247,7 +247,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				}
 			}
 		} else {
-			let position = self.render.prev(self.book.lines(), self.reading.line, self.reading.position, context);
+			let position = self.render.prev_page(self.book.lines(), self.reading.line, self.reading.position, context);
 			self.redraw_at(position.line, position.offset, context);
 		}
 		Ok(())
@@ -256,22 +256,49 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	pub fn goto_end(&mut self, context: &mut C)
 	{
 		let lines = self.book.lines();
-		let position = self.render.prev(lines, lines.len(), 0, context);
+		let position = self.render.prev_page(lines, lines.len(), 0, context);
 		self.redraw_at(position.line, position.offset, context);
 	}
 
 	pub fn step_prev(&mut self, context: &mut C)
 	{
+		let lines = self.book.lines();
 		let reading = &self.reading;
-		let position = self.render.prev_line(self.book.lines(), reading.line, reading.position, context);
+		let line = reading.line;
+		let offset = reading.position;
+		if offset == 0 {
+			if line == 0 {
+				return;
+			} else {
+				let new_line = line - 1;
+				let text = &lines[new_line];
+				if text.len() == 0 {
+					self.redraw_at(new_line, 0, context);
+					return;
+				}
+			}
+		}
+		let position = self.render.prev_line(lines, line, offset, context);
 		self.redraw_at(position.line, position.offset, context);
 	}
 
 	pub fn step_next(&mut self, context: &mut C)
 	{
 		if self.next.is_some() {
+			let lines = self.book.lines();
 			let reading = &self.reading;
-			let position = self.render.next_line(self.book.lines(), reading.line, reading.position, context);
+			let line = reading.line;
+
+			let text = &lines[line];
+			if text.len() == 0 {
+				let new_line = line + 1;
+				if line < lines.len() {
+					self.redraw_at(new_line, 0, context);
+					return;
+				}
+			}
+
+			let position = self.render.next_line(lines, line, reading.position, context);
 			self.redraw_at(position.line, position.offset, context);
 		}
 	}

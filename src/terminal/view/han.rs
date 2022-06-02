@@ -148,7 +148,7 @@ impl Render<RenderContext> for Han {
 		})
 	}
 
-	fn prev(&mut self, lines: &Vec<Line>, new_line: usize, new_offset: usize, context: &mut RenderContext) -> Position
+	fn prev_page(&mut self, lines: &Vec<Line>, new_line: usize, new_offset: usize, context: &mut RenderContext) -> Position
 	{
 		let height = context.height;
 		let mut line = new_line;

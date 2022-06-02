@@ -20,7 +20,7 @@ impl Render<Ui> for GuiXiRender {
 		todo!()
 	}
 
-	fn prev(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut Ui) -> Position {
+	fn prev_page(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut Ui) -> Position {
 		todo!()
 	}
 

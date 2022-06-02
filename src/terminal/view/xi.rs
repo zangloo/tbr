@@ -46,7 +46,7 @@ impl Render<RenderContext> for Xi {
 		None
 	}
 
-	fn prev(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut RenderContext) -> Position {
+	fn prev_page(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut RenderContext) -> Position {
 		let height = context.height;
 		let width = context.width;
 		let (mut line, mut end_position) = if offset == 0 {

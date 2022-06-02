@@ -34,6 +34,7 @@ lexical-sort = "0.3"
 strip_bom = "1.0"
 
 eframe = "0.18"
+egui = "0.18"
 egui_extras = { version = "0.18", features = ["svg"] }
 rfd = "0.8"
 static-files = "0.2"

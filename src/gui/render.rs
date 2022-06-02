@@ -43,14 +43,14 @@ impl RenderLine
 
 pub(super) struct RenderContext
 {
-	// draw rect
-	pub rect: Rect,
 	pub colors: Colors,
 	// font size in configuration
 	pub font_size: u8,
 	// default single char size
 	pub default_font_measure: Vec2,
 
+	// draw rect
+	pub rect: Rect,
 	pub leading_space: f32,
 	// for calculate chars in single line
 	pub max_page_size: f32,
@@ -60,7 +60,6 @@ pub(super) struct RenderContext
 }
 
 pub(super) trait GuiRender: Render<Ui> {
-	// return (max_page_size, baseline, leading_space)
 	fn reset_render_context(&self, render_context: &mut RenderContext);
 	fn create_render_line(&self, default_font_measure: &Vec2) -> RenderLine;
 	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
@@ -69,15 +68,15 @@ pub(super) trait GuiRender: Render<Ui> {
 	fn gui_redraw(&self, lines: &Vec<Line>, reading_line: usize, reading_offset: usize,
 		highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
 	{
-		let render_context: Arc<Mutex<RenderContext>> = ui.data().get_temp(render_context_id()).unwrap();
-		let mut context = match render_context.lock() {
-			Ok(c) => c,
-			Err(e) => panic!("{}", e.to_string()),
-		};
-		context.render_lines.clear();
+		// load context and init for rendering
+		let render_context: Arc<Mutex<RenderContext>> = ui.data().get_temp(render_context_id()).expect("context not set");
+		let mut context = render_context.lock().expect("failed lock context");
+		self.reset_render_context(&mut context);
+
 		let mut drawn_size = 0.0;
 		let mut offset = reading_offset;
-		for (index, line) in lines[reading_line..].iter().enumerate() {
+		for index in reading_line..lines.len() {
+			let line = &lines[index];
 			if let Some((target, offset)) = line.with_image() {
 				return if reading_line == index {
 					let mut draw_line = self.create_render_line(&context.default_font_measure);
@@ -135,6 +134,117 @@ pub(super) trait GuiRender: Render<Ui> {
 				paint_char(ui, dc.char, dc.font_size, &draw_position, Align2::LEFT_TOP, dc.color);
 			}
 			self.draw_style(render_line, ui);
+		}
+	}
+
+	fn gui_prev_page(&mut self, lines: &Vec<Line>, reading_line: usize, offset: usize, ui: &mut Ui) -> Position
+	{
+		// load context and init for rendering
+		let render_context: Arc<Mutex<RenderContext>> = ui.data().get_temp(render_context_id()).expect("context not set");
+		let mut context = render_context.lock().expect("failed lock context");
+		self.reset_render_context(&mut context);
+
+		let (reading_line, mut offset) = if offset == 0 {
+			(reading_line - 1, usize::MAX)
+		} else {
+			(reading_line, offset)
+		};
+
+		let mut drawn_size = 0.0;
+		for index in (0..=reading_line).rev() {
+			let line = &lines[index];
+			if line.with_image().is_some() {
+				return if reading_line == index {
+					Position::new(index, 0)
+				} else {
+					Position::new(index + 1, 0)
+				};
+			}
+			let wrapped_lines = self.wrap_line(&line, index, 0, offset, &None, ui, &mut context);
+			offset = usize::MAX;
+			for wrapped_line in wrapped_lines.iter().rev() {
+				drawn_size += wrapped_line.draw_size + wrapped_line.line_space;
+				if drawn_size > context.max_page_size {
+					return if let Some(char) = wrapped_line.chars.last() {
+						let offset = char.offset + 1;
+						if offset >= line.len() {
+							Position::new(index + 1, 0)
+						} else {
+							Position::new(index, offset)
+						}
+					} else {
+						Position::new(index + 1, 0)
+					};
+				}
+			}
+		}
+		Position::new(0, 0)
+	}
+
+	fn gui_next_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
+	{
+		// load context and init for rendering
+		let render_context: Arc<Mutex<RenderContext>> = ui.data().get_temp(render_context_id()).expect("context not set");
+		let mut context = render_context.lock().expect("failed lock context");
+		self.reset_render_context(&mut context);
+
+		let wrapped_lines = self.wrap_line(&lines[line], line, offset, usize::MAX, &None, ui, &mut context);
+		if wrapped_lines.len() > 1 {
+			if let Some(next_line_char) = wrapped_lines[1].chars.first() {
+				Position::new(line, next_line_char.offset)
+			} else {
+				Position::new(line + 1, 0)
+			}
+		} else {
+			Position::new(line + 1, 0)
+		}
+	}
+
+	fn gui_prev_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
+	{
+		// load context and init for rendering
+		let render_context: Arc<Mutex<RenderContext>> = ui.data().get_temp(render_context_id()).expect("context not set");
+		let mut context = render_context.lock().expect("failed lock context");
+		self.reset_render_context(&mut context);
+
+		let (line, offset) = if offset == 0 {
+			if line == 0 {
+				return Position::new(0, 0);
+			}
+			(line - 1, usize::MAX)
+		} else {
+			(line, offset)
+		};
+		let text = &lines[line];
+		let wrapped_lines = self.wrap_line(text, line, 0, offset, &None, ui, &mut context);
+		if let Some(last_line) = wrapped_lines.last() {
+			if let Some(first_char) = last_line.chars.first() {
+				Position::new(line, first_char.offset)
+			} else {
+				Position::new(line, 0)
+			}
+		} else {
+			Position::new(line, 0)
+		}
+	}
+
+	fn gui_setup_highlight(&mut self, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position
+	{
+		// load context and init for rendering
+		let render_context: Arc<Mutex<RenderContext>> = ui.data().get_temp(render_context_id()).expect("context not set");
+		let mut context = render_context.lock().expect("failed lock context");
+		self.reset_render_context(&mut context);
+
+		let text = &lines[line];
+		let wrapped_lines = self.wrap_line(text, line, 0, start + 1, &None, ui, &mut context);
+		if let Some(last_line) = wrapped_lines.last() {
+			if let Some(first_char) = last_line.chars.first() {
+				Position::new(line, first_char.offset)
+			} else {
+				Position::new(line, 0)
+			}
+		} else {
+			Position::new(line, 0)
 		}
 	}
 }

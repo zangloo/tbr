@@ -30,24 +30,29 @@ impl GuiHanRender
 }
 
 impl Render<Ui> for GuiHanRender {
+	#[inline]
 	fn redraw(&mut self, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position> {
 		self.gui_redraw(lines, line, offset, highlight, ui)
 	}
 
-	fn prev(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
-		todo!()
+	#[inline]
+	fn prev_page(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
+		self.gui_prev_page(lines, line, offset, ui)
 	}
 
+	#[inline]
 	fn next_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
-		todo!()
+		self.gui_next_line(lines, line, offset, ui)
 	}
 
+	#[inline]
 	fn prev_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
-		todo!()
+		self.gui_prev_line(lines, line, offset, ui)
 	}
 
+	#[inline]
 	fn setup_highlight(&mut self, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position {
-		todo!()
+		self.gui_setup_highlight(lines, line, start, ui)
 	}
 }
 
@@ -74,6 +79,11 @@ impl GuiRender for GuiHanRender
 	{
 		let mut draw_lines = vec![];
 		let mut draw_line = self.create_render_line(&context.default_font_measure);
+		let end_offset = if end_offset > text.len() {
+			text.len()
+		} else {
+			end_offset
+		};
 		if start_offset == end_offset {
 			draw_lines.push(draw_line);
 			return draw_lines;

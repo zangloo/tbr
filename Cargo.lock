@@ -2896,6 +2896,7 @@ dependencies = [
  "dirs",
  "eframe",
  "ego-tree",
+ "egui",
  "egui_extras",
  "encoding_rs",
  "lexical-sort",

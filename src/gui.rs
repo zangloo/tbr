@@ -14,6 +14,7 @@ use eframe::egui;
 use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, Id, ImageButton, PointerButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::emath::vec2;
 use eframe::glow::Context;
+use egui::{Key, Modifiers};
 use egui_extras::RetainedImage;
 
 use crate::{Asset, Configuration, ReadingInfo, ThemeEntry};
@@ -170,6 +171,11 @@ struct ReaderApp {
 
 	popup: Option<Pos2>,
 	response_rect: Rect,
+
+	draw_rect: Rect,
+	font_size: u8,
+	default_font_measure: Vec2,
+	colors: Colors,
 	context: Arc<Mutex<RenderContext>>,
 }
 
@@ -204,6 +210,38 @@ impl ReaderApp {
 			self.popup = None;
 		}
 	}
+
+	fn setup_keys(&mut self, ui: &mut Ui) -> Result<bool>
+	{
+		let mut input = ui.input_mut();
+		if input.consume_key(Modifiers::NONE, Key::Space)
+			|| input.consume_key(Modifiers::NONE, Key::PageDown) {
+			drop(input);
+			self.controller.next_page(ui)?;
+			return Ok(true);
+		} else if input.consume_key(Modifiers::NONE, Key::PageUp) {
+			drop(input);
+			self.controller.prev_page(ui)?;
+			return Ok(true);
+		} else if input.consume_key(Modifiers::NONE, Key::ArrowDown) {
+			drop(input);
+			self.controller.step_next(ui);
+			return Ok(true);
+		} else if input.consume_key(Modifiers::NONE, Key::ArrowUp) {
+			drop(input);
+			self.controller.step_prev(ui);
+			return Ok(true);
+		} else if input.consume_key(Modifiers::SHIFT, Key::Tab) {
+			drop(input);
+			self.controller.switch_link_prev(ui);
+			return Ok(true);
+		} else if input.consume_key(Modifiers::NONE, Key::Tab) {
+			drop(input);
+			self.controller.switch_link_next(ui);
+			return Ok(true);
+		}
+		Ok(false)
+	}
 }
 
 impl eframe::App for ReaderApp {
@@ -218,36 +256,52 @@ impl eframe::App for ReaderApp {
 				}
 			});
 		});
-		if let Ok(mut context) = self.context.clone().lock() {
-			egui::CentralPanel::default().frame(Frame::default().fill(context.colors.background)).show(ctx, |ui| {
-				if context.font_size != self.configuration.gui.font_size {
-					context.default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
-					context.font_size = self.configuration.gui.font_size;
+		egui::CentralPanel::default().frame(Frame::default().fill(self.colors.background)).show(ctx, |ui| {
+			if self.font_size != self.configuration.gui.font_size {
+				self.default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
+				self.font_size = self.configuration.gui.font_size;
+				if let Ok(mut context) = self.context.clone().lock() {
+					context.font_size = self.font_size;
+					context.default_font_measure = self.default_font_measure;
 				}
-				let size = ui.available_size();
-				let mut response = ui.allocate_response(size, Sense::click_and_drag());
-				self.setup_popup(ui, &mut response);
-				let rect = &response.rect;
-				if rect.min != self.response_rect.min || rect.max != self.response_rect.max {
-					self.response_rect = rect.clone();
-					let margin = context.default_font_measure.y / 2.0;
-					let draw_rect = Rect::from_min_max(
+			}
+			let size = ui.available_size();
+			let mut response = ui.allocate_response(size, Sense::click_and_drag());
+			ui.data().insert_temp(render_context_id(), self.context.clone());
+			self.setup_popup(ui, &mut response);
+			let rect = &response.rect;
+			if rect.min != self.response_rect.min || rect.max != self.response_rect.max {
+				self.response_rect = rect.clone();
+				let margin = self.default_font_measure.y / 2.0;
+				ui.set_clip_rect(Rect::NOTHING);
+				if let Ok(mut context) = self.context.clone().lock() {
+					context.rect = Rect::from_min_max(
 						Pos2::new(rect.min.x + margin, rect.min.y + margin),
 						Pos2::new(rect.max.x - margin, rect.max.y - margin));
-					context.rect = draw_rect.clone();
-					ui.set_clip_rect(Rect::NOTHING);
-					self.controller.render.reset_render_context(&mut context);
-					ui.data().insert_temp(render_context_id(), self.context.clone());
 					drop(context);
-					ui.set_clip_rect(draw_rect);
+					self.draw_rect = rect.clone();
+					ui.set_clip_rect(self.draw_rect);
 					self.controller.redraw(ui);
-				} else {
-					ui.set_clip_rect(context.rect);
-					self.controller.render.draw(&context, ui);
 				}
-				response
-			});
-		}
+				return response;
+			}
+			ui.set_clip_rect(self.draw_rect);
+
+			// if key process and redraw, return then
+			match self.setup_keys(ui) {
+				Ok(true) => return response,
+				Ok(false) => {}
+				Err(e) => {
+					println!("{}", e.to_string());
+					return response;
+				}
+			}
+
+			if let Ok(context) = self.context.clone().lock() {
+				self.controller.render.draw(&context, ui);
+			}
+			response
+		});
 	}
 
 	fn on_exit(&mut self, _gl: &Context) {
@@ -297,7 +351,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 			}
 			let context = RenderContext {
 				rect: Rect::NOTHING,
-				colors,
+				colors: colors.clone(),
 				font_size: 0,
 				default_font_measure: Vec2::ZERO,
 				leading_space: 0.0,
@@ -313,6 +367,10 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 
 				popup: None,
 				response_rect: Rect::NOTHING,
+				draw_rect: Rect::NOTHING,
+				font_size: 0,
+				default_font_measure: Default::default(),
+				colors,
 				context: Arc::new(Mutex::new(context)),
 			};
 			Box::new(app)
