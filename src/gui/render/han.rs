@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::ops::RangeInclusive;
 use eframe::egui::{Align2, Color32, Pos2, Rect, Stroke, Ui, Vec2};
-use parcel_css::properties::text::TextDecorationLine;
 
 use crate::book::{Line, TextStyle};
 use crate::common::{HAN_RENDER_CHARS_PAIRS, with_leading};
@@ -127,6 +126,8 @@ impl GuiRender for GuiHanRender
 				}
 			} else if let Some((line, range)) = char_style.line {
 				(Pos2::ZERO, Some((TextStyle::Line(line), range.clone())))
+			} else if let Some((target, range)) = char_style.link {
+				(Pos2::ZERO, Some((TextStyle::Link(target), range.clone())))
 			} else {
 				(Pos2::ZERO, None)
 			};
@@ -249,9 +250,9 @@ impl GuiRender for GuiHanRender
 								let space = height / 4.0;
 								let stroke_width = stroke_width_for_space(space);
 								if start {
-									(top + space, draw_char.color, left - space, stroke_width, space, TextStyle::Line(TextDecorationLine::Underline))
+									(top + space, draw_char.color, left - space, stroke_width, space, style.clone())
 								} else {
-									(top, draw_char.color, left - space, stroke_width, space, TextStyle::Line(TextDecorationLine::Underline))
+									(top, draw_char.color, left - space, stroke_width, space, style.clone())
 								}
 							}
 							TextStyle::Border => {
@@ -292,7 +293,7 @@ impl GuiRender for GuiHanRender
 						let draw_char = &chars[i];
 						let last_rect = draw_char.rect;
 						let this_space = match style {
-							TextStyle::Line(_) => last_rect.height() / 4.0,
+							TextStyle::Line(_) | TextStyle::Link(_) => last_rect.height() / 4.0,
 							TextStyle::Border => last_rect.height() / 6.0,
 							_ => { panic!("internal error"); }
 						};
@@ -308,7 +309,7 @@ impl GuiRender for GuiHanRender
 							last_rect.bottom()
 						};
 						match style {
-							TextStyle::Line(_) => underline(ui, draw_left, top, bottom, stroke_width, color),
+							TextStyle::Line(_) | TextStyle::Link(_) => underline(ui, draw_left, top, bottom, stroke_width, color),
 							TextStyle::Border => border(ui, draw_left, last_rect.right() + space, top, bottom, start, end, stroke_width, color),
 							_ => { panic!("internal error"); }
 						};
@@ -316,7 +317,7 @@ impl GuiRender for GuiHanRender
 						let color = draw_char.color;
 						let height = bottom - top;
 						match style {
-							TextStyle::Line(_) => {
+							TextStyle::Line(_) | TextStyle::Link(_) => {
 								let space = height / 4.0;
 								let stroke_width = stroke_width_for_space(space);
 								underline(ui, left - space, top + space, bottom, stroke_width, color)

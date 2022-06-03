@@ -40,6 +40,16 @@ impl RenderLine
 	{
 		RenderLine { chars: vec![], draw_size, line_space }
 	}
+
+	pub(super) fn char_at_pos(&self, pos: Pos2) -> Option<&RenderChar>
+	{
+		for dc in &self.chars {
+			if dc.rect.contains(pos) {
+				return Some(dc);
+			}
+		}
+		None
+	}
 }
 
 #[derive(Clone)]

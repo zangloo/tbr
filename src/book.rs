@@ -43,6 +43,7 @@ pub struct CharStyle {
 	pub background: Option<Color32>,
 	pub line: Option<(TextDecorationLine, Range<usize>)>,
 	pub border: Option<Range<usize>>,
+	pub link: Option<(String, Range<usize>)>,
 }
 
 #[derive(Clone)]
@@ -201,6 +202,7 @@ impl Line {
 			background: None,
 			line: None,
 			border: None,
+			link: None,
 		};
 		for (style, range) in &self.styles {
 			if range.contains(&index) {
@@ -213,8 +215,8 @@ impl Line {
 						}
 					}
 					TextStyle::Image(_) => continue,
-					TextStyle::Link(_) => {
-						char_style.line = Some((TextDecorationLine::Underline, range.clone()));
+					TextStyle::Link(target) => {
+						char_style.link = Some((target.clone(), range.clone()));
 						char_style.color = colors.link;
 					}
 					TextStyle::Border => char_style.border = Some(range.clone()),

@@ -17,7 +17,7 @@ use egui::{Key, Modifiers};
 use egui_extras::RetainedImage;
 
 use crate::{Asset, Configuration, ReadingInfo, ThemeEntry};
-use crate::book::{Book, Colors, Line};
+use crate::book::{Book, Colors, Line, TextStyle};
 use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::Controller;
@@ -292,6 +292,28 @@ impl ReaderApp {
 		}
 		Ok(())
 	}
+
+	fn click_event(&mut self, click_position: Pos2, ui: &mut Ui) -> Result<()>
+	{
+		for line in &self.render_lines {
+			if let Some(dc) = line.char_at_pos(click_position) {
+				if let Some((TextStyle::Link(_), _)) = dc.style {
+					if let Some(link_index) = self.controller.book.lines()[dc.line].link_iter(true, |link| {
+						if link.range.contains(&dc.offset) {
+							(true, Some(link.index))
+						} else {
+							(false, None)
+						}
+					}) {
+						self.put_render_context(ui);
+						self.controller.goto_link(dc.line, link_index, ui)?;
+						return Ok(());
+					}
+				}
+			}
+		}
+		Ok(())
+	}
 }
 
 impl eframe::App for ReaderApp {
@@ -336,8 +358,20 @@ impl eframe::App for ReaderApp {
 			}
 			ui.set_clip_rect(rect.clone());
 
-			if let Err(e) = self.setup_keys(ui) {
-				println!("{}", e.to_string());
+			if self.popup.is_none() {
+				response.request_focus();
+				if response.clicked() {
+					let input = ctx.input();
+					if let Some(click_position) = input.pointer.interact_pos() {
+						drop(input);
+						if let Err(e) = self.click_event(click_position, ui) {
+							println!("{}", e.to_string());
+						}
+					}
+				}
+				if let Err(e) = self.setup_keys(ui) {
+					println!("{}", e.to_string());
+				}
 			}
 
 			if let Some(lines) = take_render_lines(ui) {
