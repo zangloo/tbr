@@ -7,7 +7,6 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::ops::Index;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::egui;
@@ -22,7 +21,7 @@ use crate::book::{Book, Colors, Line};
 use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::Controller;
-use crate::gui::render::{create_render, GuiRender, measure_char_size, RenderContext};
+use crate::gui::render::{create_render, GuiRender, measure_char_size, RenderContext, RenderLine};
 
 const ICON_SIZE: f32 = 32.0;
 const README_TEXT_FILENAME: &str = "readme";
@@ -172,11 +171,11 @@ struct ReaderApp {
 	popup: Option<Pos2>,
 	response_rect: Rect,
 
-	draw_rect: Rect,
+	view_rect: Rect,
 	font_size: u8,
 	default_font_measure: Vec2,
 	colors: Colors,
-	context: Arc<Mutex<RenderContext>>,
+	render_lines: Vec<RenderLine>,
 }
 
 impl ReaderApp {
@@ -211,36 +210,51 @@ impl ReaderApp {
 		}
 	}
 
-	fn setup_keys(&mut self, ui: &mut Ui) -> Result<bool>
+	#[inline]
+	fn put_render_context(&self, ui: &mut Ui)
+	{
+		let context = RenderContext {
+			colors: self.colors.clone(),
+			font_size: self.font_size,
+			default_font_measure: self.default_font_measure,
+			rect: self.view_rect,
+			leading_space: 0.0,
+			max_page_size: 0.0,
+			line_base: 0.0,
+		};
+		put_render_context(ui, context);
+	}
+
+	fn setup_keys(&mut self, ui: &mut Ui) -> Result<()>
 	{
 		let mut input = ui.input_mut();
 		if input.consume_key(Modifiers::NONE, Key::Space)
 			|| input.consume_key(Modifiers::NONE, Key::PageDown) {
 			drop(input);
+			self.put_render_context(ui);
 			self.controller.next_page(ui)?;
-			return Ok(true);
 		} else if input.consume_key(Modifiers::NONE, Key::PageUp) {
 			drop(input);
+			self.put_render_context(ui);
 			self.controller.prev_page(ui)?;
-			return Ok(true);
 		} else if input.consume_key(Modifiers::NONE, Key::ArrowDown) {
 			drop(input);
+			self.put_render_context(ui);
 			self.controller.step_next(ui);
-			return Ok(true);
 		} else if input.consume_key(Modifiers::NONE, Key::ArrowUp) {
 			drop(input);
+			self.put_render_context(ui);
 			self.controller.step_prev(ui);
-			return Ok(true);
 		} else if input.consume_key(Modifiers::SHIFT, Key::Tab) {
 			drop(input);
+			self.put_render_context(ui);
 			self.controller.switch_link_prev(ui);
-			return Ok(true);
 		} else if input.consume_key(Modifiers::NONE, Key::Tab) {
 			drop(input);
+			self.put_render_context(ui);
 			self.controller.switch_link_next(ui);
-			return Ok(true);
 		}
-		Ok(false)
+		Ok(())
 	}
 }
 
@@ -260,46 +274,40 @@ impl eframe::App for ReaderApp {
 			if self.font_size != self.configuration.gui.font_size {
 				self.default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
 				self.font_size = self.configuration.gui.font_size;
-				if let Ok(mut context) = self.context.clone().lock() {
-					context.font_size = self.font_size;
-					context.default_font_measure = self.default_font_measure;
-				}
 			}
 			let size = ui.available_size();
 			let mut response = ui.allocate_response(size, Sense::click_and_drag());
-			ui.data().insert_temp(render_context_id(), self.context.clone());
 			self.setup_popup(ui, &mut response);
 			let rect = &response.rect;
 			if rect.min != self.response_rect.min || rect.max != self.response_rect.max {
 				self.response_rect = rect.clone();
 				let margin = self.default_font_measure.y / 2.0;
+				self.view_rect = Rect::from_min_max(
+					Pos2::new(rect.min.x + margin, rect.min.y + margin),
+					Pos2::new(rect.max.x - margin, rect.max.y - margin));
+				let context = RenderContext {
+					colors: self.colors.clone(),
+					font_size: self.font_size,
+					default_font_measure: self.default_font_measure,
+					rect: self.view_rect,
+					leading_space: 0.0,
+					max_page_size: 0.0,
+					line_base: 0.0,
+				};
+				put_render_context(ui, context);
 				ui.set_clip_rect(Rect::NOTHING);
-				if let Ok(mut context) = self.context.clone().lock() {
-					context.rect = Rect::from_min_max(
-						Pos2::new(rect.min.x + margin, rect.min.y + margin),
-						Pos2::new(rect.max.x - margin, rect.max.y - margin));
-					drop(context);
-					self.draw_rect = rect.clone();
-					ui.set_clip_rect(self.draw_rect);
-					self.controller.redraw(ui);
-				}
-				return response;
+				self.controller.redraw(ui);
 			}
-			ui.set_clip_rect(self.draw_rect);
+			ui.set_clip_rect(rect.clone());
 
-			// if key process and redraw, return then
-			match self.setup_keys(ui) {
-				Ok(true) => return response,
-				Ok(false) => {}
-				Err(e) => {
-					println!("{}", e.to_string());
-					return response;
-				}
+			if let Err(e) = self.setup_keys(ui) {
+				println!("{}", e.to_string());
 			}
 
-			if let Ok(context) = self.context.clone().lock() {
-				self.controller.render.draw(&context, ui);
+			if let Some(lines) = take_render_lines(ui) {
+				self.render_lines = lines;
 			}
+			self.controller.render.draw(&self.render_lines, ui);
 			response
 		});
 	}
@@ -349,16 +357,6 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 			if let Err(e) = setup_fonts(&cc.egui_ctx, &configuration.gui.fonts) {
 				println!("Failed setup fonts: {}", e.to_string());
 			}
-			let context = RenderContext {
-				rect: Rect::NOTHING,
-				colors: colors.clone(),
-				font_size: 0,
-				default_font_measure: Vec2::ZERO,
-				leading_space: 0.0,
-				max_page_size: 0.0,
-				line_base: 0.0,
-				render_lines: vec![],
-			};
 			let app = ReaderApp {
 				configuration,
 				theme_entries,
@@ -367,11 +365,11 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 
 				popup: None,
 				response_rect: Rect::NOTHING,
-				draw_rect: Rect::NOTHING,
+				view_rect: Rect::NOTHING,
 				font_size: 0,
 				default_font_measure: Default::default(),
 				colors,
-				context: Arc::new(Mutex::new(context)),
+				render_lines: vec![],
 			};
 			Box::new(app)
 		}),
@@ -379,7 +377,44 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 }
 
 #[inline]
-pub fn render_context_id() -> Id
+fn render_context_id() -> Id
 {
 	Id::new("render_context")
+}
+
+#[inline]
+pub(self) fn put_render_context(ui: &mut Ui, render_context: RenderContext)
+{
+	ui.data().insert_temp(render_context_id(), render_context)
+}
+
+#[inline]
+pub(self) fn get_render_context(ui: &mut Ui) -> RenderContext
+{
+	ui.data().get_temp(render_context_id()).expect("context not set")
+}
+
+#[inline]
+fn render_lines_id() -> Id
+{
+	Id::new("render_lines")
+}
+
+#[inline]
+pub(self) fn put_render_lines(ui: &mut Ui, render_lines: Vec<RenderLine>)
+{
+	ui.data().insert_temp(render_lines_id(), render_lines)
+}
+
+#[inline]
+fn take_render_lines(ui: &mut Ui) -> Option<Vec<RenderLine>>
+{
+	let id = render_lines_id();
+	let mut data = ui.data();
+	if let Some(lines) = data.get_temp(id) {
+		data.remove::<Vec<RenderLine>>(id);
+		Some(lines)
+	} else {
+		None
+	}
 }

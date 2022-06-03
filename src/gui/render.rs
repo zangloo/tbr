@@ -1,5 +1,4 @@
 use std::ops::Range;
-use std::sync::{Arc, Mutex};
 use eframe::egui::{Align2, FontFamily, FontId, Rect, Rounding, Stroke, Ui};
 use eframe::emath::{Pos2, Vec2};
 use eframe::epaint::Color32;
@@ -9,11 +8,12 @@ use crate::common::Position;
 use crate::controller::{HighlightInfo, Render};
 use crate::gui::render::han::GuiHanRender;
 use crate::gui::render::xi::GuiXiRender;
-use crate::gui::render_context_id;
+use crate::gui::{put_render_lines, get_render_context};
 
 mod han;
 mod xi;
 
+#[derive(Clone)]
 pub(super) struct RenderChar {
 	pub char: char,
 	pub font_size: f32,
@@ -27,6 +27,7 @@ pub(super) struct RenderChar {
 	pub draw_offset: Pos2,
 }
 
+#[derive(Clone)]
 pub(super) struct RenderLine {
 	chars: Vec<RenderChar>,
 	draw_size: f32,
@@ -41,6 +42,7 @@ impl RenderLine
 	}
 }
 
+#[derive(Clone)]
 pub(super) struct RenderContext
 {
 	pub colors: Colors,
@@ -56,7 +58,6 @@ pub(super) struct RenderContext
 	pub max_page_size: f32,
 	// current line base
 	pub line_base: f32,
-	pub render_lines: Vec<RenderLine>,
 }
 
 pub(super) trait GuiRender: Render<Ui> {
@@ -69,9 +70,9 @@ pub(super) trait GuiRender: Render<Ui> {
 		highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
 	{
 		// load context and init for rendering
-		let render_context: Arc<Mutex<RenderContext>> = ui.data().get_temp(render_context_id()).expect("context not set");
-		let mut context = render_context.lock().expect("failed lock context");
+		let mut context = get_render_context(ui);
 		self.reset_render_context(&mut context);
+		let mut render_lines = vec![];
 
 		let mut drawn_size = 0.0;
 		let mut offset = reading_offset;
@@ -92,7 +93,7 @@ pub(super) trait GuiRender: Render<Ui> {
 						rect: context.rect.clone(),
 						draw_offset: Pos2::ZERO,
 					});
-					context.render_lines.push(draw_line);
+					render_lines.push(draw_line);
 					let next_line = index + 1;
 					if next_line < lines.len() {
 						Some(Position::new(next_line, 0))
@@ -113,19 +114,20 @@ pub(super) trait GuiRender: Render<Ui> {
 					} else {
 						Some(Position::new(index, 0))
 					};
-					context.render_lines.push(wrapped_line);
+					render_lines.push(wrapped_line);
+					put_render_lines(ui, render_lines);
 					return next;
 				}
-				context.render_lines.push(wrapped_line);
+				render_lines.push(wrapped_line);
 			}
 		}
-		self.draw(&context, ui);
+		put_render_lines(ui, render_lines);
 		None
 	}
 
-	fn draw(&self, context: &RenderContext, ui: &mut Ui)
+	fn draw(&self, render_lines: &Vec<RenderLine>, ui: &mut Ui)
 	{
-		for render_line in &context.render_lines {
+		for render_line in render_lines {
 			for dc in &render_line.chars {
 				if let Some(bg) = dc.background {
 					ui.painter().rect(dc.rect.clone(), Rounding::none(), bg, Stroke::default());
@@ -140,8 +142,7 @@ pub(super) trait GuiRender: Render<Ui> {
 	fn gui_prev_page(&mut self, lines: &Vec<Line>, reading_line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		// load context and init for rendering
-		let render_context: Arc<Mutex<RenderContext>> = ui.data().get_temp(render_context_id()).expect("context not set");
-		let mut context = render_context.lock().expect("failed lock context");
+		let mut context = get_render_context(ui);
 		self.reset_render_context(&mut context);
 
 		let (reading_line, mut offset) = if offset == 0 {
@@ -184,8 +185,7 @@ pub(super) trait GuiRender: Render<Ui> {
 	fn gui_next_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		// load context and init for rendering
-		let render_context: Arc<Mutex<RenderContext>> = ui.data().get_temp(render_context_id()).expect("context not set");
-		let mut context = render_context.lock().expect("failed lock context");
+		let mut context = get_render_context(ui);
 		self.reset_render_context(&mut context);
 
 		let wrapped_lines = self.wrap_line(&lines[line], line, offset, usize::MAX, &None, ui, &mut context);
@@ -203,8 +203,7 @@ pub(super) trait GuiRender: Render<Ui> {
 	fn gui_prev_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		// load context and init for rendering
-		let render_context: Arc<Mutex<RenderContext>> = ui.data().get_temp(render_context_id()).expect("context not set");
-		let mut context = render_context.lock().expect("failed lock context");
+		let mut context = get_render_context(ui);
 		self.reset_render_context(&mut context);
 
 		let (line, offset) = if offset == 0 {
@@ -231,8 +230,7 @@ pub(super) trait GuiRender: Render<Ui> {
 	fn gui_setup_highlight(&mut self, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position
 	{
 		// load context and init for rendering
-		let render_context: Arc<Mutex<RenderContext>> = ui.data().get_temp(render_context_id()).expect("context not set");
-		let mut context = render_context.lock().expect("failed lock context");
+		let mut context = get_render_context(ui);
 		self.reset_render_context(&mut context);
 
 		let text = &lines[line];

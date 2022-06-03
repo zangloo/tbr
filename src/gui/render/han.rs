@@ -64,7 +64,6 @@ impl GuiRender for GuiHanRender
 		render_context.max_page_size = render_context.rect.width();
 		render_context.line_base = render_context.rect.max.x;
 		render_context.leading_space = render_context.default_font_measure.y * 2.0;
-		render_context.render_lines.clear();
 	}
 
 	#[inline]
