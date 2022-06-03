@@ -363,7 +363,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		Ok(())
 	}
 
-	pub fn search_next(&mut self, start_line: usize, start_position: usize, context: &mut C) -> Result<()> {
+	fn search_next(&mut self, start_line: usize, start_position: usize, context: &mut C) -> Result<()> {
 		let search_text = match &self.search_pattern {
 			Some(text) => text,
 			None => return Ok(()),
@@ -389,7 +389,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		Ok(())
 	}
 
-	pub fn search_prev(&mut self, start_line: usize, start_position: usize, context: &mut C) -> Result<()> {
+	fn search_prev(&mut self, start_line: usize, start_position: usize, context: &mut C) -> Result<()> {
 		let search_text = match &self.search_pattern {
 			Some(text) => text,
 			None => return Ok(()),

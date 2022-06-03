@@ -245,6 +245,22 @@ impl ReaderApp {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.step_prev(ui);
+		} else if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
+			drop(input);
+			self.put_render_context(ui);
+			self.controller.goto_trace(true, ui)?;
+		} else if input.consume_key(Modifiers::NONE, Key::ArrowRight) {
+			drop(input);
+			self.put_render_context(ui);
+			self.controller.goto_trace(false, ui)?;
+		} else if input.consume_key(Modifiers::NONE, Key::N) {
+			drop(input);
+			self.put_render_context(ui);
+			self.controller.search_again(true, ui)?;
+		} else if input.consume_key(Modifiers::SHIFT, Key::N) {
+			drop(input);
+			self.put_render_context(ui);
+			self.controller.search_again(false, ui)?;
 		} else if input.consume_key(Modifiers::SHIFT, Key::Tab) {
 			drop(input);
 			self.put_render_context(ui);
@@ -253,6 +269,26 @@ impl ReaderApp {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.switch_link_next(ui);
+		} else if input.consume_key(Modifiers::NONE, Key::Enter) {
+			drop(input);
+			self.put_render_context(ui);
+			self.controller.try_goto_link(ui)?;
+		} else if input.consume_key(Modifiers::NONE, Key::Home) {
+			drop(input);
+			self.put_render_context(ui);
+			self.controller.redraw_at(0, 0, ui);
+		} else if input.consume_key(Modifiers::NONE, Key::End) {
+			drop(input);
+			self.put_render_context(ui);
+			self.controller.goto_end(ui);
+		} else if input.consume_key(Modifiers::CTRL, Key::D) {
+			drop(input);
+			self.put_render_context(ui);
+			self.controller.switch_chapter(true, ui)?;
+		} else if input.consume_key(Modifiers::CTRL, Key::B) {
+			drop(input);
+			self.put_render_context(ui);
+			self.controller.switch_chapter(false, ui)?;
 		}
 		Ok(())
 	}
