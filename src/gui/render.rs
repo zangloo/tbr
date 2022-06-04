@@ -73,11 +73,12 @@ pub(super) struct RenderContext
 pub(super) trait GuiRender: Render<Ui> {
 	fn reset_render_context(&self, render_context: &mut RenderContext);
 	fn create_render_line(&self, default_font_measure: &Vec2) -> RenderLine;
+	fn update_base_line_for_delta(&self, context: &mut RenderContext, delta: f32);
 	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
 	fn draw_style(&self, draw_text: &RenderLine, ui: &mut Ui);
 
 	#[inline]
-	fn prepare_wrap(&self, text: &Line, start_offset: usize, end_offset: usize, plus_delta: bool, context: &mut RenderContext) -> (usize, Option<Vec<RenderLine>>)
+	fn prepare_wrap(&self, text: &Line, start_offset: usize, end_offset: usize, context: &mut RenderContext) -> (usize, Option<Vec<RenderLine>>)
 	{
 		let end_offset = if end_offset > text.len() {
 			text.len()
@@ -87,11 +88,7 @@ pub(super) trait GuiRender: Render<Ui> {
 		if start_offset == end_offset {
 			let draw_line = self.create_render_line(&context.default_font_measure);
 			let line_delta = draw_line.draw_size + draw_line.line_space;
-			if plus_delta {
-				context.line_base += line_delta;
-			} else {
-				context.line_base -= line_delta;
-			}
+			self.update_base_line_for_delta(context, line_delta);
 			(end_offset, Some(vec![draw_line]))
 		} else {
 			(end_offset, None)

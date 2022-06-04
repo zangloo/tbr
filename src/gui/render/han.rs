@@ -73,10 +73,16 @@ impl GuiRender for GuiHanRender
 		RenderLine::new(width, space)
 	}
 
+	#[inline]
+	fn update_base_line_for_delta(&self, context: &mut RenderContext, delta: f32)
+	{
+		context.line_base -= delta
+	}
+
 	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>
 	{
-		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, start_offset, end_offset, false, context);
-		if let Some(wrapped_empty_lines) = wrapped_empty_lines{
+		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, start_offset, end_offset, context);
+		if let Some(wrapped_empty_lines) = wrapped_empty_lines {
 			return wrapped_empty_lines;
 		}
 		let mut draw_lines = vec![];
