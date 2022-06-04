@@ -5,7 +5,7 @@ use eframe::egui::{Align2, Color32, Pos2, Rect, Stroke, Ui, Vec2};
 use crate::book::{Line, TextStyle};
 use crate::common::{HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::{HighlightInfo, Render};
-use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size, update_for_highlight};
+use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size, update_for_highlight, stroke_width_for_space};
 use crate::Position;
 
 pub(super) struct GuiHanRender {
@@ -172,10 +172,6 @@ impl GuiRender for GuiHanRender
 	fn draw_style(&self, draw_text: &RenderLine, ui: &mut Ui)
 	{
 		#[inline]
-		fn stroke_width_for_space(space: f32) -> f32 {
-			space / 4.0
-		}
-		#[inline]
 		fn underline(ui: &mut Ui, left: f32, top: f32, bottom: f32, stroke_width: f32, color: Color32) {
 			let stroke = Stroke::new(stroke_width, color);
 			ui.painter().vline(left, RangeInclusive::new(top, bottom), stroke);
@@ -243,7 +239,7 @@ impl GuiRender for GuiHanRender
 					let start = offset == range.start;
 					i += 1;
 					if i < len {
-						let (top, color, mut draw_left, mut stroke_width, mut space, style) = match style {
+						let (draw_top, color, mut draw_left, mut stroke_width, mut space, style) = match style {
 							TextStyle::Line(_)
 							| TextStyle::Link(_) => {
 								let height = bottom - top;
@@ -262,7 +258,11 @@ impl GuiRender for GuiHanRender
 									(bottom - top) / 4.0
 								};
 								let stroke_width = stroke_width_for_space(space);
-								(top, draw_char.color, left - space, stroke_width, space, TextStyle::Border)
+								if start {
+									(top + space, draw_char.color, left - space, stroke_width, space, TextStyle::Border)
+								} else {
+									(top, draw_char.color, left - space, stroke_width, space, TextStyle::Border)
+								}
 							}
 							TextStyle::FontSize { .. }
 							| TextStyle::Image(_) => {
@@ -309,8 +309,8 @@ impl GuiRender for GuiHanRender
 							last_rect.bottom()
 						};
 						match style {
-							TextStyle::Line(_) | TextStyle::Link(_) => underline(ui, draw_left, top, bottom, stroke_width, color),
-							TextStyle::Border => border(ui, draw_left, last_rect.right() + space, top, bottom, start, end, stroke_width, color),
+							TextStyle::Line(_) | TextStyle::Link(_) => underline(ui, draw_left, draw_top, bottom, stroke_width, color),
+							TextStyle::Border => border(ui, draw_left, last_rect.right() + space, draw_top, bottom, start, end, stroke_width, color),
 							_ => { panic!("internal error"); }
 						};
 					} else {

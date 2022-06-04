@@ -304,3 +304,8 @@ pub(super) fn create_render(render_type: &str) -> Box<dyn GuiRender>
 		Box::new(GuiXiRender::new())
 	}
 }
+
+#[inline]
+pub(self) fn stroke_width_for_space(space: f32) -> f32 {
+	space / 4.0
+}
