@@ -167,6 +167,9 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		self.container = container;
 		self.book = book;
 		self.reading = reading;
+		self.trace.clear();
+		self.trace.push(TraceInfo { chapter: self.reading.chapter, line: self.reading.line, offset: self.reading.position });
+		self.current_trace = 0;
 		self.redraw(context);
 		Ok(self.status_msg())
 	}
