@@ -168,7 +168,8 @@ struct ReaderApp {
 	images: HashMap<String, RetainedImage>,
 	controller: Controller<Ui, dyn GuiRender>,
 
-	popup: Option<Pos2>,
+	popup_menu: Option<Pos2>,
+	dropdown: bool,
 	response_rect: Rect,
 
 	view_rect: Rect,
@@ -190,13 +191,13 @@ impl ReaderApp {
 		let ctx = ui.ctx();
 		let text_view_popup = ui.make_persistent_id("text_view_popup");
 		if response.clicked_by(PointerButton::Secondary) {
-			self.popup = ctx
+			self.popup_menu = ctx
 				.input()
 				.pointer
 				.hover_pos();
 		}
-		if self.popup.is_some() {
-			egui::popup::show_tooltip_at(ui.ctx(), text_view_popup, self.popup, |ui| {
+		if self.popup_menu.is_some() {
+			egui::popup::show_tooltip_at(ui.ctx(), text_view_popup, self.popup_menu, |ui| {
 				let texture_id = self.image(ctx, "copy.svg");
 				Button::image_and_text(texture_id, vec2(ICON_SIZE, ICON_SIZE), "复制内容").ui(ui);
 				let texture_id = self.image(ctx, "dict.svg");
@@ -204,9 +205,9 @@ impl ReaderApp {
 				let texture_id = self.image(ctx, "bookmark.svg");
 				Button::image_and_text(texture_id, vec2(ICON_SIZE, ICON_SIZE), "增加书签").ui(ui);
 			});
-		}
-		if response.clicked() || response.clicked_elsewhere() {
-			self.popup = None;
+			if response.clicked() || response.clicked_elsewhere() {
+				self.popup_menu = None;
+			}
 		}
 	}
 
@@ -316,18 +317,39 @@ impl ReaderApp {
 		}
 		Ok(())
 	}
+
+	fn setup_theme_button(&mut self, ui: &mut Ui) -> bool
+	{
+		let themes_id = self.image(ui.ctx(), "themes.svg");
+		let themes_popup = ui.make_persistent_id("themes_popup");
+		let theme_button = ImageButton::new(themes_id, vec2(32.0, 32.0)).ui(ui);
+		if theme_button.clicked() {
+			ui.memory().toggle_popup(themes_popup);
+		}
+		egui::popup::popup_below_widget(ui, themes_popup, &theme_button, |ui| {
+			ui.set_min_width(200.0);
+			for entry in &self.theme_entries {
+				if ui.button(entry.0.clone()).clicked() {
+					self.colors = convert_colors(&entry.1);
+					self.put_render_context(ui);
+					self.controller.redraw(ui);
+				}
+			}
+		}).is_some()
+	}
 }
 
 impl eframe::App for ReaderApp {
 	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 		egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
 			egui::menu::bar(ui, |ui| {
-				let texture_id = self.image(ctx, "file_open.svg");
-				if ImageButton::new(texture_id, vec2(32.0, 32.0)).ui(ui).clicked() {
+				let file_open_id = self.image(ui.ctx(), "file_open.svg");
+				if ImageButton::new(file_open_id, vec2(32.0, 32.0)).ui(ui).clicked() {
 					if let Some(path) = rfd::FileDialog::new().pick_file() {
 						println!("open: {}", path.display().to_string());
 					}
 				}
+				self.dropdown = self.setup_theme_button(ui);
 			});
 		});
 		egui::CentralPanel::default().frame(Frame::default().fill(self.colors.background)).show(ctx, |ui| {
@@ -357,7 +379,7 @@ impl eframe::App for ReaderApp {
 				prepare_redraw(ui, context);
 				self.controller.redraw(ui);
 			}
-			if self.popup.is_none() {
+			if self.popup_menu.is_none() && !self.dropdown {
 				response.request_focus();
 				if response.clicked() {
 					let input = ctx.input();
@@ -433,7 +455,8 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 				images,
 				controller,
 
-				popup: None,
+				popup_menu: None,
+				dropdown: false,
 				response_rect: Rect::NOTHING,
 				view_rect: Rect::NOTHING,
 				font_size: 0,
