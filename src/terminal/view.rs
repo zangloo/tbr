@@ -258,10 +258,9 @@ impl ReadingView {
 	}
 
 	pub(crate) fn switch_render(&mut self, render_type: &String) {
-		let mut render_context = RenderContext::new();
-		let leading_space = self.controller.book.leading_space();
-		render_context.leading_space = leading_space;
 		self.controller.render = load_render(render_type);
+		self.controller.render.resized(&self.render_context);
+		self.controller.redraw(&mut self.render_context);
 	}
 
 	fn process_event(&mut self, e: Event) -> Result<bool> {

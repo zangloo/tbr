@@ -33,10 +33,12 @@ pub enum TextStyle {
 	Line(TextDecorationLine),
 	Border,
 	FontSize { scale: f32, relative: bool },
+	#[cfg(feature = "gui")]
 	Image(String),
 	Link(String),
 }
 
+#[cfg(feature = "gui")]
 pub struct CharStyle {
 	pub font_scale: f32,
 	pub color: Color32,
@@ -182,6 +184,7 @@ impl Line {
 		}
 	}
 
+	#[cfg(feature = "gui")]
 	pub fn with_image(&self) -> Option<(&str, usize)>
 	{
 		for style in &self.styles {

@@ -10,7 +10,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
-use std::str::FromStr;
+#[cfg(feature = "gui")]
+ use std::str::FromStr;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use cursive::theme::{Error, load_theme_file, load_toml, Theme};
