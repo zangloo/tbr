@@ -261,7 +261,7 @@ fn load_config(filename: Option<String>, config_file: PathBuf, themes_dir: &Path
 			let filepath = file_path(filename);
 
 			(Configuration {
-				render_type: String::from("han"),
+				render_type: String::from("xi"),
 				search_pattern: None,
 				current: filepath,
 				history: vec![],
