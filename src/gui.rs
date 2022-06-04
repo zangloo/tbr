@@ -222,7 +222,7 @@ impl ReaderApp {
 			max_page_size: 0.0,
 			line_base: 0.0,
 		};
-		put_render_context(ui, context);
+		prepare_redraw(ui, context);
 	}
 
 	fn setup_keys(&mut self, ui: &mut Ui) -> Result<()>
@@ -275,8 +275,10 @@ impl ReaderApp {
 			self.controller.try_goto_link(ui)?;
 		} else if input.consume_key(Modifiers::NONE, Key::Home) {
 			drop(input);
-			self.put_render_context(ui);
-			self.controller.redraw_at(0, 0, ui);
+			if self.controller.reading.line != 0 || self.controller.reading.position != 0 {
+				self.put_render_context(ui);
+				self.controller.redraw_at(0, 0, ui);
+			}
 		} else if input.consume_key(Modifiers::NONE, Key::End) {
 			drop(input);
 			self.put_render_context(ui);
@@ -352,12 +354,9 @@ impl eframe::App for ReaderApp {
 					max_page_size: 0.0,
 					line_base: 0.0,
 				};
-				put_render_context(ui, context);
-				ui.set_clip_rect(Rect::NOTHING);
+				prepare_redraw(ui, context);
 				self.controller.redraw(ui);
 			}
-			ui.set_clip_rect(rect.clone());
-
 			if self.popup.is_none() {
 				response.request_focus();
 				if response.clicked() {
@@ -377,6 +376,7 @@ impl eframe::App for ReaderApp {
 			if let Some(lines) = take_render_lines(ui) {
 				self.render_lines = lines;
 			}
+			ui.set_clip_rect(rect.clone());
 			self.controller.render.draw(&self.render_lines, ui);
 			response
 		});
@@ -453,9 +453,10 @@ fn render_context_id() -> Id
 }
 
 #[inline]
-pub(self) fn put_render_context(ui: &mut Ui, render_context: RenderContext)
+pub(self) fn prepare_redraw(ui: &mut Ui, render_context: RenderContext)
 {
-	ui.data().insert_temp(render_context_id(), render_context)
+	ui.data().insert_temp(render_context_id(), render_context);
+	ui.set_clip_rect(Rect::NOTHING);
 }
 
 #[inline]

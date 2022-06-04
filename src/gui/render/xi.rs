@@ -99,17 +99,12 @@ impl GuiRender for GuiXiRender
 				}
 			}
 		}
+		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, start_offset, end_offset, true, context);
+		if let Some(wrapped_empty_lines) = wrapped_empty_lines{
+			return wrapped_empty_lines;
+		}
 		let mut draw_lines = vec![];
 		let mut draw_line = self.create_render_line(&context.default_font_measure);
-		let end_offset = if end_offset > text.len() {
-			text.len()
-		} else {
-			end_offset
-		};
-		if start_offset == end_offset {
-			draw_lines.push(draw_line);
-			return draw_lines;
-		}
 		let mut break_position = None;
 
 		let mut left = context.rect.min.x;

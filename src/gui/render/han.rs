@@ -75,17 +75,12 @@ impl GuiRender for GuiHanRender
 
 	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>
 	{
+		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, start_offset, end_offset, false, context);
+		if let Some(wrapped_empty_lines) = wrapped_empty_lines{
+			return wrapped_empty_lines;
+		}
 		let mut draw_lines = vec![];
 		let mut draw_line = self.create_render_line(&context.default_font_measure);
-		let end_offset = if end_offset > text.len() {
-			text.len()
-		} else {
-			end_offset
-		};
-		if start_offset == end_offset {
-			draw_lines.push(draw_line);
-			return draw_lines;
-		}
 		let mut top = context.rect.min.y;
 		let max_top = context.rect.max.y;
 

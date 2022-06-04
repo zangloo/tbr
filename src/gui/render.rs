@@ -76,6 +76,28 @@ pub(super) trait GuiRender: Render<Ui> {
 	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
 	fn draw_style(&self, draw_text: &RenderLine, ui: &mut Ui);
 
+	#[inline]
+	fn prepare_wrap(&self, text: &Line, start_offset: usize, end_offset: usize, plus_delta: bool, context: &mut RenderContext) -> (usize, Option<Vec<RenderLine>>)
+	{
+		let end_offset = if end_offset > text.len() {
+			text.len()
+		} else {
+			end_offset
+		};
+		if start_offset == end_offset {
+			let draw_line = self.create_render_line(&context.default_font_measure);
+			let line_delta = draw_line.draw_size + draw_line.line_space;
+			if plus_delta {
+				context.line_base += line_delta;
+			} else {
+				context.line_base -= line_delta;
+			}
+			(end_offset, Some(vec![draw_line]))
+		} else {
+			(end_offset, None)
+		}
+	}
+
 	fn gui_redraw(&self, lines: &Vec<Line>, reading_line: usize, reading_offset: usize,
 		highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
 	{
@@ -117,17 +139,17 @@ pub(super) trait GuiRender: Render<Ui> {
 			let wrapped_lines = self.wrap_line(&line, index, offset, line.len(), highlight, ui, &mut context);
 			offset = 0;
 			for wrapped_line in wrapped_lines {
-				drawn_size += wrapped_line.draw_size + wrapped_line.line_space;
+				drawn_size += wrapped_line.draw_size;
 				if drawn_size > context.max_page_size {
 					let next = if let Some(char) = wrapped_line.chars.first() {
 						Some(Position::new(index, char.offset))
 					} else {
 						Some(Position::new(index, 0))
 					};
-					render_lines.push(wrapped_line);
 					put_render_lines(ui, render_lines);
 					return next;
 				}
+				drawn_size += wrapped_line.line_space;
 				render_lines.push(wrapped_line);
 			}
 		}
@@ -174,7 +196,7 @@ pub(super) trait GuiRender: Render<Ui> {
 			let wrapped_lines = self.wrap_line(&line, index, 0, offset, &None, ui, &mut context);
 			offset = usize::MAX;
 			for wrapped_line in wrapped_lines.iter().rev() {
-				drawn_size += wrapped_line.draw_size + wrapped_line.line_space;
+				drawn_size += wrapped_line.draw_size;
 				if drawn_size > context.max_page_size {
 					return if let Some(char) = wrapped_line.chars.last() {
 						let offset = char.offset + 1;
@@ -187,6 +209,7 @@ pub(super) trait GuiRender: Render<Ui> {
 						Position::new(index + 1, 0)
 					};
 				}
+				drawn_size += wrapped_line.line_space;
 			}
 		}
 		Position::new(0, 0)
