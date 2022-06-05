@@ -13,7 +13,7 @@ use eframe::egui;
 use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, Id, ImageButton, PointerButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::emath::vec2;
 use eframe::glow::Context;
-use egui::{Key, Modifiers};
+use egui::{Key, Modifiers, RichText, ScrollArea};
 use egui_extras::RetainedImage;
 
 use crate::{Asset, Configuration, ReadingInfo, ThemeEntry};
@@ -26,8 +26,7 @@ use crate::gui::render::{create_render, GuiRender, measure_char_size, RenderCont
 const ICON_SIZE: f32 = 32.0;
 const README_TEXT_FILENAME: &str = "readme";
 const README_TEXT: &str = "
-可在上方工具栏，打开需要阅读的书籍。
-在文字上点击右键，可以选择增加书签，复制内容，查阅字典等功能
+The terminal and gui e-book reader
 ";
 
 struct ReadmeContainer {
@@ -137,6 +136,17 @@ fn insert_font(fonts: &mut FontDefinitions, name: &str, font_data: FontData) {
 
 const EMBEDDED_RESOURCE_PREFIX: &str = "embedded://";
 
+enum SidebarList {
+	Chapter,
+	History,
+}
+
+enum AppStatus {
+	Startup,
+	Normal(String),
+	Error(String),
+}
+
 fn setup_fonts(ctx: &egui::Context, font_paths: &HashSet<PathBuf>) -> Result<()> {
 	let mut fonts = FontDefinitions::default();
 	for path in font_paths {
@@ -168,7 +178,11 @@ struct ReaderApp {
 	images: HashMap<String, RetainedImage>,
 	controller: Controller<Ui, dyn GuiRender>,
 
+	status: AppStatus,
+	current_toc: usize,
 	popup_menu: Option<Pos2>,
+	sidebar: bool,
+	sidebar_list: SidebarList,
 	dropdown: bool,
 	response_rect: Rect,
 
@@ -185,6 +199,28 @@ impl ReaderApp {
 	{
 		let image = self.images.get(name).unwrap();
 		image.texture_id(ctx)
+	}
+
+	#[inline]
+	fn result(&mut self, result: Result<String>)
+	{
+		match result {
+			Ok(msg) => self.update_status(msg),
+			Err(e) => self.error(e.to_string()),
+		}
+	}
+
+	#[inline]
+	fn error(&mut self, error: String)
+	{
+		self.status = AppStatus::Error(error);
+	}
+
+	#[inline]
+	fn update_status(&mut self, status: String)
+	{
+		self.current_toc = self.controller.book.toc_index();
+		self.status = AppStatus::Normal(status);
 	}
 
 	fn setup_popup(&mut self, ui: &mut Ui, response: &mut Response) {
@@ -226,77 +262,96 @@ impl ReaderApp {
 		prepare_redraw(ui, context);
 	}
 
-	fn setup_keys(&mut self, ui: &mut Ui) -> Result<()>
+	fn setup_keys(&mut self, ui: &mut Ui) -> Result<bool>
 	{
 		let mut input = ui.input_mut();
-		if input.consume_key(Modifiers::NONE, Key::Space)
+		let action = if input.consume_key(Modifiers::NONE, Key::Space)
 			|| input.consume_key(Modifiers::NONE, Key::PageDown) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.next_page(ui)?;
+			true
 		} else if input.consume_key(Modifiers::NONE, Key::PageUp) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.prev_page(ui)?;
+			true
 		} else if input.consume_key(Modifiers::NONE, Key::ArrowDown) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.step_next(ui);
+			true
 		} else if input.consume_key(Modifiers::NONE, Key::ArrowUp) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.step_prev(ui);
+			true
 		} else if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.goto_trace(true, ui)?;
+			true
 		} else if input.consume_key(Modifiers::NONE, Key::ArrowRight) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.goto_trace(false, ui)?;
+			true
 		} else if input.consume_key(Modifiers::NONE, Key::N) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.search_again(true, ui)?;
+			true
 		} else if input.consume_key(Modifiers::SHIFT, Key::N) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.search_again(false, ui)?;
+			true
 		} else if input.consume_key(Modifiers::SHIFT, Key::Tab) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.switch_link_prev(ui);
+			true
 		} else if input.consume_key(Modifiers::NONE, Key::Tab) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.switch_link_next(ui);
+			true
 		} else if input.consume_key(Modifiers::NONE, Key::Enter) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.try_goto_link(ui)?;
+			true
 		} else if input.consume_key(Modifiers::NONE, Key::Home) {
 			drop(input);
 			if self.controller.reading.line != 0 || self.controller.reading.position != 0 {
 				self.put_render_context(ui);
 				self.controller.redraw_at(0, 0, ui);
+				true
+			} else {
+				false
 			}
 		} else if input.consume_key(Modifiers::NONE, Key::End) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.goto_end(ui);
+			true
 		} else if input.consume_key(Modifiers::CTRL, Key::D) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.switch_chapter(true, ui)?;
+			true
 		} else if input.consume_key(Modifiers::CTRL, Key::B) {
 			drop(input);
 			self.put_render_context(ui);
 			self.controller.switch_chapter(false, ui)?;
-		}
-		Ok(())
+			true
+		} else {
+			false
+		};
+		Ok(action)
 	}
 
-	fn click_event(&mut self, click_position: Pos2, ui: &mut Ui) -> Result<()>
+	fn click_event(&mut self, click_position: Pos2, ui: &mut Ui) -> Result<bool>
 	{
 		for line in &self.render_lines {
 			if let Some(dc) = line.char_at_pos(click_position) {
@@ -310,12 +365,49 @@ impl ReaderApp {
 					}) {
 						self.put_render_context(ui);
 						self.controller.goto_link(dc.line, link_index, ui)?;
-						return Ok(());
+						return Ok(true);
 					}
 				}
 			}
 		}
-		Ok(())
+		Ok(false)
+	}
+
+	fn setup_toolbar(&mut self, ui: &mut Ui) -> bool
+	{
+		let sidebar = self.sidebar;
+		let sidebar_id = self.image(ui.ctx(), if sidebar { "sidebar_off.svg" } else { "sidebar_on.svg" });
+		if ImageButton::new(sidebar_id, vec2(32.0, 32.0)).ui(ui).clicked() {
+			self.sidebar = !sidebar;
+		}
+		let file_open_id = self.image(ui.ctx(), "file_open.svg");
+		if ImageButton::new(file_open_id, vec2(32.0, 32.0)).ui(ui).clicked() {
+			let mut dialog = rfd::FileDialog::new();
+			if self.controller.reading.filename != README_TEXT_FILENAME {
+				let mut path = PathBuf::from(&self.controller.reading.filename);
+				if path.pop() && path.is_dir() {
+					dialog = dialog.set_directory(path);
+				}
+			}
+			if let Some(path) = dialog.pick_file() {
+				if let Some(filepath) = path.to_str() {
+					self.put_render_context(ui);
+					let result = self.controller.switch_container(ReadingInfo::new(filepath), ui);
+					self.result(result);
+				}
+			}
+		}
+
+		let theme_dropdown = self.setup_theme_button(ui);
+
+		let status_msg = match &self.status {
+			AppStatus::Startup => RichText::from("Starting...").color(Color32::GREEN),
+			AppStatus::Normal(status) => RichText::from(status).color(Color32::BLUE),
+			AppStatus::Error(error) => RichText::from(error).color(Color32::RED),
+		};
+		ui.label(status_msg);
+
+		theme_dropdown
 	}
 
 	fn setup_theme_button(&mut self, ui: &mut Ui) -> bool
@@ -343,20 +435,102 @@ impl eframe::App for ReaderApp {
 	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 		egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
 			egui::menu::bar(ui, |ui| {
-				let file_open_id = self.image(ui.ctx(), "file_open.svg");
-				if ImageButton::new(file_open_id, vec2(32.0, 32.0)).ui(ui).clicked() {
-					if let Some(path) = rfd::FileDialog::new().pick_file() {
-						println!("open: {}", path.display().to_string());
-					}
-				}
-				self.dropdown = self.setup_theme_button(ui);
+				self.dropdown = self.setup_toolbar(ui);
 			});
 		});
+
+		if self.sidebar {
+			let width = ctx.available_rect().width() / 4.0;
+			egui::SidePanel::left("sidebar").max_width(width).show(ctx, |ui| {
+				egui::menu::bar(ui, |ui| {
+					let (chapter_icon, history_icon) = match self.sidebar_list {
+						SidebarList::Chapter => ("chapter_on.svg", "history_off.svg"),
+						SidebarList::History => ("chapter_off.svg", "history_on.svg"),
+					};
+					let chapter_id = self.image(ui.ctx(), chapter_icon);
+					let chapter_button = ImageButton::new(chapter_id, vec2(32.0, 32.0)).ui(ui);
+					if chapter_button.clicked() {
+						self.sidebar_list = SidebarList::Chapter;
+					}
+					let history_id = self.image(ui.ctx(), history_icon);
+					let history_button = ImageButton::new(history_id, vec2(32.0, 32.0)).ui(ui);
+					if history_button.clicked() {
+						self.sidebar_list = SidebarList::History;
+					}
+				});
+				ScrollArea::new([false, true]).max_width(width).show(ui, |ui| {
+					match self.sidebar_list {
+						SidebarList::Chapter => {
+							let mut selected_book = None;
+							let mut selected_toc = None;
+							for (index, bn) in self.controller.container.inner_book_names().iter().enumerate() {
+								let bookname = bn.name();
+								if bookname == README_TEXT_FILENAME {
+									break;
+								}
+								if index == self.controller.reading.inner_book {
+									ui.heading(RichText::from(bookname).color(Color32::LIGHT_RED));
+									if let Some(toc) = self.controller.book.toc_list() {
+										for entry in toc {
+											if self.current_toc == entry.value {
+												ui.label(RichText::from(entry.title)
+													.background_color(Color32::WHITE).
+													color(Color32::BLUE));
+											} else if ui.button(RichText::from(entry.title)
+												.background_color(Color32::WHITE)).clicked() {
+												selected_toc = Some(entry.value);
+											}
+										}
+									}
+								} else if ui.button(RichText::from(bookname).heading()).clicked() {
+									selected_book = Some(index);
+								}
+							}
+							if let Some(index) = selected_book {
+								self.put_render_context(ui);
+								let new_reading = ReadingInfo::new(&self.controller.reading.filename)
+									.with_inner_book(index);
+								let msg = self.controller.switch_book(new_reading, ui);
+								self.update_status(msg);
+							} else if let Some(index) = selected_toc {
+								self.put_render_context(ui);
+								if let Some(msg) = self.controller.goto_toc(index, ui) {
+									self.update_status(msg);
+								}
+							}
+						}
+						SidebarList::History => {
+							if self.controller.reading.filename != README_TEXT_FILENAME {
+								let mut selected = None;
+								for i in (0..self.configuration.history.len()).rev() {
+									let reading = &self.configuration.history[i];
+									if ui.button(&reading.filename).clicked() {
+										selected = Some(i)
+									}
+								}
+								if let Some(selected) = selected {
+									let new_one = self.configuration.history.remove(selected);
+									let reading_now = self.controller.reading.clone();
+									self.configuration.history.push(reading_now);
+									let result = self.controller.switch_container(new_one, ui);
+									self.result(result);
+								}
+							}
+						}
+					}
+				})
+			});
+		}
+
 		egui::CentralPanel::default().frame(Frame::default().fill(self.colors.background)).show(ctx, |ui| {
+			if matches!(self.status, AppStatus::Startup) {
+				self.update_status(self.controller.status_msg());
+			}
 			if self.font_size != self.configuration.gui.font_size {
 				self.default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
 				self.font_size = self.configuration.gui.font_size;
 			}
+			if self.sidebar {}
 			let size = ui.available_size();
 			let mut response = ui.allocate_response(size, Sense::click_and_drag());
 			self.setup_popup(ui, &mut response);
@@ -385,13 +559,19 @@ impl eframe::App for ReaderApp {
 					let input = ctx.input();
 					if let Some(click_position) = input.pointer.interact_pos() {
 						drop(input);
-						if let Err(e) = self.click_event(click_position, ui) {
-							println!("{}", e.to_string());
+						match self.click_event(click_position, ui) {
+							Ok(action) => if action {
+								self.update_status(self.controller.status_msg());
+							}
+							Err(e) => self.error(e.to_string()),
 						}
 					}
 				}
-				if let Err(e) = self.setup_keys(ui) {
-					println!("{}", e.to_string());
+				match self.setup_keys(ui) {
+					Ok(action) => if action {
+						self.update_status(self.controller.status_msg());
+					}
+					Err(e) => self.error(e.to_string()),
 				}
 			}
 
@@ -455,9 +635,14 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 				images,
 				controller,
 
+				status: AppStatus::Startup,
+				current_toc: 0,
 				popup_menu: None,
 				dropdown: false,
+				sidebar: false,
+				sidebar_list: SidebarList::Chapter,
 				response_rect: Rect::NOTHING,
+
 				view_rect: Rect::NOTHING,
 				font_size: 0,
 				default_font_measure: Default::default(),
