@@ -92,7 +92,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 	let controller_context: TerminalContext = app.take_user_data().unwrap();
 	configuration = controller_context.configuration;
 	configuration.current = Some(reading_now.filename.clone());
-	configuration.search_pattern = reading_view.search_pattern().clone();
+	configuration.search_pattern = reading_view.search_pattern().to_string();
 	configuration.history.push(reading_now);
 	configuration.save()?;
 	Ok(())
@@ -231,7 +231,7 @@ fn update_status(s: &mut Cursive, msg: &str) {
 fn goto_line(app: &mut Cursive) {
 	let reading_view: ViewRef<ReadingView> = app.find_name(TEXT_VIEW_NAME).unwrap();
 	let line_str = (reading_view.reading_info().line + 1).to_string();
-	setup_input_view(app, GOTO_LABEL_TEXT, &Some(line_str), |s, line_no| {
+	setup_input_view(app, GOTO_LABEL_TEXT, &line_str, |s, line_no| {
 		let line_no = line_no.parse::<usize>()?;
 		let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
 		reading_view.goto_line(line_no)
@@ -248,7 +248,7 @@ fn setup_search_view(app: &mut Cursive) {
 	});
 }
 
-fn setup_input_view<F>(app: &mut Cursive, prefix: &str, preset: &Option<String>, submit: F)
+fn setup_input_view<F>(app: &mut Cursive, prefix: &str, preset: &str, submit: F)
 	where F: Fn(&mut Cursive, &str) -> Result<()> + 'static
 {
 	let input_view = EditView::new()
@@ -274,10 +274,7 @@ fn setup_input_view<F>(app: &mut Cursive, prefix: &str, preset: &Option<String>,
 		.child(TextView::new(prefix)
 			.resized(SizeConstraint::Fixed(prefix.len()), SizeConstraint::Fixed(1)))
 		.child(OnEventView::new(input_view
-			.content(match preset {
-				Some(t) => t,
-				None => "",
-			})
+			.content(preset)
 			.with_name(INPUT_VIEW_NAME)
 			.resized(SizeConstraint::Fixed(20), SizeConstraint::Fixed(1)))
 			.on_event(Esc, |s| {

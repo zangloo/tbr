@@ -50,7 +50,7 @@ pub struct Controller<C, R: Render<C> + ?Sized>
 	pub container: Box<dyn Container>,
 	pub book: Box<dyn Book>,
 	pub reading: ReadingInfo,
-	pub search_pattern: Option<String>,
+	pub search_pattern: String,
 	pub render: Box<R>,
 
 	trace: Vec<TraceInfo>,
@@ -61,7 +61,7 @@ pub struct Controller<C, R: Render<C> + ?Sized>
 
 impl<C, R: Render<C> + ?Sized> Controller<C, R>
 {
-	pub fn new(mut reading: ReadingInfo, search_pattern: &Option<String>, render: Box<R>) -> Result<Self>
+	pub fn new(mut reading: ReadingInfo, search_pattern: &str, render: Box<R>) -> Result<Self>
 	{
 		let container_manager = Default::default();
 		let mut container = load_container(&container_manager, &reading)?;
@@ -70,7 +70,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	}
 
 	#[inline]
-	pub fn from_data(reading: ReadingInfo, search_pattern: &Option<String>, container_manager: ContainerManager, container: Box<dyn Container>, book: Box<dyn Book>, render: Box<R>) -> Result<Self>
+	pub fn from_data(reading: ReadingInfo, search_pattern: &str, container_manager: ContainerManager, container: Box<dyn Container>, book: Box<dyn Book>, render: Box<R>) -> Result<Self>
 	{
 		let trace = vec![TraceInfo { chapter: reading.chapter, line: reading.line, offset: reading.position }];
 		Ok(Controller {
@@ -79,7 +79,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			container,
 			book,
 			reading,
-			search_pattern: search_pattern.clone(),
+			search_pattern: search_pattern.to_string(),
 			trace,
 			current_trace: 0,
 			highlight: None,
@@ -133,7 +133,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	}
 
 	#[inline]
-	pub fn search_pattern(&self) -> &Option<String>
+	pub fn search_pattern(&self) -> &str
 	{
 		&self.search_pattern
 	}
@@ -157,7 +157,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 
 	pub fn search(&mut self, pattern: &str, context: &mut C) -> Result<()>
 	{
-		self.search_pattern = Some(String::from(pattern));
+		self.search_pattern = String::from(pattern);
 		self.search_next(self.reading.line, self.reading.position, context)
 	}
 
@@ -367,13 +367,9 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	}
 
 	fn search_next(&mut self, start_line: usize, start_position: usize, context: &mut C) -> Result<()> {
-		let search_text = match &self.search_pattern {
-			Some(text) => text,
-			None => return Ok(()),
-		};
 		let book = &self.book;
 		let lines = book.lines();
-		let regex = Regex::new(search_text.as_str())?;
+		let regex = Regex::new(&self.search_pattern)?;
 		let mut position = start_position;
 		for idx in start_line..lines.len() {
 			let line = &lines[idx];
@@ -393,12 +389,8 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	}
 
 	fn search_prev(&mut self, start_line: usize, start_position: usize, context: &mut C) -> Result<()> {
-		let search_text = match &self.search_pattern {
-			Some(text) => text,
-			None => return Ok(()),
-		};
 		let lines = self.book.lines();
-		let regex = Regex::new(search_text.as_str())?;
+		let regex = Regex::new(&self.search_pattern)?;
 		for idx in (0..=start_line).rev() {
 			let range = if idx == start_line {
 				if start_position == 0 {
