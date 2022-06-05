@@ -11,7 +11,6 @@ use anyhow::Result;
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::egui;
 use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, Id, ImageButton, PointerButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
-use eframe::emath::vec2;
 use eframe::glow::Context;
 use egui::{Key, Modifiers, RichText, ScrollArea};
 use egui_extras::RetainedImage;
@@ -23,7 +22,10 @@ use crate::container::{BookContent, BookName, Container, load_book, load_contain
 use crate::controller::Controller;
 use crate::gui::render::{create_render, GuiRender, measure_char_size, RenderContext, RenderLine};
 
-const ICON_SIZE: f32 = 32.0;
+const ICON_SIZE: Vec2 = Vec2 { x: 32.0, y: 32.0 };
+const MIN_FONT_SIZE: u8 = 20;
+const MAX_FONT_SIZE: u8 = 50;
+
 const README_TEXT_FILENAME: &str = "readme";
 const README_TEXT: &str = "
 The terminal and gui e-book reader
@@ -230,11 +232,11 @@ impl ReaderApp {
 		if self.popup_menu.is_some() {
 			egui::popup::show_tooltip_at(ui.ctx(), text_view_popup, self.popup_menu, |ui| {
 				let texture_id = self.image(ctx, "copy.svg");
-				Button::image_and_text(texture_id, vec2(ICON_SIZE, ICON_SIZE), "复制内容").ui(ui);
+				Button::image_and_text(texture_id, ICON_SIZE, "复制内容").ui(ui);
 				let texture_id = self.image(ctx, "dict.svg");
-				Button::image_and_text(texture_id, vec2(ICON_SIZE, ICON_SIZE), "查阅字典").ui(ui);
+				Button::image_and_text(texture_id, ICON_SIZE, "查阅字典").ui(ui);
 				let texture_id = self.image(ctx, "bookmark.svg");
-				Button::image_and_text(texture_id, vec2(ICON_SIZE, ICON_SIZE), "增加书签").ui(ui);
+				Button::image_and_text(texture_id, ICON_SIZE, "增加书签").ui(ui);
 			});
 			if response.clicked() || response.clicked_elsewhere() {
 				self.popup_menu = None;
@@ -340,6 +342,29 @@ impl ReaderApp {
 			self.put_render_context(ui);
 			self.controller.switch_chapter(false, ui)?;
 			true
+		} else if input.scroll_delta.y != 0.0 {
+			let delta = input.scroll_delta.y;
+			drop(input);
+			// delta > 0.0 for scroll up
+			if delta > 0.0 {
+				self.put_render_context(ui);
+				self.controller.step_prev(ui);
+			} else {
+				self.put_render_context(ui);
+				self.controller.step_next(ui);
+			}
+			true
+		} else if input.zoom_delta() != 1.0 {
+			if input.zoom_delta() > 1.0 {
+				if self.configuration.gui.font_size < MAX_FONT_SIZE {
+					self.configuration.gui.font_size += 2;
+				}
+			} else {
+				if self.configuration.gui.font_size > MIN_FONT_SIZE {
+					self.configuration.gui.font_size -= 2;
+				}
+			}
+			false
 		} else {
 			false
 		};
@@ -372,11 +397,11 @@ impl ReaderApp {
 	{
 		let sidebar = self.sidebar;
 		let sidebar_id = self.image(ui.ctx(), if sidebar { "sidebar_off.svg" } else { "sidebar_on.svg" });
-		if ImageButton::new(sidebar_id, vec2(32.0, 32.0)).ui(ui).clicked() {
+		if ImageButton::new(sidebar_id, ICON_SIZE).ui(ui).clicked() {
 			self.sidebar = !sidebar;
 		}
 		let file_open_id = self.image(ui.ctx(), "file_open.svg");
-		if ImageButton::new(file_open_id, vec2(32.0, 32.0)).ui(ui).clicked() {
+		if ImageButton::new(file_open_id, ICON_SIZE).ui(ui).clicked() {
 			let mut dialog = rfd::FileDialog::new();
 			if self.controller.reading.filename != README_TEXT_FILENAME {
 				let mut path = PathBuf::from(&self.controller.reading.filename);
@@ -409,7 +434,7 @@ impl ReaderApp {
 	{
 		let themes_id = self.image(ui.ctx(), "themes.svg");
 		let themes_popup = ui.make_persistent_id("themes_popup");
-		let theme_button = ImageButton::new(themes_id, vec2(32.0, 32.0)).ui(ui);
+		let theme_button = ImageButton::new(themes_id, ICON_SIZE).ui(ui);
 		if theme_button.clicked() {
 			ui.memory().toggle_popup(themes_popup);
 		}
@@ -443,12 +468,12 @@ impl eframe::App for ReaderApp {
 						SidebarList::History => ("chapter_off.svg", "history_on.svg"),
 					};
 					let chapter_id = self.image(ui.ctx(), chapter_icon);
-					let chapter_button = ImageButton::new(chapter_id, vec2(32.0, 32.0)).ui(ui);
+					let chapter_button = ImageButton::new(chapter_id, ICON_SIZE).ui(ui);
 					if chapter_button.clicked() {
 						self.sidebar_list = SidebarList::Chapter;
 					}
 					let history_id = self.image(ui.ctx(), history_icon);
-					let history_button = ImageButton::new(history_id, vec2(32.0, 32.0)).ui(ui);
+					let history_button = ImageButton::new(history_id, ICON_SIZE).ui(ui);
 					if history_button.clicked() {
 						self.sidebar_list = SidebarList::History;
 					}
@@ -524,6 +549,8 @@ impl eframe::App for ReaderApp {
 			if self.font_size != self.configuration.gui.font_size {
 				self.default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
 				self.font_size = self.configuration.gui.font_size;
+				self.put_render_context(ui);
+				self.controller.redraw(ui);
 			}
 			if self.sidebar {}
 			let size = ui.available_size();
