@@ -134,8 +134,6 @@ fn insert_font(fonts: &mut FontDefinitions, name: &str, font_data: FontData) {
 		.insert(0, name.to_string());
 }
 
-const EMBEDDED_RESOURCE_PREFIX: &str = "embedded://";
-
 enum SidebarList {
 	Chapter,
 	History,
@@ -149,24 +147,21 @@ enum AppStatus {
 
 fn setup_fonts(ctx: &egui::Context, font_paths: &HashSet<PathBuf>) -> Result<()> {
 	let mut fonts = FontDefinitions::default();
-	for path in font_paths {
-		let str = path.to_str().unwrap();
-		let (filename, content) = if str.starts_with(EMBEDDED_RESOURCE_PREFIX) {
-			let filename = path.file_name().unwrap().to_str().unwrap();
-			let content = Asset::get(&str[EMBEDDED_RESOURCE_PREFIX.len()..])
-				.unwrap()
-				.data
-				.as_ref()
-				.to_vec();
-			(filename, content)
-		} else {
+	if font_paths.is_empty() {
+		let content = Asset::get("font/wqy-zenhei.ttc")
+			.unwrap()
+			.data
+			.as_ref()
+			.to_vec();
+		insert_font(&mut fonts, "embedded", FontData::from_owned(content));
+	} else {
+		for path in font_paths {
 			let mut file = OpenOptions::new().read(true).open(path)?;
 			let mut buf = vec![];
 			file.read_to_end(&mut buf)?;
 			let filename = path.file_name().unwrap().to_str().unwrap();
-			(filename, buf)
-		};
-		insert_font(&mut fonts, filename, FontData::from_owned(content));
+			insert_font(&mut fonts, filename, FontData::from_owned(buf));
+		}
 	}
 	ctx.set_fonts(fonts);
 	Ok(())

@@ -10,8 +10,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
-#[cfg(feature = "gui")]
- use std::str::FromStr;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use cursive::theme::{Error, load_theme_file, load_toml, Theme};
@@ -137,9 +135,7 @@ pub struct GuiConfiguration {
 impl Default for GuiConfiguration
 {
 	fn default() -> Self {
-		let mut fonts = HashSet::new();
-		fonts.insert(PathBuf::from_str("embedded://font/wqy-zenhei.ttc").unwrap());
-		GuiConfiguration { fonts, font_size: 20 }
+		GuiConfiguration { fonts: HashSet::new(), font_size: 20 }
 	}
 }
 
