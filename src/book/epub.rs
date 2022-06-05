@@ -1,8 +1,15 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::io::{Cursor, Read, Seek};
+#[cfg(feature = "gui")]
+use std::io::BufReader;
+use std::io::Cursor;
+use std::io::Read;
+use std::io::Seek;
 use std::path::PathBuf;
 use anyhow::{anyhow, Error, Result};
+use image::DynamicImage;
+#[cfg(feature = "gui")]
+use image::ImageFormat;
 use path_absolutize::Absolutize;
 use regex::Regex;
 use strip_bom::StripBom;
@@ -49,6 +56,7 @@ struct NavPoint {
 struct Chapter {
 	#[allow(dead_code)]
 	index: usize,
+	cwd: PathBuf,
 	path: String,
 	#[allow(dead_code)]
 	title: String,
@@ -66,6 +74,7 @@ struct EpubBook<R: Read + Seek> {
 	toc: Vec<NavPoint>,
 	chapter_cache: HashMap<usize, Chapter>,
 	css_cache: HashMap<String, String>,
+	images: HashMap<String, DynamicImage>,
 	chapter_index: usize,
 }
 
@@ -188,6 +197,14 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 		let target_anchor = target_split.next().and_then(|a| Some(String::from(a))).or(None);
 		self.target_position(target_file, target_anchor)
 	}
+
+	fn image(&mut self, href: &str) -> Option<&DynamicImage> {
+		if let Ok(chapter) = self.load_chapter(self.current_chapter()) {
+			resolve(&chapter.cwd.clone(), href, &self.images)
+		} else {
+			None
+		}
+	}
 }
 
 impl<'a, R: Read + Seek> EpubBook<R> {
@@ -212,7 +229,7 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 		let content_opf = parse_content_opf(&content_opf_text)
 			.ok_or(anyhow!("Malformatted content.opf file"))?;
 
-		let css_cache = load_css(&mut zip, &content_opf.manifest)?;
+		let (css_cache, images) = load_cache(&mut zip, &content_opf_dir, &content_opf.manifest);
 
 		let mut nxc_path = content_opf_dir.clone();
 		nxc_path.push(
@@ -241,6 +258,7 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 			chapter_cache,
 			chapter_index,
 			css_cache,
+			images,
 		};
 		book.load_chapter(chapter_index)?;
 		Ok(book)
@@ -261,19 +279,10 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 				let full_path = full_path.into_os_string().into_string().unwrap();
 				let html_str = zip_string(&mut self.zip, &full_path)?;
 				// setup css resolver
-				let cwd_path = if full_path.starts_with("/") {
-					full_path.to_string()
-				} else {
-					"/".to_owned() + &full_path
-				};
-				let mut cwd = PathBuf::from(cwd_path);
-				cwd.pop();
+				let cwd = build_cwd(&full_path);
 				let css_cache = &self.css_cache;
-				let html_content = html_str_content(&html_str, Some(|path| {
-					let path = cwd.join(path);
-					let absolut_path = path.absolutize().unwrap();
-					let path_str = absolut_path.to_str().unwrap();
-					css_cache.get(path_str)
+				let html_content = html_str_content(&html_str, Some(|path: String| {
+					resolve(&cwd, &path, css_cache)
 				}))?;
 				let toc_index = toc_index_for_chapter(chapter_index,
 					&src_file, &html_content.id_map, &self.content_opf, &self.toc);
@@ -281,6 +290,7 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 					.unwrap_or_else(|| toc_title(&self.toc[toc_index]).clone());
 				let chapter = Chapter {
 					index: chapter_index,
+					cwd,
 					path: src_file.clone(),
 					title: String::from(title),
 					lines: html_content.lines,
@@ -332,22 +342,52 @@ fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Ve
 }
 
 
-fn load_css<R: Read + Seek>(zip: &mut ZipArchive<R>, manifest: &Manifest) -> Result<HashMap<String, String>>
+fn load_cache<R: Read + Seek>(zip: &mut ZipArchive<R>, cwd: &PathBuf, manifest: &Manifest) -> (HashMap<String, String>, HashMap<String, DynamicImage>)
 {
-	let mut cache = HashMap::new();
+	let mut css_cache = HashMap::new();
+	#[cfg(not(feature = "gui"))]
+		let images = HashMap::new();
+	#[cfg(feature = "gui")]
+		let mut images = HashMap::new();
 	for (_, item) in manifest {
 		if item.media_type == "text/css" {
-			if let Ok(content) = zip_string(zip, &item.href) {
-				let absolut_path = if item.href.starts_with("/") {
-					item.href.clone()
+			let path = cwd.join(&item.href);
+			let absolute_path = path.to_str().unwrap();
+			if let Ok(content) = zip_string(zip, absolute_path) {
+				let absolut_path = if absolute_path.starts_with("/") {
+					absolute_path.to_string()
 				} else {
-					"/".to_owned() + &item.href
+					"/".to_owned() + absolute_path
 				};
-				cache.insert(absolut_path, content);
+				css_cache.insert(absolut_path, content);
+			}
+			continue;
+		}
+		#[cfg(feature = "gui")]
+		if item.media_type.starts_with("image/") {
+			let path = cwd.join(&item.href);
+			let absolute_path = path.to_str().unwrap();
+			if let Ok(content) = zip_content(zip, absolute_path) {
+				let absolut_path = if absolute_path.starts_with("/") {
+					absolute_path.to_string()
+				} else {
+					"/".to_owned() + absolute_path
+				};
+				let cursor = Cursor::new(&content);
+				let reader = BufReader::new(cursor);
+				let format = match ImageFormat::from_path(absolute_path) {
+					Ok(f) => f,
+					Err(_) => continue,
+				};
+				let image = match image::load(reader, format) {
+					Ok(i) => i,
+					Err(_) => continue,
+				};
+				images.insert(absolut_path, image);
 			}
 		}
 	}
-	Ok(cache)
+	(css_cache, images)
 }
 
 fn parse_nav_points(nav_points_element: &Element, level: usize, nav_points: &mut Vec<NavPoint>) {
@@ -518,4 +558,24 @@ fn toc_title(nav_point: &NavPoint) -> &String {
 		None => &nav_point.src_file,
 	};
 	label
+}
+
+fn build_cwd(full_path: &str) -> PathBuf
+{
+	let cwd_path = if full_path.starts_with("/") {
+		full_path.to_string()
+	} else {
+		"/".to_owned() + &full_path
+	};
+	let mut cwd = PathBuf::from(cwd_path);
+	cwd.pop();
+	cwd
+}
+
+fn resolve<'a, T>(cwd: &PathBuf, path: &str, cache: &'a HashMap<String, T>) -> Option<&'a T>
+{
+	let path = cwd.join(path);
+	let absolute_path = path.absolutize().unwrap();
+	let path_str = absolute_path.to_str().unwrap();
+	cache.get(path_str)
 }

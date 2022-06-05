@@ -5,11 +5,12 @@ use eframe::egui::{Align2, Color32, Pos2, Rect, Stroke, Ui, Vec2};
 use crate::book::{Line, TextStyle};
 use crate::common::{HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::{HighlightInfo, Render};
-use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size, update_for_highlight, stroke_width_for_space};
+use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size, update_for_highlight, stroke_width_for_space, ImageDrawingData};
 use crate::Position;
 
 pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
+	images: HashMap<String, ImageDrawingData>,
 }
 
 impl GuiHanRender
@@ -19,6 +20,7 @@ impl GuiHanRender
 		GuiHanRender
 		{
 			chars_map: HAN_RENDER_CHARS_PAIRS.into_iter().collect(),
+			images: HashMap::new(),
 		}
 	}
 
@@ -340,5 +342,9 @@ impl GuiRender for GuiHanRender
 			}
 			i += 1;
 		}
+	}
+
+	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData> {
+		&mut self.images
 	}
 }

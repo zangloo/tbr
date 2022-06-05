@@ -84,21 +84,21 @@ fn newline_for_class(context: &mut ParseContext, element: &Element)
 
 fn new_line(context: &mut ParseContext, ignore_empty_buf: bool)
 {
-	let mut empyt_count = 0;
+	let mut empty_count = 0;
 	// no more then 2 empty lines
 	for line in context.content.lines.iter().rev() {
 		if line.is_empty() {
-			empyt_count += 1;
-			if empyt_count == 2 {
+			empty_count += 1;
+			if empty_count == 2 {
 				return;
 			}
-		} else if empyt_count == 0 {
+		} else {
 			break;
-		} else if ignore_empty_buf {
-			return;
 		}
 	}
-	context.content.lines.push(Line::default())
+	if empty_count == 0 || !ignore_empty_buf {
+		context.content.lines.push(Line::default())
+	}
 }
 
 const DIV_PUSH_CLASSES: [&str; 3] = ["contents", "toc", "mulu"];
@@ -188,6 +188,16 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						}
 						convert_dom_to_lines(child.children(), context);
 					}
+					local_name!("img") => {
+						if let Some(href) = element.attr("src") {
+							add_image(href, context, &mut element_styles);
+						}
+					}
+					local_name!("image") => {
+						if let Some(href) = element.attr("xlink:href") {
+							add_image(href, context, &mut element_styles);
+						}
+					}
 					_ => convert_dom_to_lines(child.children(), context),
 				}
 				if element_styles.len() > 0 {
@@ -206,6 +216,13 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 			_ => {}
 		}
 	}
+}
+
+fn add_image(href: &str, context: &mut ParseContext, element_styles: &mut Vec<TextStyle>)
+{
+	element_styles.push(TextStyle::Image(href.to_string()));
+	new_line(context, true);
+	context.content.lines.last_mut().unwrap().concat(href);
 }
 
 #[inline]
@@ -316,7 +333,7 @@ fn font_size(size: &FontSize) -> TextStyle
 				TextStyle::FontSize { scale, relative }
 			}
 			LengthPercentage::Percentage(percentage::Percentage(p)) =>
-				TextStyle::FontSize { scale: (*p / 100 as f32), relative: true },
+				TextStyle::FontSize { scale: *p, relative: true },
 			LengthPercentage::Calc(_) => // 视而不见
 				TextStyle::FontSize { scale: 1.0, relative: false }
 		}
@@ -373,6 +390,7 @@ fn length(length: &Length) -> f32
 	}
 }
 
+#[inline]
 fn length_value(value: &LengthValue, default_size: f32) -> (f32, bool)
 {
 	match value {

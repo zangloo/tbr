@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::RangeInclusive;
 use eframe::egui::{Ui, Vec2};
 use eframe::emath::Align2;
@@ -6,16 +7,18 @@ use egui::{Color32, Pos2, Rect, Stroke};
 use crate::book::{Line, TextStyle};
 use crate::common::with_leading;
 use crate::controller::{HighlightInfo, Render};
-use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, paint_char, RenderChar, update_for_highlight, stroke_width_for_space};
+use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, paint_char, RenderChar, update_for_highlight, stroke_width_for_space, ImageDrawingData};
 use crate::Position;
 
-pub(super) struct GuiXiRender {}
+pub(super) struct GuiXiRender {
+	images: HashMap<String, ImageDrawingData>,
+}
 
 impl GuiXiRender
 {
 	pub fn new() -> Self
 	{
-		GuiXiRender {}
+		GuiXiRender { images: HashMap::new() }
 	}
 }
 
@@ -412,5 +415,9 @@ impl GuiRender for GuiXiRender
 			}
 			i += 1;
 		}
+	}
+
+	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData> {
+		&mut self.images
 	}
 }

@@ -601,7 +601,7 @@ impl eframe::App for ReaderApp {
 				self.render_lines = lines;
 			}
 			ui.set_clip_rect(rect.clone());
-			self.controller.render.draw(&self.render_lines, ui);
+			self.controller.render.draw(&self.render_lines, &mut self.controller.book, ui);
 			response
 		});
 	}

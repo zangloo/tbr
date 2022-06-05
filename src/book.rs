@@ -7,6 +7,7 @@ use std::slice::Iter;
 
 use anyhow::{anyhow, Result};
 use eframe::egui::Color32;
+use image::DynamicImage;
 use regex::Regex;
 
 use crate::book::epub::EpubLoader;
@@ -33,7 +34,6 @@ pub enum TextStyle {
 	Line(TextDecorationLine),
 	Border,
 	FontSize { scale: f32, relative: bool },
-	#[cfg(feature = "gui")]
 	Image(String),
 	Link(String),
 }
@@ -287,6 +287,7 @@ pub trait Book {
 	fn lines(&self) -> &Vec<Line>;
 	fn leading_space(&self) -> usize { 2 }
 	fn link_position(&mut self, _line: usize, _link_index: usize) -> Option<TraceInfo> { None }
+	fn image(&mut self, _href: &str) -> Option<&DynamicImage> { None }
 }
 
 pub struct BookLoader {
