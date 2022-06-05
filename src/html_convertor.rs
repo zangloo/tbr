@@ -173,6 +173,15 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						new_line(context, true);
 						convert_dom_to_lines(child.children(), context);
 					}
+					local_name!("font") => {
+						if let Some(level_text) = element.attr("size") {
+							if let Ok(level) = level_text.parse::<u8>() {
+								let style = font_size_level(level);
+								element_styles.push(style);
+							}
+						}
+						convert_dom_to_lines(child.children(), context);
+					}
 					local_name!("a") => {
 						if let Some(href) = element.attr("href") {
 							element_styles.push(TextStyle::Link(href.to_string()));
