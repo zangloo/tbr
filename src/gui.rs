@@ -12,7 +12,7 @@ use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::egui;
 use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, Id, ImageButton, PointerButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
-use egui::{Key, Modifiers, RichText, ScrollArea};
+use egui::{ComboBox, Key, Modifiers, RichText, ScrollArea};
 use egui_extras::RetainedImage;
 
 use crate::{Asset, Configuration, ReadingInfo, ThemeEntry};
@@ -420,6 +420,28 @@ impl ReaderApp {
 
 		let theme_dropdown = self.setup_theme_button(ui);
 
+		// setup render dropdown
+		let mut selected_text = if self.configuration.render_type == "han" { "漢" } else { "En" };
+		let mut selected_render = None;
+		let render_dropdown = ComboBox::from_label("")
+			.selected_text(selected_text.to_string())
+			.show_ui(ui, |ui| {
+				if ui.selectable_value(&mut selected_text, "han", "漢").clicked() {
+					selected_render = Some("han");
+				};
+				if ui.selectable_value(&mut selected_text, "xi", "En").clicked() {
+					selected_render = Some("xi");
+				};
+			}).inner.is_some();
+		if let Some(render_type) = selected_render {
+			if render_type != &self.configuration.render_type {
+				self.configuration.render_type = render_type.to_string();
+				self.controller.render = create_render(render_type);
+				self.put_render_context(ui);
+				self.controller.redraw(ui);
+			}
+		}
+
 		let status_msg = match &self.status {
 			AppStatus::Startup => RichText::from("Starting...").color(Color32::GREEN),
 			AppStatus::Normal(status) => RichText::from(status).color(Color32::BLUE),
@@ -427,7 +449,7 @@ impl ReaderApp {
 		};
 		ui.label(status_msg);
 
-		theme_dropdown
+		theme_dropdown || render_dropdown
 	}
 
 	fn setup_theme_button(&mut self, ui: &mut Ui) -> bool
