@@ -220,7 +220,7 @@ impl ReaderApp {
 		self.status = AppStatus::Normal(status);
 	}
 
-	fn setup_popup(&mut self, ui: &mut Ui, response: &mut Response) {
+	fn setup_popup(&mut self, ui: &mut Ui, response: &Response) {
 		let ctx = ui.ctx();
 		let text_view_popup = ui.make_persistent_id("text_view_popup");
 		if response.clicked_by(PointerButton::Secondary) {
@@ -576,8 +576,8 @@ impl eframe::App for ReaderApp {
 			}
 			if self.sidebar {}
 			let size = ui.available_size();
-			let mut response = ui.allocate_response(size, Sense::click_and_drag());
-			self.setup_popup(ui, &mut response);
+			let response = ui.allocate_response(size, Sense::click_and_drag());
+			// self.setup_popup(ui, &response);
 			let rect = &response.rect;
 			if rect.min != self.response_rect.min || rect.max != self.response_rect.max {
 				self.response_rect = rect.clone();
