@@ -260,7 +260,7 @@ impl ReaderApp {
 		prepare_redraw(ui, context);
 	}
 
-	fn setup_keys(&mut self, ui: &mut Ui) -> Result<bool>
+	fn setup_input(&mut self, rect: &Rect, ui: &mut Ui) -> Result<bool>
 	{
 		let mut input = ui.input_mut();
 		let action = if input.consume_key(Modifiers::NONE, Key::Space)
@@ -343,29 +343,40 @@ impl ReaderApp {
 			self.put_render_context(ui);
 			self.controller.switch_chapter(false, ui)?;
 			true
-		} else if input.scroll_delta.y != 0.0 {
-			let delta = input.scroll_delta.y;
-			drop(input);
-			// delta > 0.0 for scroll up
-			if delta > 0.0 {
-				self.put_render_context(ui);
-				self.controller.step_prev(ui);
-			} else {
-				self.put_render_context(ui);
-				self.controller.step_next(ui);
-			}
-			true
-		} else if input.zoom_delta() != 1.0 {
-			if input.zoom_delta() > 1.0 {
-				if self.configuration.gui.font_size < MAX_FONT_SIZE {
-					self.configuration.gui.font_size += 2;
-				}
-			} else {
-				if self.configuration.gui.font_size > MIN_FONT_SIZE {
-					self.configuration.gui.font_size -= 2;
-				}
-			}
+		} else if input.consume_key(Modifiers::NONE, Key::Escape) {
+			self.sidebar = false;
 			false
+		} else if let Some(pos) = input.pointer.interact_pos() {
+			if rect.contains(pos) {
+				if input.scroll_delta.y != 0.0 {
+					let delta = input.scroll_delta.y;
+					drop(input);
+					// delta > 0.0 for scroll up
+					if delta > 0.0 {
+						self.put_render_context(ui);
+						self.controller.step_prev(ui);
+					} else {
+						self.put_render_context(ui);
+						self.controller.step_next(ui);
+					}
+					true
+				} else if input.zoom_delta() != 1.0 {
+					if input.zoom_delta() > 1.0 {
+						if self.configuration.gui.font_size < MAX_FONT_SIZE {
+							self.configuration.gui.font_size += 2;
+						}
+					} else {
+						if self.configuration.gui.font_size > MIN_FONT_SIZE {
+							self.configuration.gui.font_size -= 2;
+						}
+					}
+					false
+				} else {
+					false
+				}
+			} else {
+				false
+			}
 		} else {
 			false
 		};
@@ -627,7 +638,7 @@ impl eframe::App for ReaderApp {
 						}
 					}
 				}
-				match self.setup_keys(ui) {
+				match self.setup_input(&rect, ui) {
 					Ok(action) => if action {
 						self.update_status(self.controller.status_msg());
 					}
