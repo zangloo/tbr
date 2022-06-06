@@ -12,7 +12,7 @@ use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::egui;
 use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, Id, ImageButton, PointerButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
-use egui::{ComboBox, Key, Modifiers, RichText, ScrollArea};
+use egui::{ComboBox, Key, Modifiers, RichText, ScrollArea, TextEdit};
 use egui_extras::RetainedImage;
 
 use crate::{Asset, Configuration, ReadingInfo, ThemeEntry};
@@ -442,6 +442,19 @@ impl ReaderApp {
 			}
 		}
 
+		let search_id = self.image(ui.ctx(), "search.svg");
+		ui.image(search_id, ICON_SIZE);
+		let search_edit = ui.add(TextEdit::singleline(&mut self.configuration.search_pattern));
+		let searching = search_edit.has_focus();
+		if search_edit.changed() {
+			self.put_render_context(ui);
+			if let Err(e) = self.controller.search(&self.configuration.search_pattern, ui) {
+				self.error(e.to_string());
+			} else {
+				self.update_status(self.controller.status_msg());
+			}
+		}
+
 		let status_msg = match &self.status {
 			AppStatus::Startup => RichText::from("Starting...").color(Color32::GREEN),
 			AppStatus::Normal(status) => RichText::from(status).color(Color32::BLUE),
@@ -449,7 +462,7 @@ impl ReaderApp {
 		};
 		ui.label(status_msg);
 
-		theme_dropdown || render_dropdown
+		theme_dropdown || render_dropdown || searching
 	}
 
 	fn setup_theme_button(&mut self, ui: &mut Ui) -> bool
