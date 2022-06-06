@@ -1,15 +1,10 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-#[cfg(feature = "gui")]
-use std::io::BufReader;
 use std::io::Cursor;
 use std::io::Read;
 use std::io::Seek;
 use std::path::PathBuf;
 use anyhow::{anyhow, Error, Result};
-use image::DynamicImage;
-#[cfg(feature = "gui")]
-use image::ImageFormat;
 use path_absolutize::Absolutize;
 use regex::Regex;
 use strip_bom::StripBom;
@@ -74,7 +69,7 @@ struct EpubBook<R: Read + Seek> {
 	toc: Vec<NavPoint>,
 	chapter_cache: HashMap<usize, Chapter>,
 	css_cache: HashMap<String, String>,
-	images: HashMap<String, DynamicImage>,
+	images: HashMap<String, Vec<u8>>,
 	chapter_index: usize,
 }
 
@@ -198,7 +193,7 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 		self.target_position(target_file, target_anchor)
 	}
 
-	fn image(&mut self, href: &str) -> Option<&DynamicImage> {
+	fn image(&mut self, href: &str) -> Option<&Vec<u8>> {
 		if let Ok(chapter) = self.load_chapter(self.current_chapter()) {
 			resolve(&chapter.cwd.clone(), href, &self.images)
 		} else {
@@ -342,7 +337,7 @@ fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Ve
 }
 
 
-fn load_cache<R: Read + Seek>(zip: &mut ZipArchive<R>, cwd: &PathBuf, manifest: &Manifest) -> (HashMap<String, String>, HashMap<String, DynamicImage>)
+fn load_cache<R: Read + Seek>(zip: &mut ZipArchive<R>, cwd: &PathBuf, manifest: &Manifest) -> (HashMap<String, String>, HashMap<String, Vec<u8>>)
 {
 	let mut css_cache = HashMap::new();
 	#[cfg(not(feature = "gui"))]
@@ -373,17 +368,7 @@ fn load_cache<R: Read + Seek>(zip: &mut ZipArchive<R>, cwd: &PathBuf, manifest: 
 				} else {
 					"/".to_owned() + absolute_path
 				};
-				let cursor = Cursor::new(&content);
-				let reader = BufReader::new(cursor);
-				let format = match ImageFormat::from_path(absolute_path) {
-					Ok(f) => f,
-					Err(_) => continue,
-				};
-				let image = match image::load(reader, format) {
-					Ok(i) => i,
-					Err(_) => continue,
-				};
-				images.insert(absolut_path, image);
+				images.insert(absolut_path, content);
 			}
 		}
 	}

@@ -1,11 +1,12 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::io::{BufReader, Cursor};
 use std::ops::Range;
 use eframe::egui::{Align2, FontFamily, FontId, Rect, Rounding, Stroke, Ui};
 use eframe::emath::{Pos2, Vec2};
 use eframe::epaint::Color32;
 use egui::{ColorImage, Mesh, Shape, TextureHandle};
-use image::DynamicImage;
+use image::ImageFormat;
 use image::imageops::FilterType;
 
 use crate::book::{Book, Colors, Line, TextStyle};
@@ -173,8 +174,8 @@ pub(super) trait GuiRender: Render<Ui> {
 		for render_line in render_lines {
 			// for now, image will always take a line and is the first char
 			if let Some(RenderChar { style: Some((TextStyle::Image(href), _)), rect, .. }) = render_line.chars.first() {
-				if let Some(image) = book.image(href) {
-					self.draw_image(href, image, &rect, ui);
+				if let Some(bytes) = book.image(href) {
+					self.draw_image(href, bytes, &rect, ui);
 				}
 			}
 			for dc in &render_line.chars {
@@ -296,10 +297,21 @@ pub(super) trait GuiRender: Render<Ui> {
 		}
 	}
 
-	fn draw_image(&mut self, name: &str, image: &DynamicImage, rect: &Rect, ui: &mut Ui)
+	fn draw_image(&mut self, name: &str, bytes: &Vec<u8>, rect: &Rect, ui: &mut Ui)
 	{
-		fn load_image(rect: &Rect, image: &DynamicImage, name: &str, ui: &mut Ui) -> ImageDrawingData
+		fn load_image(rect: &Rect, bytes: &Vec<u8>, name: &str, ui: &mut Ui) -> Option<ImageDrawingData>
 		{
+			let cursor = Cursor::new(bytes);
+			let reader = BufReader::new(cursor);
+			let format = match ImageFormat::from_path(name) {
+				Ok(f) => f,
+				Err(_) => return None,
+			};
+			let image = match image::load(reader, format) {
+				Ok(i) => i,
+				Err(_) => return None,
+			};
+
 			let width = rect.width() as u32;
 			let height = rect.height() as u32;
 			let image = image.resize(width, height, FilterType::Nearest);
@@ -318,22 +330,29 @@ pub(super) trait GuiRender: Render<Ui> {
 				Vec2::new(draw_width as f32, draw_height as f32),
 			);
 			let texture = ui.ctx().load_texture(name, color_image);
-			ImageDrawingData {
+			Some(ImageDrawingData {
 				rect: *rect,
 				draw_rect,
 				texture,
-			}
+			})
 		}
 		let cache = self.image_cache();
 		let mut image_data = match cache.entry(name.to_string()) {
 			Entry::Occupied(o) => o.into_mut(),
-			Entry::Vacant(v) => v.insert(load_image(rect, image, name, ui)),
+			Entry::Vacant(v) => if let Some(data) = load_image(rect, bytes, name, ui) {
+				v.insert(data)
+			} else {
+				return;
+			}
 		};
 
 		if *rect != image_data.rect {
-			let new_image_data = load_image(rect, image, name, ui);
-			cache.insert(name.to_string(), new_image_data);
-			image_data = cache.get_mut(name).unwrap();
+			if let Some(new_image_data) = load_image(rect, bytes, name, ui) {
+				cache.insert(name.to_string(), new_image_data);
+				image_data = cache.get_mut(name).unwrap();
+			} else {
+				return;
+			}
 		}
 		let mut mesh = Mesh::with_texture(image_data.texture.id());
 		let uv = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
