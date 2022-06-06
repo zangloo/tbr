@@ -4,16 +4,18 @@ mod render;
 
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
-use std::io::Read;
+use std::io::{BufReader, Cursor, Read};
 use std::ops::Index;
 use std::path::PathBuf;
 use anyhow::Result;
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
-use eframe::egui;
+use eframe::{egui, IconData};
 use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, Id, ImageButton, PointerButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
 use egui::{ComboBox, Key, Modifiers, RichText, ScrollArea, TextEdit};
 use egui_extras::RetainedImage;
+use image::{DynamicImage, ImageFormat};
+use image::imageops::FilterType;
 
 use crate::{Asset, Configuration, ReadingInfo, ThemeEntry};
 use crate::book::{Book, Colors, Line, TextStyle};
@@ -23,6 +25,7 @@ use crate::controller::Controller;
 use crate::gui::render::{create_render, GuiRender, measure_char_size, RenderContext, RenderLine};
 
 const ICON_SIZE: Vec2 = Vec2 { x: 32.0, y: 32.0 };
+const APP_ICON_SIZE: u32 = 48;
 const MIN_FONT_SIZE: u8 = 20;
 const MAX_FONT_SIZE: u8 = 50;
 
@@ -393,7 +396,7 @@ impl ReaderApp {
 		Ok(false)
 	}
 
-	fn setup_toolbar(&mut self, ui: &mut Ui) -> bool
+	fn setup_toolbar(&mut self, frame: &mut eframe::Frame, ui: &mut Ui) -> bool
 	{
 		let sidebar = self.sidebar;
 		let sidebar_id = self.image(ui.ctx(), if sidebar { "sidebar_off.svg" } else { "sidebar_on.svg" });
@@ -414,6 +417,7 @@ impl ReaderApp {
 					self.put_render_context(ui);
 					let result = self.controller.switch_container(ReadingInfo::new(filepath), ui);
 					self.result(result);
+					update_title(frame, &self.controller.reading.filename);
 				}
 			}
 		}
@@ -487,10 +491,10 @@ impl ReaderApp {
 }
 
 impl eframe::App for ReaderApp {
-	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+	fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 		egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
 			egui::menu::bar(ui, |ui| {
-				self.dropdown = self.setup_toolbar(ui);
+				self.dropdown = self.setup_toolbar(frame, ui);
 			});
 		});
 
@@ -569,6 +573,7 @@ impl eframe::App for ReaderApp {
 									self.configuration.history.push(reading_now);
 									let result = self.controller.switch_container(new_one, ui);
 									self.result(result);
+									update_title(frame, &self.controller.reading.filename);
 								}
 							}
 						}
@@ -652,6 +657,34 @@ impl eframe::App for ReaderApp {
 	}
 }
 
+fn app_icon() -> Option<IconData>
+{
+	let bytes = Asset::get("gui/icon.png").unwrap().data;
+	let image = load_image("icon.png", &bytes)?;
+	let icon_image = image.resize(48, 48, FilterType::Nearest);
+	let image_buffer = icon_image.to_rgba8();
+	let pixels = image_buffer.as_flat_samples().as_slice().to_vec();
+	Some(IconData {
+		rgba: pixels,
+		width: APP_ICON_SIZE,
+		height: APP_ICON_SIZE,
+	})
+}
+
+pub(self) fn load_image(name: &str, bytes: &[u8]) -> Option<DynamicImage>
+{
+	let cursor = Cursor::new(bytes);
+	let reader = BufReader::new(cursor);
+	let format = match ImageFormat::from_path(name) {
+		Ok(f) => f,
+		Err(_) => return None,
+	};
+	match image::load(reader, format) {
+		Ok(image) => Some(image),
+		Err(_) => None,
+	}
+}
+
 pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -> Result<()>
 {
 	let reading = if let Some(current) = &configuration.current {
@@ -664,23 +697,27 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 	let images = load_icons()?;
 
 	let container_manager = Default::default();
-	let (container, book, reading) = if let Some(mut reading) = reading {
+	let (container, book, reading, title) = if let Some(mut reading) = reading {
 		let mut container = load_container(&container_manager, &reading)?;
 		let book = load_book(&container_manager, &mut container, &mut reading)?;
-		(container, book, reading)
+		let title = reading.filename.clone();
+		(container, book, reading, title)
 	} else {
 		let container: Box<dyn Container> = Box::new(ReadmeContainer::new());
 		let book: Box<dyn Book> = Box::new(ReadmeBook::new());
-		(container, book, ReadingInfo::new(README_TEXT_FILENAME))
+		(container, book, ReadingInfo::new(README_TEXT_FILENAME), "The e-book reader".to_string())
 	};
 	let controller = Controller::from_data(reading, &configuration.search_pattern, container_manager, container, book, render)?;
 
+	let icon_data = app_icon();
+
 	let options = eframe::NativeOptions {
 		drag_and_drop_support: true,
+		icon_data,
 		..Default::default()
 	};
 	eframe::run_native(
-		"The ebook reader",
+		&title,
 		options,
 		Box::new(move |cc| {
 			if let Err(e) = setup_fonts(&cc.egui_ctx, &configuration.gui.fonts) {
@@ -740,6 +777,14 @@ fn render_lines_id() -> Id
 pub(self) fn put_render_lines(ui: &mut Ui, render_lines: Vec<RenderLine>)
 {
 	ui.data().insert_temp(render_lines_id(), render_lines)
+}
+
+#[inline]
+fn update_title(frame: &mut eframe::Frame, title: &str)
+{
+	if title != README_TEXT_FILENAME {
+		frame.set_window_title(title);
+	}
 }
 
 #[inline]

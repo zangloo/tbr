@@ -1,12 +1,10 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::io::{BufReader, Cursor};
 use std::ops::Range;
 use eframe::egui::{Align2, FontFamily, FontId, Rect, Rounding, Stroke, Ui};
 use eframe::emath::{Pos2, Vec2};
 use eframe::epaint::Color32;
 use egui::{ColorImage, Mesh, Shape, TextureHandle};
-use image::ImageFormat;
 use image::imageops::FilterType;
 
 use crate::book::{Book, Colors, Line, TextStyle};
@@ -14,7 +12,7 @@ use crate::common::Position;
 use crate::controller::{HighlightInfo, Render};
 use crate::gui::render::han::GuiHanRender;
 use crate::gui::render::xi::GuiXiRender;
-use crate::gui::{put_render_lines, get_render_context};
+use crate::gui::{put_render_lines, get_render_context, load_image};
 
 mod han;
 mod xi;
@@ -299,19 +297,9 @@ pub(super) trait GuiRender: Render<Ui> {
 
 	fn draw_image(&mut self, name: &str, bytes: &Vec<u8>, rect: &Rect, ui: &mut Ui)
 	{
-		fn load_image(rect: &Rect, bytes: &Vec<u8>, name: &str, ui: &mut Ui) -> Option<ImageDrawingData>
+		fn load_and_resize(rect: &Rect, bytes: &Vec<u8>, name: &str, ui: &mut Ui) -> Option<ImageDrawingData>
 		{
-			let cursor = Cursor::new(bytes);
-			let reader = BufReader::new(cursor);
-			let format = match ImageFormat::from_path(name) {
-				Ok(f) => f,
-				Err(_) => return None,
-			};
-			let image = match image::load(reader, format) {
-				Ok(i) => i,
-				Err(_) => return None,
-			};
-
+			let image = load_image(name, bytes)?;
 			let width = rect.width() as u32;
 			let height = rect.height() as u32;
 			let image = image.resize(width, height, FilterType::Nearest);
@@ -339,7 +327,7 @@ pub(super) trait GuiRender: Render<Ui> {
 		let cache = self.image_cache();
 		let mut image_data = match cache.entry(name.to_string()) {
 			Entry::Occupied(o) => o.into_mut(),
-			Entry::Vacant(v) => if let Some(data) = load_image(rect, bytes, name, ui) {
+			Entry::Vacant(v) => if let Some(data) = load_and_resize(rect, bytes, name, ui) {
 				v.insert(data)
 			} else {
 				return;
@@ -347,7 +335,7 @@ pub(super) trait GuiRender: Render<Ui> {
 		};
 
 		if *rect != image_data.rect {
-			if let Some(new_image_data) = load_image(rect, bytes, name, ui) {
+			if let Some(new_image_data) = load_and_resize(rect, bytes, name, ui) {
 				cache.insert(name.to_string(), new_image_data);
 				image_data = cache.get_mut(name).unwrap();
 			} else {
