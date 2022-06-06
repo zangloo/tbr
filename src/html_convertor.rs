@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::ops::Deref;
 use anyhow::{anyhow, Result};
 use cssparser::ToCss;
 use ego_tree::iter::Children;
 use ego_tree::NodeId;
+use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use parcel_css::properties::{border, font, Property};
 use parcel_css::properties::border::{Border, BorderSideWidth};
 use parcel_css::properties::font::FontSize;
@@ -194,7 +196,13 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						}
 					}
 					local_name!("image") => {
-						if let Some(href) = element.attr("xlink:href") {
+						println!("{:#?}", element.attrs);
+						let name = QualName::new(
+							Some(Prefix::from("xlink")),
+							Namespace::from("http://www.w3.org/1999/xlink"),
+							LocalName::from("href"));
+						let href = element.attrs.get(&name).map(Deref::deref);
+						if let Some(href) = href {
 							add_image(href, context, &mut element_styles);
 						}
 					}

@@ -8,6 +8,10 @@
 
     cargo build --release
 
+## Build without GUI support
+
+    cargo build --release --no-default-features
+
 ## Configuration
 
 Config files store in .config/ter/ter.toml. Themes configuration files store in ~/.config/ter/themes/. Files will auto

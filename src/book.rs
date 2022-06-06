@@ -4,10 +4,10 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::ops::Range;
 use std::slice::Iter;
-
 use anyhow::{anyhow, Result};
-use eframe::egui::Color32;
 use regex::Regex;
+#[cfg(feature = "gui")]
+use eframe::egui::Color32;
 
 use crate::book::epub::EpubLoader;
 use crate::book::haodoo::HaodooLoader;
@@ -48,6 +48,7 @@ pub struct CharStyle {
 }
 
 #[derive(Clone)]
+#[cfg(feature = "gui")]
 pub struct Colors
 {
 	pub color: Color32,

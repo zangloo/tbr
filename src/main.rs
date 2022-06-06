@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), cfg(feature = "gui"), windows_subsystem = "windows")]
+
 extern crate core;
 #[macro_use]
 extern crate markup5ever;
