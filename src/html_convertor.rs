@@ -196,7 +196,6 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						}
 					}
 					local_name!("image") => {
-						println!("{:#?}", element.attrs);
 						let name = QualName::new(
 							Some(Prefix::from("xlink")),
 							Namespace::from("http://www.w3.org/1999/xlink"),
