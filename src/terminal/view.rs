@@ -102,6 +102,7 @@ pub(super) trait TerminalRender: Render<RenderContext> {
 			Some(highlight) => if highlight.line == line && highlight.start <= position && highlight.end > position {
 				match highlight.mode {
 					HighlightMode::Search => DrawCharMode::Search,
+					HighlightMode::Selection(_) => DrawCharMode::Plain,
 					HighlightMode::Link(link_index) => DrawCharMode::HighlightLink { line, link_index },
 				}
 			} else {

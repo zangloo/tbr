@@ -1,3 +1,4 @@
+use std::cmp;
 use std::marker::PhantomData;
 use anyhow::{anyhow, Result};
 use regex::Regex;
@@ -22,18 +23,13 @@ pub trait Render<C> {
 	fn setup_highlight(&mut self, lines: &Vec<Line>, line: usize, start: usize, context: &mut C) -> Position;
 }
 
+#[derive(Clone)]
 pub enum HighlightMode {
 	Search,
+	// link index for current line
 	Link(usize),
-}
-
-impl Clone for HighlightMode {
-	fn clone(&self) -> Self {
-		match self {
-			HighlightMode::Search => HighlightMode::Search,
-			HighlightMode::Link(link_index) => HighlightMode::Link(*link_index),
-		}
-	}
+	// line index for HighlightInfo.end
+	Selection(usize),
 }
 
 pub struct HighlightInfo {
@@ -53,9 +49,9 @@ pub struct Controller<C, R: Render<C> + ?Sized>
 	pub search_pattern: String,
 	pub render: Box<R>,
 
+	pub highlight: Option<HighlightInfo>,
 	trace: Vec<TraceInfo>,
 	current_trace: usize,
-	highlight: Option<HighlightInfo>,
 	next: Option<Position>,
 }
 
@@ -356,7 +352,9 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	{
 		let (line, position) = match &self.highlight {
 			Some(HighlightInfo { mode: HighlightMode::Search, line, start, end }) => (*line, if forward { *end } else { *start }),
-			None | Some(HighlightInfo { mode: HighlightMode::Link(..), .. }) => (self.reading.line, self.reading.position),
+			None
+			| Some(HighlightInfo { mode: HighlightMode::Selection(_), .. })
+			| Some(HighlightInfo { mode: HighlightMode::Link(..), .. }) => (self.reading.line, self.reading.position),
 		};
 		if forward {
 			self.search_next(line, position, context)?;
@@ -469,7 +467,9 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	{
 		let (mut line, mut position) = match &self.highlight {
 			Some(HighlightInfo { mode: HighlightMode::Link(..), line, start, .. }) => (*line, *start),
-			None | Some(HighlightInfo { mode: HighlightMode::Search, .. }) => (self.reading.line, self.reading.position)
+			None
+			| Some(HighlightInfo { mode: HighlightMode::Selection(_), .. })
+			| Some(HighlightInfo { mode: HighlightMode::Search, .. }) => (self.reading.line, self.reading.position)
 		};
 		let lines = self.book.lines();
 		let mut text = &lines[line];
@@ -502,7 +502,9 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	{
 		let (line, mut position) = match &self.highlight {
 			Some(HighlightInfo { mode: HighlightMode::Link(..), line, end, .. }) => (*line, *end),
-			None | Some(HighlightInfo { mode: HighlightMode::Search, .. }) => (self.reading.line, self.reading.position),
+			None
+			| Some(HighlightInfo { mode: HighlightMode::Selection(_), .. })
+			| Some(HighlightInfo { mode: HighlightMode::Search, .. }) => (self.reading.line, self.reading.position),
 		};
 		let lines = self.book.lines();
 		for index in line..lines.len() {
@@ -544,7 +546,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			Some(HighlightInfo { mode: HighlightMode::Link(link_index), line, .. }) => {
 				self.goto_link(line, link_index, context)?;
 			}
-			None => {}
+			None | Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) => {}
 		}
 		Ok(())
 	}
@@ -568,6 +570,63 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			}
 		}
 		Ok(())
+	}
+
+	pub fn select_text(&mut self, from: Position, to: Position, context: &mut C) -> String
+	{
+		self.highlight = None;
+		let mut selected_text = String::new();
+		let (line1, offset1, line2, offset2) = if from.line > to.line {
+			(to.line, to.offset, from.line, from.offset + 1)
+		} else if from.line == to.line {
+			if from.offset > to.offset {
+				(to.line, to.offset, from.line, from.offset + 1)
+			} else if from.offset < to.offset {
+				(from.line, from.offset, to.line, to.offset + 1)
+			} else {
+				self.redraw(context);
+				return selected_text;
+			}
+		} else {
+			(from.line, from.offset, to.line, to.offset + 1)
+		};
+		let lines = self.book.lines();
+		let lines_count = lines.len();
+		if lines_count == 0 {
+			self.redraw(context);
+			return selected_text;
+		}
+		let (line_to, offset_to) = if line2 >= lines_count {
+			(lines_count - 1, usize::MAX)
+		} else {
+			(line2, offset2)
+		};
+		let mut offset_from = offset1;
+		for line in line1..line_to {
+			let text = &lines[line];
+			for offset in offset_from..text.len() {
+				selected_text.push(text.char_at(offset).unwrap())
+			}
+			offset_from = 0;
+		}
+		let last_text = &lines[line_to];
+		let offset_to = cmp::min(last_text.len(), offset_to);
+		for offset in 0..offset_to {
+			selected_text.push(last_text.char_at(offset).unwrap())
+		}
+		if selected_text.len() == 0 {
+			self.redraw(context);
+			return selected_text;
+		}
+		let highlight = HighlightInfo {
+			line: line1,
+			start: offset1,
+			end: offset_to,
+			mode: HighlightMode::Selection(line_to),
+		};
+		self.highlight = Some(highlight);
+		self.redraw(context);
+		selected_text
 	}
 
 	fn highlight_setup(&mut self, context: &mut C)
@@ -596,6 +655,12 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				self.push_trace(false);
 			}
 		}
+		self.redraw(context);
+	}
+
+	pub fn clear_highlight(&mut self, context: &mut C)
+	{
+		self.highlight = None;
 		self.redraw(context);
 	}
 }

@@ -8,19 +8,19 @@ use std::path::PathBuf;
 use anyhow::Result;
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::{egui, IconData};
-use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, Id, ImageButton, PointerButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
+use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, Id, ImageButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
-use egui::{ComboBox, Key, Modifiers, RichText, ScrollArea, TextEdit};
+use egui::{Area, ComboBox, Key, Modifiers, Order, RichText, ScrollArea, TextEdit};
 use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
 use image::imageops::FilterType;
 
-use crate::{Asset, Configuration, ReadingInfo, ThemeEntry};
+use crate::{Asset, Configuration, Position, ReadingInfo, ThemeEntry};
 use crate::book::{Book, Colors, Line, TextStyle};
 use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
-use crate::controller::Controller;
-use crate::gui::render::{create_render, GuiRender, measure_char_size, RenderContext, RenderLine};
+use crate::controller::{Controller, HighlightInfo, HighlightMode};
+use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPositioin, RenderContext, RenderLine};
 
 const ICON_SIZE: Vec2 = Vec2 { x: 32.0, y: 32.0 };
 const APP_ICON_SIZE: u32 = 48;
@@ -179,6 +179,7 @@ struct ReaderApp {
 	status: AppStatus,
 	current_toc: usize,
 	popup_menu: Option<Pos2>,
+	selected_text: String,
 	sidebar: bool,
 	sidebar_list: SidebarList,
 	dropdown: bool,
@@ -221,28 +222,95 @@ impl ReaderApp {
 		self.status = AppStatus::Normal(status);
 	}
 
-	fn setup_popup(&mut self, ui: &mut Ui, response: &Response) {
-		let ctx = ui.ctx();
-		let text_view_popup = ui.make_persistent_id("text_view_popup");
-		if response.clicked_by(PointerButton::Secondary) {
-			self.popup_menu = ctx
-				.input()
-				.pointer
-				.hover_pos();
-		}
-		if self.popup_menu.is_some() {
-			egui::popup::show_tooltip_at(ui.ctx(), text_view_popup, self.popup_menu, |ui| {
-				let texture_id = self.image(ctx, "copy.svg");
-				Button::image_and_text(texture_id, ICON_SIZE, "复制内容").ui(ui);
-				let texture_id = self.image(ctx, "dict.svg");
-				Button::image_and_text(texture_id, ICON_SIZE, "查阅字典").ui(ui);
-				let texture_id = self.image(ctx, "bookmark.svg");
-				Button::image_and_text(texture_id, ICON_SIZE, "增加书签").ui(ui);
-			});
-			if response.clicked() || response.clicked_elsewhere() {
-				self.popup_menu = None;
+	fn setup_popup(&mut self, ui: &mut Ui, original_pos: Pos2, current_pos: Pos2) {
+		#[inline]
+		fn offset_index(line: &RenderLine, offset: &PointerPositioin) -> usize {
+			match offset {
+				PointerPositioin::Head => line.chars.first().map_or(0, |dc| dc.offset),
+				PointerPositioin::Exact(offset) => line.chars[*offset].offset,
+				PointerPositioin::Tail => line.chars.last().map_or(0, |dc| dc.offset),
 			}
 		}
+		fn select_all(lines: &Vec<RenderLine>) -> (Position, Position)
+		{
+			let render_line = lines.first().unwrap();
+			let from = Position::new(
+				render_line.line,
+				render_line.chars.first().map_or(0, |dc| dc.offset),
+			);
+			let render_line = lines.last().unwrap();
+			let to = Position::new(
+				render_line.line,
+				render_line.chars.last().map_or(0, |dc| dc.offset),
+			);
+			(from, to)
+		}
+		fn head_to_exact(line: usize, offset: &PointerPositioin, lines: &Vec<RenderLine>) -> (Position, Position) {
+			let render_line = lines.first().unwrap();
+			let from = Position::new(
+				render_line.line,
+				render_line.chars.first().map_or(0, |dc| dc.offset),
+			);
+			let render_line = &lines[line];
+			let to = Position::new(
+				render_line.line,
+				offset_index(render_line, offset),
+			);
+			(from, to)
+		}
+		fn exact_to_tail(line: usize, offset: &PointerPositioin, lines: &Vec<RenderLine>) -> (Position, Position) {
+			let render_line = &lines[line];
+			let from = Position::new(
+				render_line.line,
+				offset_index(render_line, offset),
+			);
+			let render_line = lines.last().unwrap();
+			let to = Position::new(
+				render_line.line,
+				render_line.chars.last().map_or(0, |dc| dc.offset),
+			);
+			(from, to)
+		}
+
+		let lines = &self.render_lines;
+		let line_count = lines.len();
+		if line_count == 0 {
+			return;
+		}
+		let (line1, offset1) = self.controller.render.pointer_pos(&original_pos, &self.render_lines, &self.view_rect);
+		let (line2, offset2) = self.controller.render.pointer_pos(&current_pos, &self.render_lines, &self.view_rect);
+
+		let (from, to) = match line1 {
+			PointerPositioin::Head => match line2 {
+				PointerPositioin::Head => return,
+				PointerPositioin::Exact(line2) => head_to_exact(line2, &offset2, lines),
+				PointerPositioin::Tail => select_all(lines),
+			}
+			PointerPositioin::Exact(line1) => match line2 {
+				PointerPositioin::Head => head_to_exact(line1, &offset1, lines),
+				PointerPositioin::Exact(line2) => {
+					let render_line = &lines[line1];
+					let from = Position::new(
+						render_line.line,
+						offset_index(render_line, &offset1),
+					);
+					let render_line = &lines[line2];
+					let to = Position::new(
+						render_line.line,
+						offset_index(render_line, &offset2),
+					);
+					(from, to)
+				}
+				PointerPositioin::Tail => exact_to_tail(line1, &offset1, lines),
+			}
+			PointerPositioin::Tail => match line2 {
+				PointerPositioin::Head => select_all(lines),
+				PointerPositioin::Exact(line2) => exact_to_tail(line2, &offset2, lines),
+				PointerPositioin::Tail => return
+			}
+		};
+		self.put_render_context(ui);
+		self.selected_text = self.controller.select_text(from, to, ui);
 	}
 
 	#[inline]
@@ -260,8 +328,9 @@ impl ReaderApp {
 		prepare_redraw(ui, context);
 	}
 
-	fn setup_input(&mut self, rect: &Rect, ui: &mut Ui) -> Result<bool>
+	fn setup_input(&mut self, response: &Response, ui: &mut Ui) -> Result<bool>
 	{
+		let rect = &response.rect;
 		let mut input = ui.input_mut();
 		let action = if input.consume_key(Modifiers::NONE, Key::Space)
 			|| input.consume_key(Modifiers::NONE, Key::PageDown) {
@@ -344,11 +413,38 @@ impl ReaderApp {
 			self.controller.switch_chapter(false, ui)?;
 			true
 		} else if input.consume_key(Modifiers::NONE, Key::Escape) {
-			self.sidebar = false;
+			if self.sidebar {
+				self.sidebar = false;
+			} else if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = self.controller.highlight {
+				drop(input);
+				self.put_render_context(ui);
+				self.selected_text.clear();
+				self.controller.clear_highlight(ui);
+			}
 			false
-		} else if let Some(pos) = input.pointer.interact_pos() {
-			if rect.contains(pos) {
-				if input.scroll_delta.y != 0.0 {
+		} else if input.consume_key(Modifiers::CTRL, Key::C) {
+			if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = self.controller.highlight {
+				drop(input);
+				ui.output().copied_text = self.selected_text.clone();
+			}
+			false
+		} else if let Some(pointer_pos) = input.pointer.interact_pos() {
+			if rect.contains(pointer_pos) {
+				if response.clicked() {
+					drop(input);
+					match self.click_event(pointer_pos, ui) {
+						Ok(action) => if action {
+							self.update_status(self.controller.status_msg());
+							true
+						} else {
+							false
+						}
+						Err(e) => {
+							self.error(e.to_string());
+							false
+						}
+					}
+				} else if input.scroll_delta.y != 0.0 {
 					let delta = input.scroll_delta.y;
 					drop(input);
 					// delta > 0.0 for scroll up
@@ -371,7 +467,18 @@ impl ReaderApp {
 						}
 					}
 					false
+				} else if response.secondary_clicked() {
+					if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = &self.controller.highlight {
+						self.popup_menu = Some(pointer_pos);
+					}
+					false
 				} else {
+					if input.pointer.primary_down() {
+						if let Some(from_pos) = input.pointer.press_origin() {
+							drop(input);
+							self.setup_popup(ui, from_pos, pointer_pos);
+						}
+					}
 					false
 				}
 			} else {
@@ -601,10 +708,8 @@ impl eframe::App for ReaderApp {
 				self.put_render_context(ui);
 				self.controller.redraw(ui);
 			}
-			if self.sidebar {}
 			let size = ui.available_size();
 			let response = ui.allocate_response(size, Sense::click_and_drag());
-			// self.setup_popup(ui, &response);
 			let rect = &response.rect;
 			if rect.min != self.response_rect.min || rect.max != self.response_rect.max {
 				self.response_rect = rect.clone();
@@ -624,21 +729,40 @@ impl eframe::App for ReaderApp {
 				prepare_redraw(ui, context);
 				self.controller.redraw(ui);
 			}
-			if self.popup_menu.is_none() && !self.dropdown {
+			if !self.dropdown && self.popup_menu.is_none() {
 				response.request_focus();
-				if response.clicked() {
-					let input = ctx.input();
-					if let Some(click_position) = input.pointer.interact_pos() {
-						drop(input);
-						match self.click_event(click_position, ui) {
-							Ok(action) => if action {
-								self.update_status(self.controller.status_msg());
-							}
-							Err(e) => self.error(e.to_string()),
-						}
+			}
+			if let Some(pos) = &self.popup_menu {
+				let escape = { ui.input_mut().consume_key(Modifiers::NONE, Key::Escape) };
+				if escape {
+					self.popup_menu = None;
+				} else {
+					let text_view_popup = ui.make_persistent_id("text_view_popup");
+					Area::new(text_view_popup)
+						.order(Order::Foreground)
+						.fixed_pos(*pos)
+						.drag_bounds(Rect::EVERYTHING)
+						.show(ctx, |ui| {
+							Frame::popup(&ctx.style())
+								.show(ui, |ui| {
+									let texture_id = self.image(ctx, "copy.svg");
+									if Button::image_and_text(texture_id, ICON_SIZE, "复制内容").ui(ui).clicked() {
+										ui.output().copied_text = self.selected_text.clone();
+										self.popup_menu = None;
+									}
+									// let texture_id = self.image(ctx, "dict.svg");
+									// Button::image_and_text(texture_id, ICON_SIZE, "查阅字典").ui(ui);
+									// let texture_id = self.image(ctx, "bookmark.svg");
+									// Button::image_and_text(texture_id, ICON_SIZE, "增加书签").ui(ui);
+								})
+								.inner
+						});
+					if response.clicked() || response.clicked_elsewhere() {
+						self.popup_menu = None;
 					}
 				}
-				match self.setup_input(&rect, ui) {
+			} else {
+				match self.setup_input(&response, ui) {
 					Ok(action) => if action {
 						self.update_status(self.controller.status_msg());
 					}
@@ -741,6 +865,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 				status: AppStatus::Startup,
 				current_toc: 0,
 				popup_menu: None,
+				selected_text: String::new(),
 				dropdown: false,
 				sidebar: false,
 				sidebar_list: SidebarList::Chapter,

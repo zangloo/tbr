@@ -9,7 +9,7 @@ use image::imageops::FilterType;
 
 use crate::book::{Book, Colors, Line, TextStyle};
 use crate::common::Position;
-use crate::controller::{HighlightInfo, Render};
+use crate::controller::{HighlightInfo, HighlightMode, Render};
 use crate::gui::render::han::GuiHanRender;
 use crate::gui::render::xi::GuiXiRender;
 use crate::gui::{put_render_lines, get_render_context, load_image};
@@ -33,16 +33,17 @@ pub(super) struct RenderChar {
 
 #[derive(Clone)]
 pub(super) struct RenderLine {
-	chars: Vec<RenderChar>,
-	draw_size: f32,
-	line_space: f32,
+	pub(super) chars: Vec<RenderChar>,
+	pub(super) line: usize,
+	pub(super) draw_size: f32,
+	pub(super) line_space: f32,
 }
 
 impl RenderLine
 {
-	fn new(draw_size: f32, line_space: f32) -> Self
+	fn new(line: usize, draw_size: f32, line_space: f32) -> Self
 	{
-		RenderLine { chars: vec![], draw_size, line_space }
+		RenderLine { chars: vec![], line, draw_size, line_space }
 	}
 
 	pub(super) fn char_at_pos(&self, pos: Pos2) -> Option<&RenderChar>
@@ -80,16 +81,24 @@ pub(super) struct ImageDrawingData {
 	texture: TextureHandle,
 }
 
+pub(super) enum PointerPositioin {
+	Head,
+	Exact(usize),
+	Tail,
+}
+
 pub(super) trait GuiRender: Render<Ui> {
 	fn reset_render_context(&self, render_context: &mut RenderContext);
-	fn create_render_line(&self, default_font_measure: &Vec2) -> RenderLine;
+	fn create_render_line(&self, line: usize, render_context: &RenderContext) -> RenderLine;
 	fn update_base_line_for_delta(&self, context: &mut RenderContext, delta: f32);
 	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
 	fn draw_style(&self, draw_text: &RenderLine, ui: &mut Ui);
 	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData>;
+	// return (line, offset) position
+	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, retc: &Rect) -> (PointerPositioin, PointerPositioin);
 
 	#[inline]
-	fn prepare_wrap(&self, text: &Line, start_offset: usize, end_offset: usize, context: &mut RenderContext) -> (usize, Option<Vec<RenderLine>>)
+	fn prepare_wrap(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, context: &mut RenderContext) -> (usize, Option<Vec<RenderLine>>)
 	{
 		let end_offset = if end_offset > text.len() {
 			text.len()
@@ -97,7 +106,7 @@ pub(super) trait GuiRender: Render<Ui> {
 			end_offset
 		};
 		if start_offset == end_offset {
-			let draw_line = self.create_render_line(&context.default_font_measure);
+			let draw_line = self.create_render_line(line, context);
 			let line_delta = draw_line.draw_size + draw_line.line_space;
 			self.update_base_line_for_delta(context, line_delta);
 			(end_offset, Some(vec![draw_line]))
@@ -120,7 +129,7 @@ pub(super) trait GuiRender: Render<Ui> {
 			let line = &lines[index];
 			if let Some((target, offset)) = line.with_image() {
 				let next = if reading_line == index {
-					let mut draw_line = self.create_render_line(&context.default_font_measure);
+					let mut draw_line = self.create_render_line(index, &context);
 					draw_line.chars.push(RenderChar {
 						char: 'I',
 						font_size: 1.0,
@@ -350,16 +359,24 @@ pub(super) trait GuiRender: Render<Ui> {
 }
 
 #[inline]
-pub(self) fn update_for_highlight(line: usize, offset: usize, background: Option<Color32>, colors: &Colors, highlight: &Option<HighlightInfo>) -> Option<Color32>
+pub(self) fn update_for_highlight(render_line: usize, offset: usize, background: Option<Color32>, colors: &Colors, highlight: &Option<HighlightInfo>) -> Option<Color32>
 {
-	if let Some(highlight) = highlight {
-		if highlight.line == line && highlight.start <= offset && highlight.end > offset {
+	match highlight {
+		Some(HighlightInfo { mode: HighlightMode::Search, line, start, end })
+		| Some(HighlightInfo { mode: HighlightMode::Link(_), line, start, end })
+		if *line == render_line && *start <= offset && *end > offset
+		=> Some(colors.highlight_background),
+
+		Some(HighlightInfo { mode: HighlightMode::Selection(line2), line, start, end })
+		if (*line == render_line && *line2 == render_line && *start <= offset && *end > offset)
+			|| (*line == render_line && *line2 > render_line && *start <= offset)
+			|| (*line < render_line && *line2 == render_line && *end > offset)
+			|| (*line < render_line && *line2 > render_line)
+		=> {
 			Some(colors.highlight_background)
-		} else {
-			background
 		}
-	} else {
-		background
+
+		_ => background,
 	}
 }
 

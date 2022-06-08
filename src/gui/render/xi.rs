@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::ops::RangeInclusive;
-use eframe::egui::{Ui, Vec2};
+use eframe::egui::Ui;
 use eframe::emath::Align2;
 use egui::{Color32, Pos2, Rect, Stroke};
 
 use crate::book::{Line, TextStyle};
 use crate::common::with_leading;
 use crate::controller::{HighlightInfo, Render};
-use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, paint_char, RenderChar, update_for_highlight, stroke_width_for_space, ImageDrawingData};
+use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, paint_char, RenderChar, update_for_highlight, stroke_width_for_space, ImageDrawingData, PointerPositioin};
 use crate::Position;
 
 pub(super) struct GuiXiRender {
@@ -66,11 +66,11 @@ impl GuiRender for GuiXiRender
 	}
 
 	#[inline]
-	fn create_render_line(&self, default_char_size: &Vec2) -> RenderLine
+	fn create_render_line(&self, line: usize, render_context: &RenderContext) -> RenderLine
 	{
-		let height = default_char_size.y;
+		let height = render_context.default_font_measure.y;
 		let space = height / 2.0;
-		RenderLine::new(height, space)
+		RenderLine::new(line, height, space)
 	}
 
 	#[inline]
@@ -108,12 +108,12 @@ impl GuiRender for GuiXiRender
 				}
 			}
 		}
-		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, start_offset, end_offset, context);
+		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, line, start_offset, end_offset, context);
 		if let Some(wrapped_empty_lines) = wrapped_empty_lines {
 			return wrapped_empty_lines;
 		}
 		let mut draw_lines = vec![];
-		let mut draw_line = self.create_render_line(&context.default_font_measure);
+		let mut draw_line = self.create_render_line(line, context);
 		let mut break_position = None;
 
 		let mut left = context.rect.min.x;
@@ -170,7 +170,7 @@ impl GuiRender for GuiXiRender
 					|| break_position.unwrap() >= draw_line.chars.len() {
 					align_line(&mut draw_line, context);
 					draw_lines.push(draw_line);
-					draw_line = self.create_render_line(&context.default_font_measure);
+					draw_line = self.create_render_line(line, context);
 					rect = Rect {
 						min: Pos2::new(left, context.line_base),
 						max: Pos2::new(left + draw_width, draw_height + context.line_base),
@@ -182,7 +182,7 @@ impl GuiRender for GuiXiRender
 						continue;
 					}
 				} else {
-					let mut break_draw_line = self.create_render_line(&context.default_font_measure);
+					let mut break_draw_line = self.create_render_line(line, context);
 					if let Some(break_position) = break_position {
 						let break_chars = draw_line.chars.drain(break_position..).collect();
 						break_draw_line.chars = break_chars
@@ -419,5 +419,32 @@ impl GuiRender for GuiXiRender
 
 	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData> {
 		&mut self.images
+	}
+
+	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, rect: &Rect) -> (PointerPositioin, PointerPositioin)
+	{
+		let y = pointer_pos.y;
+		let mut line_base = rect.top();
+		if y < line_base {
+			return (PointerPositioin::Head, PointerPositioin::Head);
+		}
+		for i in 0..render_lines.len() {
+			let render_line = &render_lines[i];
+			let bottom = line_base + render_line.draw_size + render_line.line_space;
+			if y >= line_base && y < bottom {
+				let x = pointer_pos.x;
+				if x <= rect.left() {
+					return (PointerPositioin::Exact(i), PointerPositioin::Head);
+				}
+				for (j, dc) in render_line.chars.iter().enumerate() {
+					if x > dc.rect.left() && x <= dc.rect.right() {
+						return (PointerPositioin::Exact(i), PointerPositioin::Exact(j));
+					}
+				}
+				return (PointerPositioin::Exact(i), PointerPositioin::Tail);
+			}
+			line_base = bottom;
+		}
+		(PointerPositioin::Tail, PointerPositioin::Tail)
 	}
 }

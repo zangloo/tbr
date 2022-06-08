@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::ops::RangeInclusive;
-use eframe::egui::{Align2, Color32, Pos2, Rect, Stroke, Ui, Vec2};
+use eframe::egui::{Align2, Color32, Pos2, Rect, Stroke, Ui};
 
 use crate::book::{Line, TextStyle};
 use crate::common::{HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::{HighlightInfo, Render};
-use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size, update_for_highlight, stroke_width_for_space, ImageDrawingData};
+use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size, update_for_highlight, stroke_width_for_space, ImageDrawingData, PointerPositioin};
 use crate::Position;
 
 pub(super) struct GuiHanRender {
@@ -68,11 +68,11 @@ impl GuiRender for GuiHanRender
 	}
 
 	#[inline]
-	fn create_render_line(&self, default_char_size: &Vec2) -> RenderLine
+	fn create_render_line(&self, line: usize, render_context: &RenderContext) -> RenderLine
 	{
-		let width = default_char_size.x;
+		let width = render_context.default_font_measure.x;
 		let space = width / 2.0;
-		RenderLine::new(width, space)
+		RenderLine::new(line, width, space)
 	}
 
 	#[inline]
@@ -83,12 +83,12 @@ impl GuiRender for GuiHanRender
 
 	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>
 	{
-		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, start_offset, end_offset, context);
+		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, line, start_offset, end_offset, context);
 		if let Some(wrapped_empty_lines) = wrapped_empty_lines {
 			return wrapped_empty_lines;
 		}
 		let mut draw_lines = vec![];
-		let mut draw_line = self.create_render_line(&context.default_font_measure);
+		let mut draw_line = self.create_render_line(line, context);
 		let mut top = context.rect.min.y;
 		let max_top = context.rect.max.y;
 
@@ -139,7 +139,7 @@ impl GuiRender for GuiHanRender
 				let line_delta = draw_line.draw_size + draw_line.line_space;
 				context.line_base -= line_delta;
 				draw_lines.push(draw_line);
-				draw_line = self.create_render_line(&context.default_font_measure);
+				draw_line = self.create_render_line(line, context);
 				rect = Rect {
 					min: Pos2::new(rect.min.x - line_delta, rect.min.y - top + context.rect.min.y),
 					max: Pos2::new(rect.max.x - line_delta, rect.max.y - top + context.rect.min.y),
@@ -346,5 +346,32 @@ impl GuiRender for GuiHanRender
 
 	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData> {
 		&mut self.images
+	}
+
+	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, rect: &Rect) -> (PointerPositioin, PointerPositioin)
+	{
+		let x = pointer_pos.x;
+		let mut line_base = rect.right();
+		if x > line_base {
+			return (PointerPositioin::Head, PointerPositioin::Head);
+		}
+		for i in 0..render_lines.len() {
+			let render_line = &render_lines[i];
+			let left = line_base - render_line.draw_size - render_line.line_space;
+			if x <= line_base && x > left {
+				let y = pointer_pos.y;
+				if y <= rect.top() {
+					return (PointerPositioin::Exact(i), PointerPositioin::Head);
+				}
+				for (j, dc) in render_line.chars.iter().enumerate() {
+					if y > dc.rect.top() && y <= dc.rect.bottom() {
+						return (PointerPositioin::Exact(i), PointerPositioin::Exact(j));
+					}
+				}
+				return (PointerPositioin::Exact(i), PointerPositioin::Tail);
+			}
+			line_base = left;
+		}
+		(PointerPositioin::Tail, PointerPositioin::Tail)
 	}
 }
