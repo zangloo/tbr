@@ -1,0 +1,4 @@
+fallback_language = "zn-CN"
+
+[fluent]
+assets_dir = "assets/i18n"

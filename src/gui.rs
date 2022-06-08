@@ -15,7 +15,7 @@ use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
 use image::imageops::FilterType;
 
-use crate::{Asset, Configuration, Position, ReadingInfo, ThemeEntry};
+use crate::{Asset, Configuration, I18n, Position, ReadingInfo, ThemeEntry};
 use crate::book::{Book, Colors, Line, TextStyle};
 use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
@@ -173,6 +173,7 @@ fn setup_fonts(ctx: &egui::Context, font_paths: &HashSet<PathBuf>) -> Result<()>
 struct ReaderApp {
 	configuration: Configuration,
 	theme_entries: Vec<ThemeEntry>,
+	i18n: I18n,
 	images: HashMap<String, RetainedImage>,
 	controller: Controller<Ui, dyn GuiRender>,
 
@@ -540,16 +541,37 @@ impl ReaderApp {
 
 		let theme_dropdown = self.setup_theme_button(ui);
 
+		// setup i18n dropdown
+		let locale_title = self.i18n.msg("title");
+		let mut locale_text = locale_title.as_ref();
+		let mut selected_locale = None;
+		let i18n_dropdown = ComboBox::from_label("")
+			.selected_text(locale_text.to_string())
+			.show_ui(ui, |ui| {
+				for (locale, name) in self.i18n.locales() {
+					if ui.selectable_value(&mut locale_text, name, name).clicked() {
+						selected_locale = Some(locale.clone());
+					};
+				}
+			}).inner.is_some();
+		if let Some(locale) = selected_locale {
+			if let Err(e) = self.i18n.set_locale(&locale) {
+				self.error(e.to_string());
+			}
+		}
+
 		// setup render dropdown
-		let mut selected_text = if self.configuration.render_type == "han" { "漢" } else { "En" };
+		let han_text = self.i18n.msg("render-han");
+		let xi_text = self.i18n.msg("render-xi");
+		let mut selected_text = if self.configuration.render_type == "han" { han_text.as_ref() } else { xi_text.as_ref() };
 		let mut selected_render = None;
-		let render_dropdown = ComboBox::from_label("")
+		let render_dropdown = ComboBox::from_label(self.i18n.msg("render").as_ref())
 			.selected_text(selected_text.to_string())
 			.show_ui(ui, |ui| {
-				if ui.selectable_value(&mut selected_text, "han", "漢").clicked() {
+				if ui.selectable_value(&mut selected_text, han_text.as_ref(), han_text.as_ref()).clicked() {
 					selected_render = Some("han");
 				};
-				if ui.selectable_value(&mut selected_text, "xi", "En").clicked() {
+				if ui.selectable_value(&mut selected_text, xi_text.as_ref(), xi_text.as_ref()).clicked() {
 					selected_render = Some("xi");
 				};
 			}).inner.is_some();
@@ -582,7 +604,7 @@ impl ReaderApp {
 		};
 		ui.label(status_msg);
 
-		theme_dropdown || render_dropdown || searching
+		theme_dropdown || i18n_dropdown || render_dropdown || searching
 	}
 
 	fn setup_theme_button(&mut self, ui: &mut Ui) -> bool
@@ -746,7 +768,8 @@ impl eframe::App for ReaderApp {
 							Frame::popup(&ctx.style())
 								.show(ui, |ui| {
 									let texture_id = self.image(ctx, "copy.svg");
-									if Button::image_and_text(texture_id, ICON_SIZE, "复制内容").ui(ui).clicked() {
+									let text = self.i18n.msg("copy-content");
+									if Button::image_and_text(texture_id, ICON_SIZE, text.as_ref()).ui(ui).clicked() {
 										ui.output().copied_text = self.selected_text.clone();
 										self.popup_menu = None;
 									}
@@ -761,7 +784,7 @@ impl eframe::App for ReaderApp {
 						self.popup_menu = None;
 					}
 				}
-			} else {
+			} else if !self.dropdown {
 				match self.setup_input(&response, ui) {
 					Ok(action) => if action {
 						self.update_status(self.controller.status_msg());
@@ -818,7 +841,7 @@ pub(self) fn load_image(name: &str, bytes: &[u8]) -> Option<DynamicImage>
 	}
 }
 
-pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -> Result<()>
+pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i18n: I18n) -> Result<()>
 {
 	let reading = if let Some(current) = &configuration.current {
 		Some(reading_info(&mut configuration.history, current))
@@ -859,6 +882,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 			let app = ReaderApp {
 				configuration,
 				theme_entries,
+				i18n,
 				images,
 				controller,
 

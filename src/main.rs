@@ -23,6 +23,7 @@ use toml;
 use crate::book::BookLoader;
 use crate::common::Position;
 use crate::container::ContainerManager;
+use crate::i18n::I18n;
 
 mod terminal;
 mod common;
@@ -33,6 +34,8 @@ mod container;
 mod controller;
 #[cfg(feature = "gui")]
 mod gui;
+#[cfg(feature = "gui")]
+mod i18n;
 
 const TBR_BOOK_ENV_KEY: &str = "TBR_BOOK";
 
@@ -51,6 +54,7 @@ struct Cli {
 #[include = "*.toml"]
 #[include = "*.svg"]
 #[include = "*.ttc"]
+#[include = "*.ftl"]
 pub struct Asset;
 
 pub struct ThemeEntry(String, Theme);
@@ -131,13 +135,15 @@ impl Clone for ReadingInfo {
 pub struct GuiConfiguration {
 	fonts: HashSet<PathBuf>,
 	font_size: u8,
+	#[serde(default = "default_locale")]
+	lang: String,
 }
 
 #[cfg(feature = "gui")]
 impl Default for GuiConfiguration
 {
 	fn default() -> Self {
-		GuiConfiguration { fonts: HashSet::new(), font_size: 20 }
+		GuiConfiguration { fonts: HashSet::new(), font_size: 20, lang: default_locale() }
 	}
 }
 
@@ -186,7 +192,8 @@ fn main() -> Result<()> {
 	let (configuration, theme_entries) = load_config(filename, config_file, &themes_dir, &cache_dir)?;
 	#[cfg(feature = "gui")]
 	if !cli.terminal {
-		return gui::start(configuration, theme_entries);
+		let i18n = I18n::new(&configuration.gui.lang)?;
+		return gui::start(configuration, theme_entries, i18n);
 	}
 	terminal::start(configuration, theme_entries)?;
 	Ok(())
@@ -299,4 +306,10 @@ fn create_default_theme_files(themes_map: &HashMap<String, PathBuf>, themes_dir:
 		fs::write(theme_file, str)?;
 	}
 	Ok(theme_entries)
+}
+
+#[inline]
+fn default_locale() -> String
+{
+	"zh_CN".to_string()
 }
