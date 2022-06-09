@@ -15,6 +15,12 @@ edition = "2021"
 default = ["gui"]
 gui = []
 
+[target.'cfg(windows)'.dependencies]
+cursive = { version = "0.17", default-features = false, features = ["crossterm-backend", "toml"] }
+
+[target.'cfg(unix)'.dependencies]
+cursive = { version = "0.17", features = ["toml"] }
+
 [dependencies]
 anyhow = "1.0"
 clap = { version = "3.0", features = ["derive"] }
@@ -24,7 +30,6 @@ serde_derive = "1.0"
 toml = "0.5"
 rust-embed = "6.3"
 xmltree = "0.10"
-cursive = { version = "0.17", features = ["toml"] }
 unicode-width = "0.1"
 regex = "1.5"
 chardetng = "0.1"
