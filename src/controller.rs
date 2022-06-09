@@ -611,7 +611,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		}
 		let last_text = &lines[line_to];
 		let offset_to = cmp::min(last_text.len(), offset_to);
-		for offset in 0..offset_to {
+		for offset in offset_from..offset_to {
 			selected_text.push(last_text.char_at(offset).unwrap())
 		}
 		if selected_text.len() == 0 {
