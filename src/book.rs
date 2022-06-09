@@ -83,7 +83,20 @@ impl Line {
 		if str.len() == 0 {
 			return;
 		}
+		let mut ignore_whitespace = true;
 		for ch in str.chars() {
+			if ch == '\r' {
+				continue;
+			}
+			if ch == '\n' {
+				ignore_whitespace = true;
+				continue;
+			}
+			if ignore_whitespace && ch.is_whitespace() {
+				continue;
+			} else {
+				ignore_whitespace = false;
+			}
 			self.chars.push(ch);
 		}
 	}
