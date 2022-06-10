@@ -192,7 +192,7 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 					}
 					local_name!("img") => {
 						if let Some(href) = element.attr("src") {
-							add_image(href, context, &mut element_styles);
+							add_image(href, context);
 						}
 					}
 					local_name!("image") => {
@@ -202,7 +202,7 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 							LocalName::from("href"));
 						let href = element.attrs.get(&name).map(Deref::deref);
 						if let Some(href) = href {
-							add_image(href, context, &mut element_styles);
+							add_image(href, context);
 						}
 					}
 					_ => convert_dom_to_lines(child.children(), context),
@@ -225,11 +225,13 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 	}
 }
 
-fn add_image(href: &str, context: &mut ParseContext, element_styles: &mut Vec<TextStyle>)
+fn add_image(href: &str, context: &mut ParseContext)
 {
-	element_styles.push(TextStyle::Image(href.to_string()));
 	new_line(context, true);
-	context.content.lines.last_mut().unwrap().concat(href);
+	let line = context.content.lines.last_mut().unwrap();
+	line.concat(href);
+	line.push_style(TextStyle::Image(href.to_string()), 0..(href.len()));
+	new_line(context, true);
 }
 
 #[inline]
