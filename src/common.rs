@@ -64,15 +64,15 @@ pub struct TraceInfo {
 	pub offset: usize,
 }
 
-pub fn reading_info(history: &mut Vec<ReadingInfo>, current: &String) -> ReadingInfo {
+pub fn reading_info(history: &mut Vec<ReadingInfo>, current: &str) -> (bool, ReadingInfo) {
 	let mut i = 0;
 	while i < history.len() {
 		if history[i].filename.eq(current) {
-			return history.remove(i);
+			return (true, history.remove(i));
 		}
 		i += 1;
 	}
-	ReadingInfo::new(&current)
+	(false, ReadingInfo::new(&current))
 }
 
 pub fn get_theme<'a>(theme_name: &String, theme_entries: &'a Vec<ThemeEntry>) -> Result<&'a Theme> {

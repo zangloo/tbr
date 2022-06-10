@@ -43,7 +43,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 	}
 	let current = configuration.current.as_ref().unwrap();
 	println!("Loading {} ...", current);
-	let reading = reading_info(&mut configuration.history, current);
+	let (_history, reading) = reading_info(&mut configuration.history, current);
 	let mut app = Cursive::new();
 	let theme = get_theme(&configuration.theme_name, &theme_entries)?;
 	app.set_theme(theme.clone());

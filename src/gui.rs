@@ -202,11 +202,20 @@ impl ReaderApp {
 	}
 
 	#[inline]
-	fn result(&mut self, result: Result<String>)
+	fn open_result(&mut self, reading_now: ReadingInfo, history_entry: Option<ReadingInfo>, result: Result<String>, frame: &mut eframe::Frame)
 	{
 		match result {
-			Ok(msg) => self.update_status(msg),
-			Err(e) => self.error(e.to_string()),
+			Ok(msg) => {
+				self.configuration.history.push(reading_now);
+				update_title(frame, &self.controller.reading.filename);
+				self.update_status(msg)
+			}
+			Err(e) => {
+				if let Some(history_entry) = history_entry {
+					self.configuration.history.push(history_entry);
+				}
+				self.error(e.to_string())
+			}
 		}
 	}
 
@@ -530,9 +539,11 @@ impl ReaderApp {
 			if let Some(path) = dialog.pick_file() {
 				if let Some(filepath) = path.to_str() {
 					self.put_render_context(ui);
-					let result = self.controller.switch_container(ReadingInfo::new(filepath), ui);
-					self.result(result);
-					update_title(frame, &self.controller.reading.filename);
+					let reading_now = self.controller.reading.clone();
+					let (history, new_reading) = reading_info(&mut self.configuration.history, filepath);
+					let history_entry = if history { Some(new_reading.clone()) } else { None };
+					let result = self.controller.switch_container(new_reading, ui);
+					self.open_result(reading_now, history_entry, result, frame);
 				}
 			}
 		}
@@ -704,12 +715,11 @@ impl eframe::App for ReaderApp {
 									}
 								}
 								if let Some(selected) = selected {
-									let new_one = self.configuration.history.remove(selected);
+									let history_reading = self.configuration.history.remove(selected);
 									let reading_now = self.controller.reading.clone();
-									self.configuration.history.push(reading_now);
-									let result = self.controller.switch_container(new_one, ui);
-									self.result(result);
-									update_title(frame, &self.controller.reading.filename);
+									let history_entry = Some(history_reading.clone());
+									let result = self.controller.switch_container(history_reading, ui);
+									self.open_result(reading_now, history_entry, result, frame);
 								}
 							}
 						}
@@ -842,7 +852,7 @@ pub(self) fn load_image(name: &str, bytes: &[u8]) -> Option<DynamicImage>
 pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i18n: I18n) -> Result<()>
 {
 	let reading = if let Some(current) = &configuration.current {
-		Some(reading_info(&mut configuration.history, current))
+		Some(reading_info(&mut configuration.history, current).1)
 	} else {
 		None
 	};
