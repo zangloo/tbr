@@ -16,7 +16,7 @@ use image::{DynamicImage, ImageFormat};
 use image::imageops::FilterType;
 
 use crate::{Asset, Configuration, I18n, Position, ReadingInfo, ThemeEntry};
-use crate::book::{Book, Colors, Line, TextStyle};
+use crate::book::{Book, Colors, Line};
 use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::{Controller, HighlightInfo, HighlightMode};
@@ -495,18 +495,16 @@ impl ReaderApp {
 	{
 		for line in &self.render_lines {
 			if let Some(dc) = line.char_at_pos(click_position) {
-				if let Some((TextStyle::Link(_), _)) = dc.style {
-					if let Some(link_index) = self.controller.book.lines()[dc.line].link_iter(true, |link| {
-						if link.range.contains(&dc.offset) {
-							(true, Some(link.index))
-						} else {
-							(false, None)
-						}
-					}) {
-						self.put_render_context(ui);
-						self.controller.goto_link(dc.line, link_index, ui)?;
-						return Ok(true);
+				if let Some(link_index) = self.controller.book.lines()[dc.line].link_iter(true, |link| {
+					if link.range.contains(&dc.offset) {
+						(true, Some(link.index))
+					} else {
+						(false, None)
 					}
+				}) {
+					self.put_render_context(ui);
+					self.controller.goto_link(dc.line, link_index, ui)?;
+					return Ok(true);
 				}
 			}
 		}
