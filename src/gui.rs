@@ -537,13 +537,17 @@ impl ReaderApp {
 				}
 			}
 			if let Some(path) = dialog.pick_file() {
-				if let Some(filepath) = path.to_str() {
-					self.put_render_context(ui);
-					let reading_now = self.controller.reading.clone();
-					let (history, new_reading) = reading_info(&mut self.configuration.history, filepath);
-					let history_entry = if history { Some(new_reading.clone()) } else { None };
-					let result = self.controller.switch_container(new_reading, ui);
-					self.open_result(reading_now, history_entry, result, frame);
+				if let Ok(absolute_path) = path.canonicalize() {
+					if let Some(filepath) = absolute_path.to_str() {
+						if filepath != self.controller.reading.filename {
+							self.put_render_context(ui);
+							let reading_now = self.controller.reading.clone();
+							let (history, new_reading) = reading_info(&mut self.configuration.history, filepath);
+							let history_entry = if history { Some(new_reading.clone()) } else { None };
+							let result = self.controller.switch_container(new_reading, ui);
+							self.open_result(reading_now, history_entry, result, frame);
+						}
+					}
 				}
 			}
 		}
