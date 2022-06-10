@@ -64,8 +64,15 @@ pub(crate) fn html_str_content<'a, F>(str: &str, file_resolver: Option<F>) -> Re
 		context.content.id_map.insert(id.to_string(), Position::new(0, 0));
 	}
 	convert_dom_to_lines(body.children(), &mut context);
-	if context.content.lines.len() == 1 && context.content.lines[0].is_empty() {
-		context.content.lines[0].concat(EMPTY_CHAPTER_CONTENT);
+	while let Some(last_line) = context.content.lines.last() {
+		if last_line.len() == 0 {
+			context.content.lines.pop();
+		} else {
+			break;
+		}
+	}
+	if context.content.lines.len() == 0 {
+		context.content.lines.push(Line::new(EMPTY_CHAPTER_CONTENT));
 	}
 	Ok(context.content)
 }

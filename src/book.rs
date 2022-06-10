@@ -70,7 +70,6 @@ pub struct Link<'a> {
 }
 
 impl Line {
-	#[cfg(test)]
 	pub fn new(str: &str) -> Self {
 		let mut chars = vec![];
 		for ch in str.chars() {
