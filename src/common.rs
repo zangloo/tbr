@@ -9,7 +9,8 @@ use unicode_width::UnicodeWidthChar;
 use crate::book::Line;
 use crate::{ReadingInfo, ThemeEntry};
 
-pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 33] = [
+pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 34] = [
+	(' ', '　'),
 	('「', '﹁'),
 	('」', '﹂'),
 	('〈', '︿'),
