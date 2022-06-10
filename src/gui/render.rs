@@ -403,7 +403,12 @@ pub(super) fn paint_char(ui: &Ui, char: char, font_size: f32, position: &Pos2, a
 #[inline]
 pub(super) fn scale_font_size(font_size: u8, scale: f32) -> f32
 {
-	return font_size as f32 * scale;
+	let scaled_size = font_size as f32 * scale;
+	if scaled_size < 9.0 {
+		9.0
+	} else {
+		scaled_size
+	}
 }
 
 pub(super) fn create_render(render_type: &str) -> Box<dyn GuiRender>

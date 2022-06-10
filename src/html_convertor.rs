@@ -3,7 +3,7 @@ use std::ops::Deref;
 use anyhow::{anyhow, Result};
 use cssparser::ToCss;
 use ego_tree::iter::Children;
-use ego_tree::NodeId;
+use ego_tree::{NodeId, NodeRef};
 use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use parcel_css::properties::{border, font, Property};
 use parcel_css::properties::border::{Border, BorderSideWidth};
@@ -110,6 +110,25 @@ fn new_line(context: &mut ParseContext, ignore_empty_buf: bool)
 	}
 }
 
+#[inline]
+fn new_paragraph(child: NodeRef<Node>, context: &mut ParseContext)
+{
+	new_line(context, true);
+	convert_dom_to_lines(child.children(), context);
+	new_line(context, false);
+}
+
+#[inline]
+fn push_font_size(styles: &mut Vec<TextStyle>, font_level: u8, relative: bool)
+{
+	for style in styles.iter() {
+		if let TextStyle::FontSize { .. } = style {
+			return;
+		}
+	}
+	styles.push(font_size_level(font_level, relative));
+}
+
 const DIV_PUSH_CLASSES: [&str; 3] = ["contents", "toc", "mulu"];
 
 fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
@@ -165,19 +184,34 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						convert_dom_to_lines(child.children(), context);
 						newline_for_class(context, element);
 					}
+					local_name!("h1") => {
+						push_font_size(&mut element_styles, 6, true);
+						new_paragraph(child, context);
+					}
+					| local_name!("h2") => {
+						push_font_size(&mut element_styles, 6, true);
+						new_paragraph(child, context);
+					}
+					| local_name!("h3") => {
+						push_font_size(&mut element_styles, 6, true);
+						new_paragraph(child, context);
+					}
+					| local_name!("h4") => {
+						push_font_size(&mut element_styles, 6, true);
+						new_paragraph(child, context);
+					}
+					| local_name!("h5") => {
+						push_font_size(&mut element_styles, 6, true);
+						new_paragraph(child, context);
+					}
+					| local_name!("h6") => {
+						push_font_size(&mut element_styles, 6, true);
+						new_paragraph(child, context);
+					}
 					local_name!("p")
 					| local_name!("blockquote")
 					| local_name!("tr")
-					| local_name!("h5")
-					| local_name!("h4")
-					| local_name!("h3")
-					| local_name!("h2")
-					| local_name!("h1")
-					| local_name!("li") => {
-						new_line(context, true);
-						convert_dom_to_lines(child.children(), context);
-						new_line(context, false);
-					}
+					| local_name!("li") => new_paragraph(child, context),
 					local_name!("br") => {
 						new_line(context, true);
 						convert_dom_to_lines(child.children(), context);
@@ -185,8 +219,7 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 					local_name!("font") => {
 						if let Some(level_text) = element.attr("size") {
 							if let Ok(level) = level_text.parse::<u8>() {
-								let style = font_size_level(level);
-								element_styles.push(style);
+								push_font_size(&mut element_styles, level, true);
 							}
 						}
 						convert_dom_to_lines(child.children(), context);
@@ -325,7 +358,7 @@ fn convert_style(property: &Property) -> Option<TextStyle>
 }
 
 #[inline]
-fn font_size_level(level: u8) -> TextStyle
+fn font_size_level(level: u8, relative: bool) -> TextStyle
 {
 	let scale: f32 = match level {
 		1 => 3.0 / 5.0,
@@ -337,7 +370,7 @@ fn font_size_level(level: u8) -> TextStyle
 		7 => 3.0 / 1.0,
 		_ => 1.0 // no other level
 	};
-	TextStyle::FontSize { scale, relative: false }
+	TextStyle::FontSize { scale, relative }
 }
 
 fn font_size(size: &FontSize) -> TextStyle
@@ -354,17 +387,17 @@ fn font_size(size: &FontSize) -> TextStyle
 				TextStyle::FontSize { scale: 1.0, relative: false }
 		}
 		FontSize::Absolute(size) => match size {
-			font::AbsoluteFontSize::XXSmall => font_size_level(1),
+			font::AbsoluteFontSize::XXSmall => font_size_level(1, false),
 			font::AbsoluteFontSize::XSmall => TextStyle::FontSize { scale: 3.0 / 4.0, relative: false },
-			font::AbsoluteFontSize::Small => font_size_level(2),
-			font::AbsoluteFontSize::Medium => font_size_level(3),
-			font::AbsoluteFontSize::Large => font_size_level(4),
-			font::AbsoluteFontSize::XLarge => font_size_level(5),
-			font::AbsoluteFontSize::XXLarge => font_size_level(6),
+			font::AbsoluteFontSize::Small => font_size_level(2, false),
+			font::AbsoluteFontSize::Medium => font_size_level(3, false),
+			font::AbsoluteFontSize::Large => font_size_level(4, false),
+			font::AbsoluteFontSize::XLarge => font_size_level(5, false),
+			font::AbsoluteFontSize::XXLarge => font_size_level(6, false),
 		}
 		FontSize::Relative(size) => match size {
-			font::RelativeFontSize::Smaller => font_size_level(2),
-			font::RelativeFontSize::Larger => font_size_level(4),
+			font::RelativeFontSize::Smaller => font_size_level(2, true),
+			font::RelativeFontSize::Larger => font_size_level(4, true),
 		}
 	}
 }
