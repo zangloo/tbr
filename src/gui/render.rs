@@ -118,6 +118,7 @@ pub(super) trait GuiRender: Render<Ui> {
 	fn gui_redraw(&self, lines: &Vec<Line>, reading_line: usize, reading_offset: usize,
 		highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
 	{
+		ui.set_clip_rect(Rect::NOTHING);
 		// load context and init for rendering
 		let mut context = get_render_context(ui);
 		self.reset_render_context(&mut context);
@@ -198,6 +199,7 @@ pub(super) trait GuiRender: Render<Ui> {
 
 	fn gui_prev_page(&mut self, lines: &Vec<Line>, reading_line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
+		ui.set_clip_rect(Rect::NOTHING);
 		// load context and init for rendering
 		let mut context = get_render_context(ui);
 		self.reset_render_context(&mut context);
@@ -242,6 +244,7 @@ pub(super) trait GuiRender: Render<Ui> {
 
 	fn gui_next_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
+		ui.set_clip_rect(Rect::NOTHING);
 		// load context and init for rendering
 		let mut context = get_render_context(ui);
 		self.reset_render_context(&mut context);
@@ -260,6 +263,7 @@ pub(super) trait GuiRender: Render<Ui> {
 
 	fn gui_prev_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
+		ui.set_clip_rect(Rect::NOTHING);
 		// load context and init for rendering
 		let mut context = get_render_context(ui);
 		self.reset_render_context(&mut context);
@@ -287,6 +291,7 @@ pub(super) trait GuiRender: Render<Ui> {
 
 	fn gui_setup_highlight(&mut self, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position
 	{
+		ui.set_clip_rect(Rect::NOTHING);
 		// load context and init for rendering
 		let mut context = get_render_context(ui);
 		self.reset_render_context(&mut context);

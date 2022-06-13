@@ -319,23 +319,7 @@ impl ReaderApp {
 				PointerPositioin::Tail => return
 			}
 		};
-		self.put_render_context(ui);
 		self.selected_text = self.controller.select_text(from, to, ui);
-	}
-
-	#[inline]
-	fn put_render_context(&self, ui: &mut Ui)
-	{
-		let context = RenderContext {
-			colors: self.colors.clone(),
-			font_size: self.font_size,
-			default_font_measure: self.default_font_measure,
-			rect: self.view_rect,
-			leading_space: 0.0,
-			max_page_size: 0.0,
-			line_base: 0.0,
-		};
-		prepare_redraw(ui, context);
 	}
 
 	fn setup_input(&mut self, response: &Response, ui: &mut Ui) -> Result<bool>
@@ -345,63 +329,51 @@ impl ReaderApp {
 		let action = if input.consume_key(Modifiers::NONE, Key::Space)
 			|| input.consume_key(Modifiers::NONE, Key::PageDown) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.next_page(ui)?;
 			true
 		} else if input.consume_key(Modifiers::NONE, Key::PageUp) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.prev_page(ui)?;
 			true
 		} else if input.consume_key(Modifiers::NONE, Key::ArrowDown) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.step_next(ui);
 			true
 		} else if input.consume_key(Modifiers::NONE, Key::ArrowUp) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.step_prev(ui);
 			true
 		} else if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.goto_trace(true, ui)?;
 			true
 		} else if input.consume_key(Modifiers::NONE, Key::ArrowRight) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.goto_trace(false, ui)?;
 			true
 		} else if input.consume_key(Modifiers::NONE, Key::N) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.search_again(true, ui)?;
 			true
 		} else if input.consume_key(Modifiers::SHIFT, Key::N) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.search_again(false, ui)?;
 			true
 		} else if input.consume_key(Modifiers::SHIFT, Key::Tab) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.switch_link_prev(ui);
 			true
 		} else if input.consume_key(Modifiers::NONE, Key::Tab) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.switch_link_next(ui);
 			true
 		} else if input.consume_key(Modifiers::NONE, Key::Enter) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.try_goto_link(ui)?;
 			true
 		} else if input.consume_key(Modifiers::NONE, Key::Home) {
 			drop(input);
 			if self.controller.reading.line != 0 || self.controller.reading.position != 0 {
-				self.put_render_context(ui);
 				self.controller.redraw_at(0, 0, ui);
 				true
 			} else {
@@ -409,17 +381,14 @@ impl ReaderApp {
 			}
 		} else if input.consume_key(Modifiers::NONE, Key::End) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.goto_end(ui);
 			true
 		} else if input.consume_key(Modifiers::CTRL, Key::D) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.switch_chapter(true, ui)?;
 			true
 		} else if input.consume_key(Modifiers::CTRL, Key::B) {
 			drop(input);
-			self.put_render_context(ui);
 			self.controller.switch_chapter(false, ui)?;
 			true
 		} else if input.consume_key(Modifiers::NONE, Key::Escape) {
@@ -427,7 +396,6 @@ impl ReaderApp {
 				self.sidebar = false;
 			} else if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = self.controller.highlight {
 				drop(input);
-				self.put_render_context(ui);
 				self.selected_text.clear();
 				self.controller.clear_highlight(ui);
 			}
@@ -459,10 +427,8 @@ impl ReaderApp {
 					drop(input);
 					// delta > 0.0 for scroll up
 					if delta > 0.0 {
-						self.put_render_context(ui);
 						self.controller.step_prev(ui);
 					} else {
-						self.put_render_context(ui);
 						self.controller.step_next(ui);
 					}
 					true
@@ -511,7 +477,6 @@ impl ReaderApp {
 						(false, None)
 					}
 				}) {
-					self.put_render_context(ui);
 					self.controller.goto_link(dc.line, link_index, ui)?;
 					return Ok(true);
 				}
@@ -540,7 +505,6 @@ impl ReaderApp {
 				if let Ok(absolute_path) = path.canonicalize() {
 					if let Some(filepath) = absolute_path.to_str() {
 						if filepath != self.controller.reading.filename {
-							self.put_render_context(ui);
 							let reading_now = self.controller.reading.clone();
 							let (history, new_reading) = reading_info(&mut self.configuration.history, filepath);
 							let history_entry = if history { Some(new_reading.clone()) } else { None };
@@ -592,7 +556,6 @@ impl ReaderApp {
 			if render_type != &self.configuration.render_type {
 				self.configuration.render_type = render_type.to_string();
 				self.controller.render = create_render(render_type);
-				self.put_render_context(ui);
 				self.controller.redraw(ui);
 			}
 		}
@@ -602,7 +565,6 @@ impl ReaderApp {
 		let search_edit = ui.add(TextEdit::singleline(&mut self.configuration.search_pattern));
 		let searching = search_edit.has_focus();
 		if search_edit.changed() {
-			self.put_render_context(ui);
 			if let Err(e) = self.controller.search(&self.configuration.search_pattern, ui) {
 				self.error(e.to_string());
 			} else {
@@ -633,11 +595,26 @@ impl ReaderApp {
 			for entry in &self.theme_entries {
 				if ui.button(entry.0.clone()).clicked() {
 					self.colors = convert_colors(&entry.1);
-					self.put_render_context(ui);
+					self.update_context(ui);
 					self.controller.redraw(ui);
 				}
 			}
 		}).is_some()
+	}
+
+	#[inline]
+	fn update_context(&self, ui: &mut Ui)
+	{
+		let context = RenderContext {
+			colors: self.colors.clone(),
+			font_size: self.font_size,
+			default_font_measure: self.default_font_measure,
+			rect: self.view_rect,
+			leading_space: 0.0,
+			max_page_size: 0.0,
+			line_base: 0.0,
+		};
+		ui.data().insert_temp(render_context_id(), context);
 	}
 }
 
@@ -697,13 +674,11 @@ impl eframe::App for ReaderApp {
 								}
 							}
 							if let Some(index) = selected_book {
-								self.put_render_context(ui);
 								let new_reading = ReadingInfo::new(&self.controller.reading.filename)
 									.with_inner_book(index);
 								let msg = self.controller.switch_book(new_reading, ui);
 								self.update_status(msg);
 							} else if let Some(index) = selected_toc {
-								self.put_render_context(ui);
 								if let Some(msg) = self.controller.goto_toc(index, ui) {
 									self.update_status(msg);
 								}
@@ -739,7 +714,7 @@ impl eframe::App for ReaderApp {
 			if self.font_size != self.configuration.gui.font_size {
 				self.default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
 				self.font_size = self.configuration.gui.font_size;
-				self.put_render_context(ui);
+				self.update_context(ui);
 				self.controller.redraw(ui);
 			}
 			let size = ui.available_size();
@@ -751,16 +726,7 @@ impl eframe::App for ReaderApp {
 				self.view_rect = Rect::from_min_max(
 					Pos2::new(rect.min.x + margin, rect.min.y + margin),
 					Pos2::new(rect.max.x - margin, rect.max.y - margin));
-				let context = RenderContext {
-					colors: self.colors.clone(),
-					font_size: self.font_size,
-					default_font_measure: self.default_font_measure,
-					rect: self.view_rect,
-					leading_space: 0.0,
-					max_page_size: 0.0,
-					line_base: 0.0,
-				};
-				prepare_redraw(ui, context);
+				self.update_context(ui);
 				self.controller.redraw(ui);
 			}
 			if !self.dropdown && self.popup_menu.is_none() {
@@ -922,13 +888,6 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 fn render_context_id() -> Id
 {
 	Id::new("render_context")
-}
-
-#[inline]
-pub(self) fn prepare_redraw(ui: &mut Ui, render_context: RenderContext)
-{
-	ui.data().insert_temp(render_context_id(), render_context);
-	ui.set_clip_rect(Rect::NOTHING);
 }
 
 #[inline]
