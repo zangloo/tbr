@@ -5,12 +5,13 @@ use std::fs::OpenOptions;
 use std::io::{BufReader, Cursor, Read};
 use std::ops::Index;
 use std::path::PathBuf;
+use std::str::FromStr;
 use anyhow::Result;
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::{egui, IconData};
 use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, Id, ImageButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
-use egui::{Area, ComboBox, Key, Modifiers, Order, RichText, ScrollArea, TextEdit};
+use egui::{Area, ComboBox, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit};
 use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
 use image::imageops::FilterType;
@@ -202,24 +203,6 @@ impl ReaderApp {
 	}
 
 	#[inline]
-	fn open_result(&mut self, reading_now: ReadingInfo, history_entry: Option<ReadingInfo>, result: Result<String>, frame: &mut eframe::Frame)
-	{
-		match result {
-			Ok(msg) => {
-				self.configuration.history.push(reading_now);
-				update_title(frame, &self.controller.reading.filename);
-				self.update_status(msg)
-			}
-			Err(e) => {
-				if let Some(history_entry) = history_entry {
-					self.configuration.history.push(history_entry);
-				}
-				self.error(e.to_string())
-			}
-		}
-	}
-
-	#[inline]
 	fn error(&mut self, error: String)
 	{
 		self.status = AppStatus::Error(error);
@@ -322,7 +305,7 @@ impl ReaderApp {
 		self.selected_text = self.controller.select_text(from, to, ui);
 	}
 
-	fn setup_input(&mut self, response: &Response, ui: &mut Ui) -> Result<bool>
+	fn setup_input(&mut self, response: &Response, frame: &mut eframe::Frame, ui: &mut Ui) -> Result<bool>
 	{
 		let rect = &response.rect;
 		let mut input = ui.input_mut();
@@ -406,6 +389,11 @@ impl ReaderApp {
 				ui.output().copied_text = self.selected_text.clone();
 			}
 			false
+		} else if let Some(DroppedFile { path: Some(path), .. }) = input.raw.dropped_files.first() {
+			let path = path.clone();
+			drop(input);
+			self.open_file(path, frame, ui);
+			true
 		} else if let Some(pointer_pos) = input.pointer.interact_pos() {
 			if rect.contains(pointer_pos) {
 				if response.clicked() {
@@ -502,17 +490,7 @@ impl ReaderApp {
 				}
 			}
 			if let Some(path) = dialog.pick_file() {
-				if let Ok(absolute_path) = path.canonicalize() {
-					if let Some(filepath) = absolute_path.to_str() {
-						if filepath != self.controller.reading.filename {
-							let reading_now = self.controller.reading.clone();
-							let (history, new_reading) = reading_info(&mut self.configuration.history, filepath);
-							let history_entry = if history { Some(new_reading.clone()) } else { None };
-							let result = self.controller.switch_container(new_reading, ui);
-							self.open_result(reading_now, history_entry, result, frame);
-						}
-					}
-				}
+				self.open_file(path, frame, ui);
 			}
 		}
 
@@ -616,6 +594,31 @@ impl ReaderApp {
 		};
 		ui.data().insert_temp(render_context_id(), context);
 	}
+
+	fn open_file(&mut self, path: PathBuf, frame: &mut eframe::Frame, ui: &mut Ui) {
+		if let Ok(absolute_path) = path.canonicalize() {
+			if let Some(filepath) = absolute_path.to_str() {
+				if filepath != self.controller.reading.filename {
+					let reading_now = self.controller.reading.clone();
+					let (history, new_reading) = reading_info(&mut self.configuration.history, filepath);
+					let history_entry = if history { Some(new_reading.clone()) } else { None };
+					match self.controller.switch_container(new_reading, ui) {
+						Ok(msg) => {
+							self.configuration.history.push(reading_now);
+							update_title(frame, &self.controller.reading.filename);
+							self.update_status(msg)
+						}
+						Err(e) => {
+							if let Some(history_entry) = history_entry {
+								self.configuration.history.push(history_entry);
+							}
+							self.error(e.to_string())
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 impl eframe::App for ReaderApp {
@@ -694,11 +697,11 @@ impl eframe::App for ReaderApp {
 									}
 								}
 								if let Some(selected) = selected {
-									let history_reading = self.configuration.history.remove(selected);
-									let reading_now = self.controller.reading.clone();
-									let history_entry = Some(history_reading.clone());
-									let result = self.controller.switch_container(history_reading, ui);
-									self.open_result(reading_now, history_entry, result, frame);
+									if let Some(selected) = self.configuration.history.get(selected) {
+										if let Ok(path) = PathBuf::from_str(&selected.filename) {
+											self.open_file(path, frame, ui);
+										}
+									}
 								}
 							}
 						}
@@ -763,7 +766,7 @@ impl eframe::App for ReaderApp {
 					}
 				}
 			} else if !self.dropdown {
-				match self.setup_input(&response, ui) {
+				match self.setup_input(&response, frame, ui) {
 					Ok(action) => if action {
 						self.update_status(self.controller.status_msg());
 					}
