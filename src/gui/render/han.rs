@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::ops::RangeInclusive;
 use eframe::egui::{Align2, Color32, Pos2, Rect, Stroke, Ui};
 
-use crate::book::{Line, TextStyle};
+use crate::book::{Book, Line, TextStyle, IMAGE_CHAR};
 use crate::common::{HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::{HighlightInfo, Render};
-use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size, update_for_highlight, stroke_width_for_space, ImageDrawingData, PointerPositioin};
+use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size, update_for_highlight, stroke_width_for_space, ImageDrawingData, PointerPosition};
 use crate::Position;
 
 pub(super) struct GuiHanRender {
@@ -32,28 +32,28 @@ impl GuiHanRender
 
 impl Render<Ui> for GuiHanRender {
 	#[inline]
-	fn redraw(&mut self, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position> {
-		self.gui_redraw(lines, line, offset, highlight, ui)
+	fn redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position> {
+		self.gui_redraw(book, lines, line, offset, highlight, ui)
 	}
 
 	#[inline]
-	fn prev_page(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
-		self.gui_prev_page(lines, line, offset, ui)
+	fn prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
+		self.gui_prev_page(book, lines, line, offset, ui)
 	}
 
 	#[inline]
-	fn next_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
-		self.gui_next_line(lines, line, offset, ui)
+	fn next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
+		self.gui_next_line(book, lines, line, offset, ui)
 	}
 
 	#[inline]
-	fn prev_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
-		self.gui_prev_line(lines, line, offset, ui)
+	fn prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
+		self.gui_prev_line(book, lines, line, offset, ui)
 	}
 
 	#[inline]
-	fn setup_highlight(&mut self, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position {
-		self.gui_setup_highlight(lines, line, start, ui)
+	fn setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position {
+		self.gui_setup_highlight(book, lines, line, start, ui)
 	}
 }
 
@@ -81,7 +81,7 @@ impl GuiRender for GuiHanRender
 		context.line_base -= delta
 	}
 
-	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>
+	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>
 	{
 		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, line, start_offset, end_offset, context);
 		if let Some(wrapped_empty_lines) = wrapped_empty_lines {
@@ -93,49 +93,57 @@ impl GuiRender for GuiHanRender
 		let max_top = context.rect.max.y;
 
 		for i in start_offset..end_offset {
-			if i == 0 && with_leading(text) {
-				top = context.rect.min.y + context.leading_space;
-			}
-			let char = text.char_at(i).unwrap();
-			let char = self.map_char(char);
 			let char_style = text.char_style_at(i, &context.colors);
-			let font_size = scale_font_size(context.font_size, char_style.font_scale);
-			let mut rect = paint_char(
-				ui,
-				char,
-				font_size,
-				&Pos2::new(context.line_base, top),
-				Align2::RIGHT_TOP,
-				Color32::BLACK);
-
-			let mut draw_height = rect.height();
-			let (draw_offset, style) = if let Some(range) = char_style.border {
-				if range.len() == 1 {
-					let space = draw_height / 2.0;
-					draw_height += draw_height;
-					(Pos2::new(0.0, space), Some((TextStyle::Border, range.clone())))
-				} else if i == range.start {
-					let space = draw_height / 2.0;
-					draw_height += space;
-					rect.max.y += space;
-					(Pos2::new(0.0, space), Some((TextStyle::Border, range.clone())))
-				} else if i == range.end - 1 {
-					let space = draw_height / 2.0;
-					draw_height += space;
-					rect.max.y += space;
-					(Pos2::ZERO, Some((TextStyle::Border, range.clone())))
-				} else {
-					(Pos2::ZERO, Some((TextStyle::Border, range.clone())))
-				}
-			} else if let Some((line, range)) = char_style.line {
-				(Pos2::ZERO, Some((TextStyle::Line(line), range.clone())))
-			} else if let Some((target, range)) = char_style.link {
-				(Pos2::ZERO, Some((TextStyle::Link(target), range.clone())))
+			let (char, mut rect, font_size, draw_offset, style) = if let Some((path, size)) = self.with_image(&char_style, book, &context.rect, ui) {
+				let left = context.line_base - size.x;
+				let bottom = top + size.y;
+				let rect = Rect::from_min_max(
+					Pos2::new(left, top),
+					Pos2::new(context.line_base, bottom),
+				);
+				let style = Some((TextStyle::Image(path), i..i + 1));
+				(IMAGE_CHAR, rect, context.font_size as f32, Pos2::ZERO, style)
 			} else {
-				(Pos2::ZERO, None)
+				if i == 0 && with_leading(text) {
+					top = context.rect.min.y + context.leading_space;
+				}
+				let char = text.char_at(i).unwrap();
+				let char = self.map_char(char);
+				let font_size = scale_font_size(context.font_size, char_style.font_scale);
+				let mut rect = paint_char(
+					ui,
+					char,
+					font_size,
+					&Pos2::new(context.line_base, top),
+					Align2::RIGHT_TOP,
+					Color32::BLACK);
+				let draw_height = rect.height();
+				let (draw_offset, style) = if let Some(range) = char_style.border {
+					if range.len() == 1 {
+						let space = draw_height / 2.0;
+						(Pos2::new(0.0, space), Some((TextStyle::Border, range.clone())))
+					} else if i == range.start {
+						let space = draw_height / 2.0;
+						rect.max.y += space;
+						(Pos2::new(0.0, space), Some((TextStyle::Border, range.clone())))
+					} else if i == range.end - 1 {
+						let space = draw_height / 2.0;
+						rect.max.y += space;
+						(Pos2::ZERO, Some((TextStyle::Border, range.clone())))
+					} else {
+						(Pos2::ZERO, Some((TextStyle::Border, range.clone())))
+					}
+				} else if let Some((line, range)) = char_style.line {
+					(Pos2::ZERO, Some((TextStyle::Line(line), range.clone())))
+				} else if let Some((target, range)) = char_style.link {
+					(Pos2::ZERO, Some((TextStyle::Link(target), range.clone())))
+				} else {
+					(Pos2::ZERO, None)
+				};
+				(char, rect, font_size, draw_offset, style)
 			};
 			let draw_width = rect.width();
-			if top + draw_height > max_top {
+			if top + rect.height() > max_top {
 				let line_delta = draw_line.draw_size + draw_line.line_space;
 				context.line_base -= line_delta;
 				draw_lines.push(draw_line);
@@ -147,7 +155,9 @@ impl GuiRender for GuiHanRender
 			}
 			if draw_width > draw_line.draw_size {
 				draw_line.draw_size = draw_width;
-				draw_line.line_space = draw_width / 2.0;
+				if char != IMAGE_CHAR {
+					draw_line.line_space = draw_width / 2.0;
+				}
 			}
 			let color = char_style.color;
 			let background = update_for_highlight(line, i, char_style.background, &context.colors, highlight);
@@ -348,12 +358,12 @@ impl GuiRender for GuiHanRender
 		&mut self.images
 	}
 
-	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, rect: &Rect) -> (PointerPositioin, PointerPositioin)
+	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, rect: &Rect) -> (PointerPosition, PointerPosition)
 	{
 		let x = pointer_pos.x;
 		let mut line_base = rect.right();
 		if x > line_base {
-			return (PointerPositioin::Head, PointerPositioin::Head);
+			return (PointerPosition::Head, PointerPosition::Head);
 		}
 		for i in 0..render_lines.len() {
 			let render_line = &render_lines[i];
@@ -361,17 +371,17 @@ impl GuiRender for GuiHanRender
 			if x <= line_base && x > left {
 				let y = pointer_pos.y;
 				if y <= rect.top() {
-					return (PointerPositioin::Exact(i), PointerPositioin::Head);
+					return (PointerPosition::Exact(i), PointerPosition::Head);
 				}
 				for (j, dc) in render_line.chars.iter().enumerate() {
 					if y > dc.rect.top() && y <= dc.rect.bottom() {
-						return (PointerPositioin::Exact(i), PointerPositioin::Exact(j));
+						return (PointerPosition::Exact(i), PointerPosition::Exact(j));
 					}
 				}
-				return (PointerPositioin::Exact(i), PointerPositioin::Tail);
+				return (PointerPosition::Exact(i), PointerPosition::Tail);
 			}
 			line_base = left;
 		}
-		(PointerPositioin::Tail, PointerPositioin::Tail)
+		(PointerPosition::Tail, PointerPosition::Tail)
 	}
 }

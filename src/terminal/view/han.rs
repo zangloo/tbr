@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use unicode_width::UnicodeWidthChar;
 
-use crate::book::Line;
+use crate::book::{Book, Line};
 use crate::common::{HAN_RENDER_CHARS_PAIRS, length_with_leading, with_leading};
 use crate::controller::HighlightInfo;
 use crate::terminal::view::{DrawChar, Position, Render, RenderContext, TerminalRender};
@@ -100,7 +100,7 @@ impl TerminalRender for Han
 }
 
 impl Render<RenderContext> for Han {
-	fn redraw(&mut self, lines: &Vec<Line>, new_line: usize, new_offset: usize, highlight: &Option<HighlightInfo>, context: &mut RenderContext) -> Option<Position> {
+	fn redraw(&mut self, _book: &Box<dyn Book>, lines: &Vec<Line>, new_line: usize, new_offset: usize, highlight: &Option<HighlightInfo>, context: &mut RenderContext) -> Option<Position> {
 		let mut line = new_line;
 		let mut offset = new_offset;
 		let height = context.height;
@@ -148,7 +148,7 @@ impl Render<RenderContext> for Han {
 		})
 	}
 
-	fn prev_page(&mut self, lines: &Vec<Line>, new_line: usize, new_offset: usize, context: &mut RenderContext) -> Position
+	fn prev_page(&mut self, _book: &Box<dyn Book>, lines: &Vec<Line>, new_line: usize, new_offset: usize, context: &mut RenderContext) -> Position
 	{
 		let height = context.height;
 		let mut line = new_line;
@@ -186,7 +186,7 @@ impl Render<RenderContext> for Han {
 		Position::new(line, offset)
 	}
 
-	fn next_line(&mut self, lines: &Vec<Line>, new_line: usize, new_offset: usize, context: &mut RenderContext) -> Position {
+	fn next_line(&mut self, _book: &Box<dyn Book>, lines: &Vec<Line>, new_line: usize, new_offset: usize, context: &mut RenderContext) -> Position {
 		let height = context.height;
 		let mut line = new_line;
 		let mut offset = new_offset;
@@ -210,7 +210,7 @@ impl Render<RenderContext> for Han {
 		Position::new(line, offset)
 	}
 
-	fn prev_line(&mut self, lines: &Vec<Line>, new_line: usize, new_offset: usize, context: &mut RenderContext) -> Position {
+	fn prev_line(&mut self, _book: &Box<dyn Book>, lines: &Vec<Line>, new_line: usize, new_offset: usize, context: &mut RenderContext) -> Position {
 		let height = context.height;
 		let mut line = new_line;
 		let mut offset = new_offset;
@@ -241,7 +241,7 @@ impl Render<RenderContext> for Han {
 		Position::new(line, offset)
 	}
 
-	fn setup_highlight(&mut self, lines: &Vec<Line>, highlight_line: usize, highlight_start: usize, context: &mut RenderContext) -> Position {
+	fn setup_highlight(&mut self, _book: &Box<dyn Book>, lines: &Vec<Line>, highlight_line: usize, highlight_start: usize, context: &mut RenderContext) -> Position {
 		let height = context.height;
 		let mut offset = 0;
 		loop {

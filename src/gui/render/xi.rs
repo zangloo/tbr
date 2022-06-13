@@ -4,10 +4,10 @@ use eframe::egui::Ui;
 use eframe::emath::Align2;
 use egui::{Color32, Pos2, Rect, Stroke};
 
-use crate::book::{Line, TextStyle};
+use crate::book::{Book, IMAGE_CHAR, Line, TextStyle};
 use crate::common::with_leading;
 use crate::controller::{HighlightInfo, Render};
-use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, paint_char, RenderChar, update_for_highlight, stroke_width_for_space, ImageDrawingData, PointerPositioin};
+use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, paint_char, RenderChar, update_for_highlight, stroke_width_for_space, ImageDrawingData, PointerPosition};
 use crate::Position;
 
 pub(super) struct GuiXiRender {
@@ -25,33 +25,33 @@ impl GuiXiRender
 impl Render<Ui> for GuiXiRender
 {
 	#[inline]
-	fn redraw(&mut self, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
+	fn redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
 	{
-		self.gui_redraw(lines, line, offset, highlight, ui)
+		self.gui_redraw(book, lines, line, offset, highlight, ui)
 	}
 
 	#[inline]
-	fn prev_page(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
+	fn prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
-		self.gui_prev_page(lines, line, offset, ui)
+		self.gui_prev_page(book, lines, line, offset, ui)
 	}
 
 	#[inline]
-	fn next_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
+	fn next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
-		self.gui_next_line(lines, line, offset, ui)
+		self.gui_next_line(book, lines, line, offset, ui)
 	}
 
 	#[inline]
-	fn prev_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
+	fn prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
-		self.gui_prev_line(lines, line, offset, ui)
+		self.gui_prev_line(book, lines, line, offset, ui)
 	}
 
 	#[inline]
-	fn setup_highlight(&mut self, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position
+	fn setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position
 	{
-		self.gui_setup_highlight(lines, line, start, ui)
+		self.gui_setup_highlight(book, lines, line, start, ui)
 	}
 }
 
@@ -79,21 +79,25 @@ impl GuiRender for GuiXiRender
 		context.line_base += delta
 	}
 
-	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>
+	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>
 	{
 		#[inline]
-		// calculate line size and space, and reset context.line_base
-		fn align_line(draw_line: &mut RenderLine, context: &mut RenderContext)
+		// align chars and calculate line size and space, and reset context.line_base
+		fn push_line(draw_lines: &mut Vec<RenderLine>, mut draw_line: RenderLine, context: &mut RenderContext)
 		{
 			let mut draw_size = 0.0;
+			let mut line_space = 0.0;
 			for dc in &draw_line.chars {
 				let this_height = dc.rect.height();
 				if this_height > draw_size {
 					draw_size = this_height;
+					if dc.char != IMAGE_CHAR {
+						line_space = draw_size / 2.0
+					}
 				}
 			}
 			draw_line.draw_size = draw_size;
-			draw_line.line_space = draw_size / 2.0;
+			draw_line.line_space = line_space;
 			let line_delta = draw_line.draw_size + draw_line.line_space;
 			let line_base = context.line_base + line_delta;
 			context.line_base = line_base;
@@ -107,6 +111,7 @@ impl GuiRender for GuiXiRender
 					rect.min.y += delta;
 				}
 			}
+			draw_lines.push(draw_line);
 		}
 		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, line, start_offset, end_offset, context);
 		if let Some(wrapped_empty_lines) = wrapped_empty_lines {
@@ -119,47 +124,57 @@ impl GuiRender for GuiXiRender
 		let mut left = context.rect.min.x;
 		let max_left = context.rect.max.x;
 		for i in start_offset..end_offset {
-			if i == 0 && with_leading(text) {
-				left += context.leading_space;
-			}
-			let char = text.char_at(i).unwrap();
 			let char_style = text.char_style_at(i, &context.colors);
-			let font_size = scale_font_size(context.font_size, char_style.font_scale);
-			let mut rect = paint_char(
-				ui,
-				char,
-				font_size,
-				&Pos2::new(left, context.line_base),
-				Align2::LEFT_TOP,
-				Color32::BLACK);
-
-			let mut draw_width = rect.width();
-			let (draw_offset, style) = if let Some(range) = char_style.border {
-				if range.len() == 1 {
-					let space = draw_width / 2.0;
-					draw_width += draw_width;
-					(Pos2::new(space, 0.0), Some((TextStyle::Border, range.clone())))
-				} else if i == range.start {
-					let space = draw_width / 2.0;
-					draw_width += space;
-					rect.max.x += space;
-					(Pos2::new(space, 0.0), Some((TextStyle::Border, range.clone())))
-				} else if i == range.end - 1 {
-					let space = draw_width / 2.0;
-					draw_width += space;
-					rect.max.x += space;
-					(Pos2::ZERO, Some((TextStyle::Border, range.clone())))
-				} else {
-					(Pos2::ZERO, Some((TextStyle::Border, range.clone())))
-				}
-			} else if let Some((line, range)) = char_style.line {
-				(Pos2::ZERO, Some((TextStyle::Line(line), range.clone())))
-			} else if let Some((target, range)) = char_style.link {
-				(Pos2::ZERO, Some((TextStyle::Link(target), range.clone())))
+			let (char, mut rect, font_size, draw_offset, style) = if let Some((path, size)) = self.with_image(&char_style, book, &context.rect, ui) {
+				let bottom = context.line_base + size.y;
+				let right = left + size.x;
+				let rect = Rect::from_min_max(
+					Pos2::new(left, context.line_base),
+					Pos2::new(right, bottom),
+				);
+				let style = Some((TextStyle::Image(path), i..i + 1));
+				(IMAGE_CHAR, rect, context.font_size as f32, Pos2::ZERO, style)
 			} else {
-				(Pos2::ZERO, None)
+				if i == 0 && with_leading(text) {
+					left += context.leading_space;
+				}
+				let char = text.char_at(i).unwrap();
+				let font_size = scale_font_size(context.font_size, char_style.font_scale);
+				let mut rect = paint_char(
+					ui,
+					char,
+					font_size,
+					&Pos2::new(left, context.line_base),
+					Align2::LEFT_TOP,
+					Color32::BLACK);
+
+				let draw_width = rect.width();
+				let (draw_offset, style) = if let Some(range) = char_style.border {
+					if range.len() == 1 {
+						let space = draw_width / 2.0;
+						(Pos2::new(space, 0.0), Some((TextStyle::Border, range.clone())))
+					} else if i == range.start {
+						let space = draw_width / 2.0;
+						rect.max.x += space;
+						(Pos2::new(space, 0.0), Some((TextStyle::Border, range.clone())))
+					} else if i == range.end - 1 {
+						let space = draw_width / 2.0;
+						rect.max.x += space;
+						(Pos2::ZERO, Some((TextStyle::Border, range.clone())))
+					} else {
+						(Pos2::ZERO, Some((TextStyle::Border, range.clone())))
+					}
+				} else if let Some((line, range)) = char_style.line {
+					(Pos2::ZERO, Some((TextStyle::Line(line), range.clone())))
+				} else if let Some((target, range)) = char_style.link {
+					(Pos2::ZERO, Some((TextStyle::Link(target), range.clone())))
+				} else {
+					(Pos2::ZERO, None)
+				};
+				(char, rect, font_size, draw_offset, style)
 			};
 			let draw_height = rect.height();
+			let draw_width = rect.width();
 
 			let can_break = char == ' ' || char == '\t';
 			if left + draw_width > max_left {
@@ -168,8 +183,7 @@ impl GuiRender for GuiXiRender
 				if !char.is_ascii_alphanumeric() || can_break || break_position.is_none()
 					|| draw_line.chars.len() > break_position.unwrap() + 20
 					|| break_position.unwrap() >= draw_line.chars.len() {
-					align_line(&mut draw_line, context);
-					draw_lines.push(draw_line);
+					push_line(&mut draw_lines, draw_line, context);
 					draw_line = self.create_render_line(line, context);
 					rect = Rect {
 						min: Pos2::new(left, context.line_base),
@@ -187,8 +201,7 @@ impl GuiRender for GuiXiRender
 						let break_chars = draw_line.chars.drain(break_position..).collect();
 						break_draw_line.chars = break_chars
 					}
-					align_line(&mut draw_line, context);
-					draw_lines.push(draw_line);
+					push_line(&mut draw_lines, draw_line, context);
 					draw_line = break_draw_line;
 					for draw_char in &mut draw_line.chars {
 						let w = draw_char.rect.width();
@@ -238,8 +251,7 @@ impl GuiRender for GuiXiRender
 			}
 		}
 		if draw_line.chars.len() > 0 {
-			align_line(&mut draw_line, context);
-			draw_lines.push(draw_line);
+			push_line(&mut draw_lines, draw_line, context);
 		}
 		return draw_lines;
 	}
@@ -421,12 +433,12 @@ impl GuiRender for GuiXiRender
 		&mut self.images
 	}
 
-	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, rect: &Rect) -> (PointerPositioin, PointerPositioin)
+	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, rect: &Rect) -> (PointerPosition, PointerPosition)
 	{
 		let y = pointer_pos.y;
 		let mut line_base = rect.top();
 		if y < line_base {
-			return (PointerPositioin::Head, PointerPositioin::Head);
+			return (PointerPosition::Head, PointerPosition::Head);
 		}
 		for i in 0..render_lines.len() {
 			let render_line = &render_lines[i];
@@ -434,17 +446,17 @@ impl GuiRender for GuiXiRender
 			if y >= line_base && y < bottom {
 				let x = pointer_pos.x;
 				if x <= rect.left() {
-					return (PointerPositioin::Exact(i), PointerPositioin::Head);
+					return (PointerPosition::Exact(i), PointerPosition::Head);
 				}
 				for (j, dc) in render_line.chars.iter().enumerate() {
 					if x > dc.rect.left() && x <= dc.rect.right() {
-						return (PointerPositioin::Exact(i), PointerPositioin::Exact(j));
+						return (PointerPosition::Exact(i), PointerPosition::Exact(j));
 					}
 				}
-				return (PointerPositioin::Exact(i), PointerPositioin::Tail);
+				return (PointerPosition::Exact(i), PointerPosition::Tail);
 			}
 			line_base = bottom;
 		}
-		(PointerPositioin::Tail, PointerPositioin::Tail)
+		(PointerPosition::Tail, PointerPosition::Tail)
 	}
 }

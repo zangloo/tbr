@@ -25,6 +25,7 @@ mod html;
 mod haodoo;
 
 pub const EMPTY_CHAPTER_CONTENT: &str = "No content.";
+pub const IMAGE_CHAR: char = '🖼';
 
 type TextDecorationLine = parcel_css::properties::text::TextDecorationLine;
 
@@ -45,6 +46,7 @@ pub struct CharStyle {
 	pub line: Option<(TextDecorationLine, Range<usize>)>,
 	pub border: Option<Range<usize>>,
 	pub link: Option<(String, Range<usize>)>,
+	pub image: Option<String>,
 }
 
 #[derive(Clone)]
@@ -197,18 +199,6 @@ impl Line {
 	}
 
 	#[cfg(feature = "gui")]
-	pub fn with_image(&self) -> Option<(&str, usize)>
-	{
-		for style in &self.styles {
-			match style {
-				(TextStyle::Image(target), range) => return Some((target.as_str(), range.start)),
-				_ => continue,
-			}
-		}
-		None
-	}
-
-	#[cfg(feature = "gui")]
 	pub fn char_style_at(&self, index: usize, colors: &Colors) -> CharStyle
 	{
 		let mut char_style = CharStyle {
@@ -218,6 +208,7 @@ impl Line {
 			line: None,
 			border: None,
 			link: None,
+			image: None,
 		};
 		for (style, range) in &self.styles {
 			if range.contains(&index) {
@@ -229,7 +220,7 @@ impl Line {
 							char_style.font_scale = *scale;
 						}
 					}
-					TextStyle::Image(_) => continue,
+					TextStyle::Image(href) => char_style.image = Some(href.clone()),
 					TextStyle::Link(target) => {
 						char_style.link = Some((target.clone(), range.clone()));
 						char_style.color = colors.link;
@@ -299,7 +290,8 @@ pub trait Book {
 	fn lines(&self) -> &Vec<Line>;
 	fn leading_space(&self) -> usize { 2 }
 	fn link_position(&mut self, _line: usize, _link_index: usize) -> Option<TraceInfo> { None }
-	fn image(&mut self, _href: &str) -> Option<&Vec<u8>> { None }
+	// (absolute path, content)
+	fn image(&self, _href: &str) -> Option<(String, &Vec<u8>)> { None }
 }
 
 pub struct BookLoader {

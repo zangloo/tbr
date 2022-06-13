@@ -7,7 +7,7 @@ use eframe::epaint::Color32;
 use egui::{ColorImage, Mesh, Shape, TextureHandle};
 use image::imageops::FilterType;
 
-use crate::book::{Book, Colors, Line, TextStyle};
+use crate::book::{Book, CharStyle, Colors, Line, TextStyle};
 use crate::common::Position;
 use crate::controller::{HighlightInfo, HighlightMode, Render};
 use crate::gui::render::han::GuiHanRender;
@@ -76,12 +76,12 @@ pub(super) struct RenderContext
 }
 
 pub(super) struct ImageDrawingData {
-	rect: Rect,
-	draw_rect: Rect,
+	view_rect: Rect,
+	image_size: Pos2,
 	texture: TextureHandle,
 }
 
-pub(super) enum PointerPositioin {
+pub(super) enum PointerPosition {
 	Head,
 	Exact(usize),
 	Tail,
@@ -91,11 +91,11 @@ pub(super) trait GuiRender: Render<Ui> {
 	fn reset_render_context(&self, render_context: &mut RenderContext);
 	fn create_render_line(&self, line: usize, render_context: &RenderContext) -> RenderLine;
 	fn update_base_line_for_delta(&self, context: &mut RenderContext, delta: f32);
-	fn wrap_line(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
+	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
 	fn draw_style(&self, draw_text: &RenderLine, ui: &mut Ui);
 	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData>;
 	// return (line, offset) position
-	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, retc: &Rect) -> (PointerPositioin, PointerPositioin);
+	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, retc: &Rect) -> (PointerPosition, PointerPosition);
 
 	#[inline]
 	fn prepare_wrap(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, context: &mut RenderContext) -> (usize, Option<Vec<RenderLine>>)
@@ -115,7 +115,7 @@ pub(super) trait GuiRender: Render<Ui> {
 		}
 	}
 
-	fn gui_redraw(&self, lines: &Vec<Line>, reading_line: usize, reading_offset: usize,
+	fn gui_redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, reading_line: usize, reading_offset: usize,
 		highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
 	{
 		ui.set_clip_rect(Rect::NOTHING);
@@ -128,35 +128,7 @@ pub(super) trait GuiRender: Render<Ui> {
 		let mut offset = reading_offset;
 		for index in reading_line..lines.len() {
 			let line = &lines[index];
-			if let Some((target, offset)) = line.with_image() {
-				let next = if reading_line == index {
-					let mut draw_line = self.create_render_line(index, &context);
-					draw_line.chars.push(RenderChar {
-						char: 'I',
-						font_size: 1.0,
-						color: context.colors.color,
-						background: None,
-						style: Some((TextStyle::Image(target.to_string()), offset..offset + 1)),
-
-						line: index,
-						offset,
-						rect: context.rect.clone(),
-						draw_offset: Pos2::ZERO,
-					});
-					render_lines.push(draw_line);
-					let next_line = index + 1;
-					if next_line < lines.len() {
-						Some(Position::new(next_line, 0))
-					} else {
-						None
-					}
-				} else {
-					Some(Position::new(index, 0))
-				};
-				put_render_lines(ui, render_lines);
-				return next;
-			}
-			let wrapped_lines = self.wrap_line(&line, index, offset, line.len(), highlight, ui, &mut context);
+			let wrapped_lines = self.wrap_line(book, &line, index, offset, line.len(), highlight, ui, &mut context);
 			offset = 0;
 			for wrapped_line in wrapped_lines {
 				drawn_size += wrapped_line.draw_size;
@@ -177,27 +149,25 @@ pub(super) trait GuiRender: Render<Ui> {
 		None
 	}
 
-	fn draw(&mut self, render_lines: &Vec<RenderLine>, book: &mut Box<dyn Book>, ui: &mut Ui)
+	fn draw(&mut self, render_lines: &Vec<RenderLine>, ui: &mut Ui)
 	{
 		for render_line in render_lines {
-			// for now, image will always take a line and is the first char
-			if let Some(RenderChar { style: Some((TextStyle::Image(href), _)), rect, .. }) = render_line.chars.first() {
-				if let Some(bytes) = book.image(href) {
-					self.draw_image(href, bytes, &rect, ui);
-				}
-			}
 			for dc in &render_line.chars {
-				if let Some(bg) = dc.background {
-					ui.painter().rect(dc.rect.clone(), Rounding::none(), bg, Stroke::default());
+				if let Some((TextStyle::Image(name), _)) = &dc.style {
+					self.draw_image(&name, &dc.rect, ui);
+				} else {
+					if let Some(bg) = dc.background {
+						ui.painter().rect(dc.rect.clone(), Rounding::none(), bg, Stroke::default());
+					}
+					let draw_position = Pos2::new(dc.rect.min.x + dc.draw_offset.x, dc.rect.min.y + dc.draw_offset.y);
+					paint_char(ui, dc.char, dc.font_size, &draw_position, Align2::LEFT_TOP, dc.color);
 				}
-				let draw_position = Pos2::new(dc.rect.min.x + dc.draw_offset.x, dc.rect.min.y + dc.draw_offset.y);
-				paint_char(ui, dc.char, dc.font_size, &draw_position, Align2::LEFT_TOP, dc.color);
 			}
 			self.draw_style(render_line, ui);
 		}
 	}
 
-	fn gui_prev_page(&mut self, lines: &Vec<Line>, reading_line: usize, offset: usize, ui: &mut Ui) -> Position
+	fn gui_prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, reading_line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		ui.set_clip_rect(Rect::NOTHING);
 		// load context and init for rendering
@@ -213,14 +183,7 @@ pub(super) trait GuiRender: Render<Ui> {
 		let mut drawn_size = 0.0;
 		for index in (0..=reading_line).rev() {
 			let line = &lines[index];
-			if line.with_image().is_some() {
-				return if reading_line == index {
-					Position::new(index, 0)
-				} else {
-					Position::new(index + 1, 0)
-				};
-			}
-			let wrapped_lines = self.wrap_line(&line, index, 0, offset, &None, ui, &mut context);
+			let wrapped_lines = self.wrap_line(book, &line, index, 0, offset, &None, ui, &mut context);
 			offset = usize::MAX;
 			for wrapped_line in wrapped_lines.iter().rev() {
 				drawn_size += wrapped_line.draw_size;
@@ -242,14 +205,14 @@ pub(super) trait GuiRender: Render<Ui> {
 		Position::new(0, 0)
 	}
 
-	fn gui_next_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
+	fn gui_next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		ui.set_clip_rect(Rect::NOTHING);
 		// load context and init for rendering
 		let mut context = get_render_context(ui);
 		self.reset_render_context(&mut context);
 
-		let wrapped_lines = self.wrap_line(&lines[line], line, offset, usize::MAX, &None, ui, &mut context);
+		let wrapped_lines = self.wrap_line(book, &lines[line], line, offset, usize::MAX, &None, ui, &mut context);
 		if wrapped_lines.len() > 1 {
 			if let Some(next_line_char) = wrapped_lines[1].chars.first() {
 				Position::new(line, next_line_char.offset)
@@ -261,7 +224,7 @@ pub(super) trait GuiRender: Render<Ui> {
 		}
 	}
 
-	fn gui_prev_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
+	fn gui_prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		ui.set_clip_rect(Rect::NOTHING);
 		// load context and init for rendering
@@ -277,7 +240,7 @@ pub(super) trait GuiRender: Render<Ui> {
 			(line, offset)
 		};
 		let text = &lines[line];
-		let wrapped_lines = self.wrap_line(text, line, 0, offset, &None, ui, &mut context);
+		let wrapped_lines = self.wrap_line(book, text, line, 0, offset, &None, ui, &mut context);
 		if let Some(last_line) = wrapped_lines.last() {
 			if let Some(first_char) = last_line.chars.first() {
 				Position::new(line, first_char.offset)
@@ -289,7 +252,7 @@ pub(super) trait GuiRender: Render<Ui> {
 		}
 	}
 
-	fn gui_setup_highlight(&mut self, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position
+	fn gui_setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position
 	{
 		ui.set_clip_rect(Rect::NOTHING);
 		// load context and init for rendering
@@ -297,7 +260,7 @@ pub(super) trait GuiRender: Render<Ui> {
 		self.reset_render_context(&mut context);
 
 		let text = &lines[line];
-		let wrapped_lines = self.wrap_line(text, line, 0, start + 1, &None, ui, &mut context);
+		let wrapped_lines = self.wrap_line(book, text, line, 0, start + 1, &None, ui, &mut context);
 		if let Some(last_line) = wrapped_lines.last() {
 			if let Some(first_char) = last_line.chars.first() {
 				Position::new(line, first_char.offset)
@@ -309,58 +272,73 @@ pub(super) trait GuiRender: Render<Ui> {
 		}
 	}
 
-	fn draw_image(&mut self, name: &str, bytes: &Vec<u8>, rect: &Rect, ui: &mut Ui)
+	fn with_image(&mut self, char_style: &CharStyle, book: &Box<dyn Book>, view_rect: &Rect, ui: &mut Ui) -> Option<(String, Pos2)>
 	{
-		fn load_and_resize(rect: &Rect, bytes: &Vec<u8>, name: &str, ui: &mut Ui) -> Option<ImageDrawingData>
-		{
-			let image = load_image(name, bytes)?;
-			let width = rect.width() as u32;
-			let height = rect.height() as u32;
-			let image = image.resize(width, height, FilterType::Nearest);
-			let draw_width = image.width();
-			let draw_height = image.height();
-			let image_buffer = image.to_rgba8();
-			let pixels = image_buffer.as_flat_samples();
-			let color_image = ColorImage::from_rgba_unmultiplied(
-				[draw_width as usize, draw_height as usize],
-				pixels.as_slice(),
-			);
-			let x_margin = ((width - draw_width) / 2) as f32;
-			let y_margin = ((height - draw_height) / 2) as f32;
-			let draw_rect = Rect::from_min_size(
-				Pos2::new(rect.min.x + x_margin, rect.min.y + y_margin),
-				Vec2::new(draw_width as f32, draw_height as f32),
-			);
-			let texture = ui.ctx().load_texture(name, color_image);
-			Some(ImageDrawingData {
-				rect: *rect,
-				draw_rect,
-				texture,
-			})
-		}
-		let cache = self.image_cache();
-		let mut image_data = match cache.entry(name.to_string()) {
-			Entry::Occupied(o) => o.into_mut(),
-			Entry::Vacant(v) => if let Some(data) = load_and_resize(rect, bytes, name, ui) {
-				v.insert(data)
-			} else {
-				return;
-			}
-		};
+		if let Some(href) = &char_style.image {
+			if let Some((path, bytes)) = book.image(href) {
+				let cache = self.image_cache();
+				let mut image_data = match cache.entry(path.clone()) {
+					Entry::Occupied(o) => o.into_mut(),
+					Entry::Vacant(v) => if let Some(data) = load_image_and_resize(view_rect, bytes, &path, ui) {
+						v.insert(data)
+					} else {
+						return None;
+					}
+				};
 
-		if *rect != image_data.rect {
-			if let Some(new_image_data) = load_and_resize(rect, bytes, name, ui) {
-				cache.insert(name.to_string(), new_image_data);
-				image_data = cache.get_mut(name).unwrap();
+				if *view_rect != image_data.view_rect {
+					if let Some(new_image_data) = load_image_and_resize(view_rect, bytes, &path, ui) {
+						cache.insert(path.clone(), new_image_data);
+						image_data = cache.get_mut(&path).unwrap();
+					} else {
+						return None;
+					}
+				}
+
+				Some((path, image_data.image_size))
 			} else {
-				return;
+				None
 			}
+		} else {
+			None
 		}
-		let mut mesh = Mesh::with_texture(image_data.texture.id());
-		let uv = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
-		mesh.add_rect_with_uv(image_data.draw_rect, uv, Color32::WHITE);
-		ui.painter().add(Shape::mesh(mesh));
 	}
+
+	fn draw_image(&mut self, name: &str, rect: &Rect, ui: &mut Ui)
+	{
+		if let Some(image_data) = self.image_cache().get(name) {
+			let mut mesh = Mesh::with_texture(image_data.texture.id());
+			let uv = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
+			mesh.add_rect_with_uv(*rect, uv, Color32::WHITE);
+			ui.painter().add(Shape::mesh(mesh));
+		}
+	}
+}
+
+fn load_image_and_resize(view_rect: &Rect, bytes: &Vec<u8>, name: &str, ui: &mut Ui) -> Option<ImageDrawingData>
+{
+	let image = load_image(name, bytes)?;
+	let width = view_rect.width() as u32;
+	let height = view_rect.height() as u32;
+	let image = if image.width() > width || image.height() > height {
+		image.resize(width, height, FilterType::Nearest)
+	} else {
+		image
+	};
+	let draw_width = image.width();
+	let draw_height = image.height();
+	let image_buffer = image.to_rgba8();
+	let pixels = image_buffer.as_flat_samples();
+	let color_image = ColorImage::from_rgba_unmultiplied(
+		[draw_width as usize, draw_height as usize],
+		pixels.as_slice(),
+	);
+	let texture = ui.ctx().load_texture(name, color_image);
+	Some(ImageDrawingData {
+		view_rect: *view_rect,
+		image_size: Pos2::new(draw_width as f32, draw_height as f32),
+		texture,
+	})
 }
 
 #[inline]

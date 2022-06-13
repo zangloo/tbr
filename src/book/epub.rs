@@ -51,7 +51,6 @@ struct NavPoint {
 struct Chapter {
 	#[allow(dead_code)]
 	index: usize,
-	cwd: PathBuf,
 	path: String,
 	#[allow(dead_code)]
 	title: String,
@@ -193,16 +192,16 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 		self.target_position(target_file, target_anchor)
 	}
 
-	fn image(&mut self, href: &str) -> Option<&Vec<u8>> {
-		if let Ok(chapter) = self.load_chapter(self.current_chapter()) {
-			resolve(&chapter.cwd.clone(), href, &self.images)
+	fn image(&self, href: &str) -> Option<(String, &Vec<u8>)> {
+		if let Ok((_full_path, cwd, _src_path)) = chapter_path(self.current_chapter(), &self.content_opf, &self.content_opf_dir) {
+			resolve(&cwd.clone(), href, &self.images)
 		} else {
 			None
 		}
 	}
 }
 
-impl<'a, R: Read + Seek> EpubBook<R> {
+impl<R: Read + Seek> EpubBook<R> {
 	pub fn new(reader: R, mut chapter_index: usize) -> Result<Self> {
 		let mut zip = ZipArchive::new(reader)?;
 		if is_encrypted(&zip) {
@@ -263,21 +262,11 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 		let chapter = match self.chapter_cache.entry(chapter_index) {
 			Entry::Occupied(o) => o.into_mut(),
 			Entry::Vacant(v) => {
-				let spine = self.content_opf.spine.get(chapter_index).ok_or(Error::new(InvalidChapterError {}))?;
-				let item = self.content_opf.manifest.get(spine).ok_or(anyhow!("Invalid ref id: {}", spine))?;
-				if item.media_type != "application/xhtml+xml" {
-					return Err(anyhow!("Referenced content for {} is not valid.", spine));
-				}
-				let src_file = &item.href;
-				let mut full_path = self.content_opf_dir.clone();
-				full_path.push(src_file);
-				let full_path = full_path.into_os_string().into_string().unwrap();
+				let (full_path, cwd, src_file) = chapter_path(chapter_index, &self.content_opf, &self.content_opf_dir)?;
 				let html_str = zip_string(&mut self.zip, &full_path)?;
-				// setup css resolver
-				let cwd = build_cwd(&full_path);
 				let css_cache = &self.css_cache;
 				let html_content = html_str_content(&html_str, Some(|path: String| {
-					resolve(&cwd, &path, css_cache)
+					Some(resolve(&cwd, &path, css_cache)?.1)
 				}))?;
 				let toc_index = toc_index_for_chapter(chapter_index,
 					&src_file, &html_content.id_map, &self.content_opf, &self.toc);
@@ -285,7 +274,6 @@ impl<'a, R: Read + Seek> EpubBook<R> {
 					.unwrap_or_else(|| toc_title(&self.toc[toc_index]).clone());
 				let chapter = Chapter {
 					index: chapter_index,
-					cwd,
 					path: src_file.clone(),
 					title: String::from(title),
 					lines: html_content.lines,
@@ -557,10 +545,27 @@ fn build_cwd(full_path: &str) -> PathBuf
 	cwd
 }
 
-fn resolve<'a, T>(cwd: &PathBuf, path: &str, cache: &'a HashMap<String, T>) -> Option<&'a T>
+fn resolve<'a, T>(cwd: &PathBuf, path: &str, cache: &'a HashMap<String, T>) -> Option<(String, &'a T)>
 {
 	let path = cwd.join(path);
 	let absolute_path = path.absolutize().unwrap();
 	let path_str = absolute_path.to_str().unwrap();
-	cache.get(path_str)
+	let content = cache.get(path_str)?;
+	Some((path_str.to_string(), content))
+}
+
+fn chapter_path(chapter_index: usize, content_opf: &ContentOPF, content_opf_dir: &PathBuf) -> Result<(String, PathBuf, String)>
+{
+	let spine = content_opf.spine.get(chapter_index).ok_or(Error::new(InvalidChapterError {}))?;
+	let item = content_opf.manifest.get(spine).ok_or(anyhow!("Invalid ref id: {}", spine))?;
+	if item.media_type != "application/xhtml+xml" {
+		return Err(anyhow!("Referenced content for {} is not valid.", spine));
+	}
+	let src_file = &item.href;
+	let mut full_path = content_opf_dir.clone();
+	full_path.push(src_file);
+	let full_path = full_path.into_os_string().into_string().unwrap();
+	let cwd = build_cwd(&full_path);
+
+	Ok((full_path, cwd, src_file.clone()))
 }

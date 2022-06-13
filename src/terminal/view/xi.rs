@@ -1,4 +1,4 @@
-use crate::book::Line;
+use crate::book::{Book, Line};
 use crate::common::{char_width, with_leading};
 use crate::controller::HighlightInfo;
 use crate::terminal::view::{DrawChar, DrawCharMode, Position, Render, RenderContext, TerminalRender};
@@ -10,7 +10,7 @@ pub struct Xi {}
 impl TerminalRender for Xi {}
 
 impl Render<RenderContext> for Xi {
-	fn redraw(&mut self, lines: &Vec<Line>, line: usize, mut offset: usize, highlight: &Option<HighlightInfo>, context: &mut RenderContext) -> Option<Position> {
+	fn redraw(&mut self, _book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, mut offset: usize, highlight: &Option<HighlightInfo>, context: &mut RenderContext) -> Option<Position> {
 		let height = context.height;
 		let width = context.width;
 		context.print_lines.clear();
@@ -46,7 +46,7 @@ impl Render<RenderContext> for Xi {
 		None
 	}
 
-	fn prev_page(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut RenderContext) -> Position {
+	fn prev_page(&mut self, _book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, context: &mut RenderContext) -> Position {
 		let height = context.height;
 		let width = context.width;
 		let (mut line, mut end_position) = if offset == 0 {
@@ -76,7 +76,7 @@ impl Render<RenderContext> for Xi {
 		Position::new(line, position)
 	}
 
-	fn next_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut RenderContext) -> Position {
+	fn next_line(&mut self, _book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, context: &mut RenderContext) -> Position {
 		let width = context.width;
 		let text = &lines[line];
 		let wrapped_breaks = self.wrap_line(text, offset, usize::MAX, width, None, context);
@@ -88,7 +88,7 @@ impl Render<RenderContext> for Xi {
 		Position::new(new_line, new_offset)
 	}
 
-	fn prev_line(&mut self, lines: &Vec<Line>, line: usize, offset: usize, context: &mut RenderContext) -> Position {
+	fn prev_line(&mut self, _book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, context: &mut RenderContext) -> Position {
 		let width = context.width;
 		let (text, new_line, new_offset) = if offset == 0 {
 			let new_line = if line == 0 {
@@ -106,7 +106,7 @@ impl Render<RenderContext> for Xi {
 		Position::new(new_line, wrapped_breaks[breaks_count - 1])
 	}
 
-	fn setup_highlight(&mut self, lines: &Vec<Line>, highlight_line: usize, highlight_start: usize, context: &mut RenderContext) -> Position {
+	fn setup_highlight(&mut self, _book: &Box<dyn Book>, lines: &Vec<Line>, highlight_line: usize, highlight_start: usize, context: &mut RenderContext) -> Position {
 		let width = context.width;
 		let text = &lines[highlight_line];
 		let wrapped_breaks = self.wrap_line(text, 0, highlight_start + 1, width, None, context);

@@ -15,7 +15,7 @@ use parcel_css::values::percentage;
 use scraper::{Html, Node, Selector};
 use scraper::node::Element;
 
-use crate::book::{EMPTY_CHAPTER_CONTENT, Line, TextStyle};
+use crate::book::{EMPTY_CHAPTER_CONTENT, IMAGE_CHAR, Line, TextStyle};
 use crate::common::plain_text;
 use crate::common::Position;
 
@@ -267,11 +267,10 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 
 fn add_image(href: &str, context: &mut ParseContext)
 {
-	new_line(context, true);
 	let line = context.content.lines.last_mut().unwrap();
-	line.concat(href);
-	line.push_style(TextStyle::Image(href.to_string()), 0..(href.len()));
-	new_line(context, true);
+	let start = line.len();
+	line.push(IMAGE_CHAR);
+	line.push_style(TextStyle::Image(href.to_string()), start..start + 1);
 }
 
 #[inline]

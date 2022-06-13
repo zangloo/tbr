@@ -21,7 +21,7 @@ use crate::book::{Book, Colors, Line};
 use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::{Controller, HighlightInfo, HighlightMode};
-use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPositioin, RenderContext, RenderLine};
+use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPosition, RenderContext, RenderLine};
 
 const ICON_SIZE: Vec2 = Vec2 { x: 32.0, y: 32.0 };
 const APP_ICON_SIZE: u32 = 48;
@@ -217,11 +217,11 @@ impl ReaderApp {
 
 	fn setup_popup(&mut self, ui: &mut Ui, original_pos: Pos2, current_pos: Pos2) {
 		#[inline]
-		fn offset_index(line: &RenderLine, offset: &PointerPositioin) -> usize {
+		fn offset_index(line: &RenderLine, offset: &PointerPosition) -> usize {
 			match offset {
-				PointerPositioin::Head => line.chars.first().map_or(0, |dc| dc.offset),
-				PointerPositioin::Exact(offset) => line.chars[*offset].offset,
-				PointerPositioin::Tail => line.chars.last().map_or(0, |dc| dc.offset),
+				PointerPosition::Head => line.chars.first().map_or(0, |dc| dc.offset),
+				PointerPosition::Exact(offset) => line.chars[*offset].offset,
+				PointerPosition::Tail => line.chars.last().map_or(0, |dc| dc.offset),
 			}
 		}
 		fn select_all(lines: &Vec<RenderLine>) -> (Position, Position)
@@ -238,7 +238,7 @@ impl ReaderApp {
 			);
 			(from, to)
 		}
-		fn head_to_exact(line: usize, offset: &PointerPositioin, lines: &Vec<RenderLine>) -> (Position, Position) {
+		fn head_to_exact(line: usize, offset: &PointerPosition, lines: &Vec<RenderLine>) -> (Position, Position) {
 			let render_line = lines.first().unwrap();
 			let from = Position::new(
 				render_line.line,
@@ -251,7 +251,7 @@ impl ReaderApp {
 			);
 			(from, to)
 		}
-		fn exact_to_tail(line: usize, offset: &PointerPositioin, lines: &Vec<RenderLine>) -> (Position, Position) {
+		fn exact_to_tail(line: usize, offset: &PointerPosition, lines: &Vec<RenderLine>) -> (Position, Position) {
 			let render_line = &lines[line];
 			let from = Position::new(
 				render_line.line,
@@ -274,14 +274,14 @@ impl ReaderApp {
 		let (line2, offset2) = self.controller.render.pointer_pos(&current_pos, &self.render_lines, &self.view_rect);
 
 		let (from, to) = match line1 {
-			PointerPositioin::Head => match line2 {
-				PointerPositioin::Head => return,
-				PointerPositioin::Exact(line2) => head_to_exact(line2, &offset2, lines),
-				PointerPositioin::Tail => select_all(lines),
+			PointerPosition::Head => match line2 {
+				PointerPosition::Head => return,
+				PointerPosition::Exact(line2) => head_to_exact(line2, &offset2, lines),
+				PointerPosition::Tail => select_all(lines),
 			}
-			PointerPositioin::Exact(line1) => match line2 {
-				PointerPositioin::Head => head_to_exact(line1, &offset1, lines),
-				PointerPositioin::Exact(line2) => {
+			PointerPosition::Exact(line1) => match line2 {
+				PointerPosition::Head => head_to_exact(line1, &offset1, lines),
+				PointerPosition::Exact(line2) => {
 					let render_line = &lines[line1];
 					let from = Position::new(
 						render_line.line,
@@ -294,12 +294,12 @@ impl ReaderApp {
 					);
 					(from, to)
 				}
-				PointerPositioin::Tail => exact_to_tail(line1, &offset1, lines),
+				PointerPosition::Tail => exact_to_tail(line1, &offset1, lines),
 			}
-			PointerPositioin::Tail => match line2 {
-				PointerPositioin::Head => select_all(lines),
-				PointerPositioin::Exact(line2) => exact_to_tail(line2, &offset2, lines),
-				PointerPositioin::Tail => return
+			PointerPosition::Tail => match line2 {
+				PointerPosition::Head => select_all(lines),
+				PointerPosition::Exact(line2) => exact_to_tail(line2, &offset2, lines),
+				PointerPosition::Tail => return
 			}
 		};
 		self.selected_text = self.controller.select_text(from, to, ui);
@@ -778,7 +778,7 @@ impl eframe::App for ReaderApp {
 				self.render_lines = lines;
 			}
 			ui.set_clip_rect(rect.clone());
-			self.controller.render.draw(&self.render_lines, &mut self.controller.book, ui);
+			self.controller.render.draw(&self.render_lines, ui);
 			response
 		});
 	}
