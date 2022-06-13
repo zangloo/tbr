@@ -1,4 +1,4 @@
-# tbr(terminal ebook reader)
+# tbr(A terminal and gui ebook reader)
 
 ## About
 
@@ -17,7 +17,7 @@
 Config files store in .config/ter/ter.toml. Themes configuration files store in ~/.config/ter/themes/. Files will auto
 generated if not exists.
 
-## Key binding
+## Key binding for terminal
 
 | Function                  | Key mappings                  |
 |---------------------------|-------------------------------|
