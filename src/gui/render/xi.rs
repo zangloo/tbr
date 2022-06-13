@@ -98,14 +98,13 @@ impl GuiRender for GuiXiRender
 			}
 			draw_line.draw_size = draw_size;
 			draw_line.line_space = line_space;
-			let line_delta = draw_line.draw_size + draw_line.line_space;
-			let line_base = context.line_base + line_delta;
-			context.line_base = line_base;
+			let bottom = context.line_base + draw_line.draw_size;
+			context.line_base = context.line_base + draw_line.draw_size + draw_line.line_space;
 			// align to bottom
 			for dc in &mut draw_line.chars {
 				let rect = &mut dc.rect;
 				let max = &mut rect.max;
-				let delta = line_base - max.y;
+				let delta = bottom - max.y;
 				if delta != 0.0 {
 					max.y += delta;
 					rect.min.y += delta;
