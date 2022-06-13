@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), cfg(feature = "gui"), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 extern crate core;
 #[macro_use]
@@ -23,6 +23,7 @@ use toml;
 use crate::book::BookLoader;
 use crate::common::Position;
 use crate::container::ContainerManager;
+#[cfg(feature = "i18n")]
 use crate::i18n::I18n;
 
 mod terminal;
@@ -34,7 +35,7 @@ mod container;
 mod controller;
 #[cfg(feature = "gui")]
 mod gui;
-#[cfg(feature = "gui")]
+#[cfg(feature = "i18n")]
 mod i18n;
 
 const TBR_BOOK_ENV_KEY: &str = "TBR_BOOK";
@@ -309,6 +310,7 @@ fn create_default_theme_files(themes_map: &HashMap<String, PathBuf>, themes_dir:
 }
 
 #[inline]
+#[cfg(feature = "i18n")]
 fn default_locale() -> String
 {
 	"zh_CN".to_string()

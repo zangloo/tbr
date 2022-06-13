@@ -1,3 +1,4 @@
+#[cfg(feature = "gui")]
 use std::cmp;
 use std::marker::PhantomData;
 use anyhow::{anyhow, Result};
@@ -29,6 +30,7 @@ pub enum HighlightMode {
 	// link index for current line
 	Link(usize),
 	// line index for HighlightInfo.end
+	#[allow(dead_code)]
 	Selection(usize),
 }
 
@@ -574,6 +576,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		Ok(())
 	}
 
+	#[cfg(feature = "gui")]
 	pub fn select_text(&mut self, from: Position, to: Position, context: &mut C) -> String
 	{
 		self.highlight = None;
@@ -660,6 +663,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		self.redraw(context);
 	}
 
+	#[cfg(feature = "gui")]
 	pub fn clear_highlight(&mut self, context: &mut C)
 	{
 		self.highlight = None;
