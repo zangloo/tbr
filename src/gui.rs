@@ -546,6 +546,7 @@ impl ReaderApp {
 		ui.image(search_id, ICON_SIZE);
 		let search_edit = ui.add(TextEdit::singleline(&mut self.configuration.search_pattern)
 			.desired_width(100.0)
+			.hint_text(self.i18n.msg("search-hint").as_ref())
 			.id_source("search_text"));
 		let searching = if self.goto_search {
 			self.goto_search = false;
