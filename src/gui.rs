@@ -185,6 +185,7 @@ struct ReaderApp {
 	sidebar: bool,
 	sidebar_list: SidebarList,
 	dropdown: bool,
+	goto_search: bool,
 	response_rect: Rect,
 
 	view_rect: Rect,
@@ -389,6 +390,9 @@ impl ReaderApp {
 				ui.output().copied_text = self.selected_text.clone();
 			}
 			false
+		} else if input.consume_key(Modifiers::CTRL, Key::F) {
+			self.goto_search = true;
+			false
 		} else if let Some(DroppedFile { path: Some(path), .. }) = input.raw.dropped_files.first() {
 			let path = path.clone();
 			drop(input);
@@ -541,8 +545,15 @@ impl ReaderApp {
 		let search_id = self.image(ui.ctx(), "search.svg");
 		ui.image(search_id, ICON_SIZE);
 		let search_edit = ui.add(TextEdit::singleline(&mut self.configuration.search_pattern)
-			.desired_width(100.0));
-		let searching = search_edit.has_focus();
+			.desired_width(100.0)
+			.id_source("search_text"));
+		let searching = if self.goto_search {
+			self.goto_search = false;
+			search_edit.request_focus();
+			true
+		} else {
+			search_edit.has_focus()
+		};
 		if search_edit.changed() {
 			if let Err(e) = self.controller.search(&self.configuration.search_pattern, ui) {
 				self.error(e.to_string());
@@ -877,6 +888,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 				dropdown: false,
 				sidebar: false,
 				sidebar_list: SidebarList::Chapter,
+				goto_search: false,
 				response_rect: Rect::NOTHING,
 
 				view_rect: Rect::NOTHING,
