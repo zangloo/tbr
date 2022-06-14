@@ -500,7 +500,7 @@ impl ReaderApp {
 		let locale_title = self.i18n.msg("title");
 		let mut locale_text = locale_title.as_ref();
 		let mut selected_locale = None;
-		let i18n_dropdown = ComboBox::from_label("")
+		let i18n_dropdown = ComboBox::from_id_source("i18n")
 			.selected_text(locale_text.to_string())
 			.show_ui(ui, |ui| {
 				for (locale, name) in self.i18n.locales() {
@@ -520,7 +520,7 @@ impl ReaderApp {
 		let xi_text = self.i18n.msg("render-xi");
 		let mut selected_text = if self.configuration.render_type == "han" { han_text.as_ref() } else { xi_text.as_ref() };
 		let mut selected_render = None;
-		let render_dropdown = ComboBox::from_label(self.i18n.msg("render").as_ref())
+		let render_dropdown = ComboBox::from_id_source("render")
 			.selected_text(selected_text.to_string())
 			.show_ui(ui, |ui| {
 				if ui.selectable_value(&mut selected_text, han_text.as_ref(), han_text.as_ref()).clicked() {
@@ -540,7 +540,8 @@ impl ReaderApp {
 
 		let search_id = self.image(ui.ctx(), "search.svg");
 		ui.image(search_id, ICON_SIZE);
-		let search_edit = ui.add(TextEdit::singleline(&mut self.configuration.search_pattern));
+		let search_edit = ui.add(TextEdit::singleline(&mut self.configuration.search_pattern)
+			.desired_width(100.0));
 		let searching = search_edit.has_focus();
 		if search_edit.changed() {
 			if let Err(e) = self.controller.search(&self.configuration.search_pattern, ui) {
@@ -555,7 +556,9 @@ impl ReaderApp {
 			AppStatus::Normal(status) => RichText::from(status).color(Color32::BLUE),
 			AppStatus::Error(error) => RichText::from(error).color(Color32::RED),
 		};
-		ui.label(status_msg);
+		ui.with_layout(egui::Layout::right_to_left(), |ui| {
+			ui.label(status_msg);
+		});
 
 		theme_dropdown || i18n_dropdown || render_dropdown || searching
 	}
