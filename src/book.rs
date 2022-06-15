@@ -359,20 +359,35 @@ impl Default for BookLoader {
 	}
 }
 
-pub(crate) struct InvalidChapterError {}
+pub struct ChapterError {
+	msg: String,
+}
 
-const INVALID_CHAPTER_ERROR_MESSAGE: &str = "invalid chapter";
-
-impl Debug for InvalidChapterError {
+impl Debug for ChapterError {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.write_str(INVALID_CHAPTER_ERROR_MESSAGE)
+		f.write_str(&format!("Chapter error: {}", self.msg))
 	}
 }
 
-impl Display for InvalidChapterError {
+impl Display for ChapterError {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.write_str(INVALID_CHAPTER_ERROR_MESSAGE)
+		f.write_str(&format!("Chapter error: {}", self.msg))
 	}
 }
 
-impl Error for InvalidChapterError {}
+impl Error for ChapterError {}
+
+impl ChapterError
+{
+	#[inline]
+	pub fn new(msg: String) -> Self
+	{
+		ChapterError { msg }
+	}
+
+	#[inline]
+	pub fn anyhow(msg: String) -> anyhow::Error
+	{
+		anyhow::Error::new(ChapterError::new(msg))
+	}
+}

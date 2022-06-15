@@ -1,17 +1,17 @@
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::io::Read;
 use std::io::Seek;
 use std::path::PathBuf;
-use anyhow::{anyhow, Error, Result};
+use anyhow::{anyhow, Result};
 use path_absolutize::Absolutize;
 use regex::Regex;
 use strip_bom::StripBom;
 use xmltree::Element;
 use zip::ZipArchive;
 
-use crate::book::{Book, LoadingChapter, InvalidChapterError, Line, Loader};
+use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader};
 use crate::html_convertor::html_str_content;
 use crate::list::ListEntry;
 use crate::common::{Position, TraceInfo};
@@ -49,10 +49,7 @@ struct NavPoint {
 }
 
 struct Chapter {
-	#[allow(dead_code)]
-	index: usize,
 	path: String,
-	#[allow(dead_code)]
 	title: String,
 	lines: Vec<Line>,
 	id_map: HashMap<String, Position>,
@@ -217,7 +214,7 @@ impl<R: Read + Seek> EpubBook<R> {
 			None => PathBuf::new(),
 		};
 		let content_opf_text = zip_string(&mut zip, &content_opf_path)?;
-		let content_opf = parse_content_opf(&content_opf_text)
+		let content_opf = parse_content_opf(&content_opf_text, &content_opf_dir, &zip)
 			.ok_or(anyhow!("Malformatted content.opf file"))?;
 
 		let (css_cache, images) = load_cache(&mut zip, &content_opf_dir, &content_opf.manifest);
@@ -274,7 +271,6 @@ impl<R: Read + Seek> EpubBook<R> {
 				let title = html_content.title
 					.unwrap_or_else(|| toc_title(&self.toc[toc_index]).clone());
 				let chapter = Chapter {
-					index: chapter_index,
 					path: src_file.clone(),
 					title: String::from(title),
 					lines: html_content.lines,
@@ -447,7 +443,9 @@ fn parse_manifest(manifest: &Element) -> Manifest {
 		.collect::<HashMap<ItemId, ManifestItem>>()
 }
 
-pub fn parse_spine(spine: &Element) -> Option<Spine> {
+#[inline]
+fn parse_spine<R: Read + Seek>(spine: &Element, manifest: &Manifest, content_opf_dir: &PathBuf, zip: &ZipArchive<R>) -> Option<Spine> {
+	let file_names: HashSet<&str> = zip.file_names().collect();
 	Some(
 		spine
 			.children
@@ -456,7 +454,12 @@ pub fn parse_spine(spine: &Element) -> Option<Spine> {
 				if let Some(el) = node.as_element() {
 					if el.name == "itemref" {
 						let id = el.attributes.get("idref")?.to_string();
-						return Some(id);
+						let item = manifest.get(&id)?;
+						let item_path = concat_path(content_opf_dir.clone(), &item.href);
+						let item_path = item_path.to_str()?;
+						if file_names.contains(item_path) {
+							return Some(id);
+						}
 					}
 				}
 				None
@@ -465,7 +468,7 @@ pub fn parse_spine(spine: &Element) -> Option<Spine> {
 	)
 }
 
-fn parse_content_opf(text: &str) -> Option<ContentOPF> {
+fn parse_content_opf<R: Read + Seek>(text: &str, content_opf_dir: &PathBuf, zip: &ZipArchive<R>) -> Option<ContentOPF> {
 	let package = Element::parse(text.strip_bom().as_bytes()).ok()?;
 	let metadata = package.get_child("metadata")?;
 	let manifest = package.get_child("manifest")?;
@@ -478,7 +481,7 @@ fn parse_content_opf(text: &str) -> Option<ContentOPF> {
 		.map(|s| s.to_string());
 	let language = metadata.get_child("language")?.get_text()?.to_string();
 	let manifest = parse_manifest(manifest);
-	let spine = parse_spine(spine)?;
+	let spine = parse_spine(spine, &manifest, content_opf_dir, zip)?;
 	Some(ContentOPF {
 		title,
 		author,
@@ -557,10 +560,14 @@ fn resolve<'a, T>(cwd: &PathBuf, path: &str, cache: &'a HashMap<String, T>) -> O
 
 fn chapter_path(chapter_index: usize, content_opf: &ContentOPF, content_opf_dir: &PathBuf) -> Result<(String, PathBuf, String)>
 {
-	let spine = content_opf.spine.get(chapter_index).ok_or(Error::new(InvalidChapterError {}))?;
-	let item = content_opf.manifest.get(spine).ok_or(anyhow!("Invalid ref id: {}", spine))?;
+	let spine = content_opf.spine
+		.get(chapter_index)
+		.ok_or(ChapterError::anyhow("invalid index".to_string()))?;
+	let item = content_opf.manifest
+		.get(spine)
+		.ok_or(ChapterError::anyhow(format!("Invalid ref id: {}", spine)))?;
 	if item.media_type != "application/xhtml+xml" {
-		return Err(anyhow!("Referenced content for {} is not valid.", spine));
+		return Err(ChapterError::anyhow(format!("Referenced content for {} is not valid.", spine)));
 	}
 	let src_file = &item.href;
 	let full_path = content_opf_dir.clone();
