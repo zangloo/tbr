@@ -6,8 +6,6 @@ extern crate markup5ever;
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
-#[cfg(feature = "gui")]
-use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -134,7 +132,7 @@ impl Clone for ReadingInfo {
 #[derive(Serialize, Deserialize)]
 #[cfg(feature = "gui")]
 pub struct GuiConfiguration {
-	fonts: HashSet<PathBuf>,
+	fonts: Vec<PathBuf>,
 	font_size: u8,
 	#[serde(default = "default_locale")]
 	lang: String,
@@ -144,7 +142,7 @@ pub struct GuiConfiguration {
 impl Default for GuiConfiguration
 {
 	fn default() -> Self {
-		GuiConfiguration { fonts: HashSet::new(), font_size: 20, lang: default_locale() }
+		GuiConfiguration { fonts: vec![], font_size: 20, lang: default_locale() }
 	}
 }
 

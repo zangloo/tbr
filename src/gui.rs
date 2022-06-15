@@ -1,6 +1,6 @@
 mod render;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{BufReader, Cursor, Read};
 use std::ops::Index;
@@ -24,9 +24,11 @@ use crate::controller::{Controller, HighlightInfo, HighlightMode};
 use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPosition, RenderContext, RenderLine};
 
 const ICON_SIZE: Vec2 = Vec2 { x: 32.0, y: 32.0 };
+const INLINE_ICON_SIZE: Vec2 = Vec2 { x: 16.0, y: 16.0 };
 const APP_ICON_SIZE: u32 = 48;
 const MIN_FONT_SIZE: u8 = 20;
 const MAX_FONT_SIZE: u8 = 50;
+const FONT_FILE_EXTENSIONS: [&str; 2] = ["ttf", "otf"];
 
 const README_TEXT_FILENAME: &str = "readme";
 const README_TEXT: &str = "
@@ -141,6 +143,7 @@ fn insert_font(fonts: &mut FontDefinitions, name: &str, font_data: FontData) {
 enum SidebarList {
 	Chapter,
 	History,
+	Font,
 }
 
 enum AppStatus {
@@ -149,7 +152,7 @@ enum AppStatus {
 	Error(String),
 }
 
-fn setup_fonts(ctx: &egui::Context, font_paths: &HashSet<PathBuf>) -> Result<()> {
+fn setup_fonts(ctx: &egui::Context, font_paths: &Vec<PathBuf>) -> Result<()> {
 	let mut fonts = FontDefinitions::default();
 	if font_paths.is_empty() {
 		let content = Asset::get("font/wqy-zenhei.ttc")
@@ -648,9 +651,10 @@ impl eframe::App for ReaderApp {
 			let width = ctx.available_rect().width() / 4.0;
 			egui::SidePanel::left("sidebar").max_width(width).show(ctx, |ui| {
 				egui::menu::bar(ui, |ui| {
-					let (chapter_icon, history_icon) = match self.sidebar_list {
-						SidebarList::Chapter => ("chapter_on.svg", "history_off.svg"),
-						SidebarList::History => ("chapter_off.svg", "history_on.svg"),
+					let (chapter_icon, history_icon, font_icon) = match self.sidebar_list {
+						SidebarList::Chapter => ("chapter_on.svg", "history_off.svg", "font_off.svg"),
+						SidebarList::History => ("chapter_off.svg", "history_on.svg", "font_off.svg"),
+						SidebarList::Font => ("chapter_off.svg", "history_off.svg", "font_on.svg"),
 					};
 					let chapter_id = self.image(ui.ctx(), chapter_icon);
 					let chapter_button = ImageButton::new(chapter_id, ICON_SIZE).ui(ui);
@@ -661,6 +665,11 @@ impl eframe::App for ReaderApp {
 					let history_button = ImageButton::new(history_id, ICON_SIZE).ui(ui);
 					if history_button.clicked() {
 						self.sidebar_list = SidebarList::History;
+					}
+					let font_id = self.image(ui.ctx(), font_icon);
+					let font_button = ImageButton::new(font_id, ICON_SIZE).ui(ui);
+					if font_button.clicked() {
+						self.sidebar_list = SidebarList::Font;
 					}
 				});
 				ScrollArea::new([false, true]).max_width(width).show(ui, |ui| {
@@ -717,6 +726,59 @@ impl eframe::App for ReaderApp {
 											self.open_file(path, frame, ui);
 										}
 									}
+								}
+							}
+						}
+						SidebarList::Font => {
+							let mut font_deleted = None;
+							let font_remove_id = self.image(ui.ctx(), "remove.svg");
+							ui.horizontal(|ui| {
+								let font_add_id = self.image(ui.ctx(), "add.svg");
+								if ImageButton::new(font_add_id, INLINE_ICON_SIZE).ui(ui).clicked() {
+									let dialog = rfd::FileDialog::new()
+										.add_filter(self.i18n.msg("font-file").as_ref(), &FONT_FILE_EXTENSIONS);
+									if let Some(paths) = dialog.pick_files() {
+										let mut new_fonts = self.configuration.gui.fonts.clone();
+										'outer:
+										for path in paths {
+											for font in &new_fonts {
+												if *font == path {
+													continue 'outer;
+												}
+											}
+											new_fonts.push(path)
+										}
+										if new_fonts.len() != self.configuration.gui.fonts.len() {
+											match setup_fonts(ui.ctx(), &new_fonts) {
+												Ok(_) => self.configuration.gui.fonts = new_fonts,
+												Err(e) => {
+													let error = self.i18n.args_msg("font-fail", vec![
+														("error", e.to_string())
+													]);
+													self.error(error);
+												}
+											}
+										}
+									}
+								}
+								ui.label(self.i18n.msg("font-demo").as_ref());
+							});
+							for i in (0..self.configuration.gui.fonts.len()).rev() {
+								let font = self.configuration.gui.fonts[i].to_str().unwrap();
+								ui.horizontal(|ui| {
+									if ImageButton::new(font_remove_id, INLINE_ICON_SIZE).ui(ui).clicked() {
+										font_deleted = Some(i);
+									}
+									ui.label(font);
+								});
+							}
+							if let Some(font_deleted) = font_deleted {
+								self.configuration.gui.fonts.remove(font_deleted);
+								if let Err(e) = setup_fonts(ui.ctx(), &self.configuration.gui.fonts) {
+									let error = self.i18n.args_msg("font-fail", vec![
+										("error", e.to_string())
+									]);
+									self.error(error);
 								}
 							}
 						}

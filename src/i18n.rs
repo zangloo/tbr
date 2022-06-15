@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use anyhow::anyhow;
-use fluent::{FluentBundle, FluentResource};
+use fluent::{FluentArgs, FluentBundle, FluentResource, FluentValue};
 use unic_langid::LanguageIdentifier;
 use crate::Asset;
 
@@ -28,7 +28,7 @@ impl I18n
 				let langid_en: LanguageIdentifier = name.parse().expect(&format!("Parsing fluent failed: {}", file));
 				let mut bundle = FluentBundle::new(vec![langid_en]);
 				bundle.add_resource(res).expect(&format!("Failed to add FTL resources to the bundle for : {}", name));
-				let locale_name = bundle_msg(&bundle, "title").expect(&format!("No title defined in : {file}"));
+				let locale_name = bundle_msg(&bundle, "title", None).expect(&format!("No title defined in : {file}"));
 				locale_list.push((name.to_string(), locale_name.to_string()));
 				bundles.insert(name.to_string(), bundle);
 			}
@@ -51,7 +51,18 @@ impl I18n
 	pub fn msg(&self, key: &str) -> Cow<str>
 	{
 		let bundle = self.bundles.get(&self.locale).unwrap();
-		bundle_msg(bundle, key).expect(&format!("No {key} defined in {}", self.locale))
+		bundle_msg(bundle, key, None).expect(&format!("No {key} defined in {}", self.locale))
+	}
+
+	pub fn args_msg<'a>(&self, key: &str, msg_args: Vec<(&'a str, impl Into<FluentValue<'a>>)>) -> String
+	{
+		let bundle = self.bundles.get(&self.locale).unwrap();
+		let mut args = FluentArgs::new();
+		for (name, value) in msg_args {
+			args.set(name, value);
+		}
+		let msg = bundle_msg(bundle, key, Some(&args)).expect(&format!("No {key} defined in {}", self.locale));
+		msg.to_string()
 	}
 
 	pub fn locales(&self) -> &Vec<(String, String)>
@@ -60,11 +71,11 @@ impl I18n
 	}
 }
 
-fn bundle_msg<'a>(bundle: &'a FluentBundle<FluentResource>, key: &str) -> Option<Cow<'a, str>>
+fn bundle_msg<'a>(bundle: &'a FluentBundle<FluentResource>, key: &str, args: Option<&'a FluentArgs>) -> Option<Cow<'a, str>>
 {
 	let message = bundle.get_message(key)?;
 	let pattern = message.value()?;
 	let mut errors = vec![];
-	let text = bundle.format_pattern(pattern, None, &mut errors);
+	let text = bundle.format_pattern(pattern, args, &mut errors);
 	Some(text)
 }
