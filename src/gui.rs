@@ -400,7 +400,7 @@ impl ReaderApp {
 			let path = path.clone();
 			drop(input);
 			self.open_file(path, frame, ui);
-			true
+			false
 		} else if let Some(pointer_pos) = input.pointer.interact_pos() {
 			if rect.contains(pointer_pos) {
 				if response.clicked() {
