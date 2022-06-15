@@ -176,15 +176,11 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 		let chapter = self.chapter_cache.get(&self.chapter_index).unwrap();
 		let text = &chapter.lines.get(line)?;
 		let link = text.link_at(link_index)?;
-		let mut link_target = link.target;
+		let link_target = link.target;
 
 		let mut current_path = PathBuf::from(&chapter.path);
 		current_path.pop();
-		while link_target.starts_with("../") {
-			current_path.pop();
-			link_target = &link_target[3..];
-		}
-		current_path.push(link_target);
+		let current_path = concat_path(current_path, link_target);
 		let target = current_path.to_str()?;
 		let mut target_split = target.split('#');
 		let target_file = target_split.next()?;
@@ -567,10 +563,20 @@ fn chapter_path(chapter_index: usize, content_opf: &ContentOPF, content_opf_dir:
 		return Err(anyhow!("Referenced content for {} is not valid.", spine));
 	}
 	let src_file = &item.href;
-	let mut full_path = content_opf_dir.clone();
-	full_path.push(src_file);
-	let full_path = full_path.into_os_string().into_string().unwrap();
+	let full_path = content_opf_dir.clone();
+	let full_path = concat_path(full_path, src_file);
+	let full_path = full_path.to_str().unwrap().to_string();
 	let cwd = build_cwd(&full_path);
 
 	Ok((full_path, cwd, src_file.clone()))
+}
+
+fn concat_path(mut path: PathBuf, mut sub_path: &str) -> PathBuf
+{
+	while sub_path.starts_with("../") {
+		path.pop();
+		sub_path = &sub_path[3..];
+	}
+	path.push(sub_path);
+	path
 }
