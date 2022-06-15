@@ -11,7 +11,7 @@ use strip_bom::StripBom;
 use xmltree::Element;
 use zip::ZipArchive;
 
-use crate::book::{Book, InvalidChapterError, Line, Loader};
+use crate::book::{Book, LoadingChapter, InvalidChapterError, Line, Loader};
 use crate::html_convertor::html_str_content;
 use crate::list::ListEntry;
 use crate::common::{Position, TraceInfo};
@@ -88,13 +88,13 @@ impl Loader for EpubLoader {
 		&self.extensions
 	}
 
-	fn load_file(&self, _filename: &str, file: std::fs::File, chapter_index: usize) -> Result<Box<dyn Book>> {
-		Ok(Box::new(EpubBook::new(file, chapter_index)?))
+	fn load_file(&self, _filename: &str, file: std::fs::File, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>> {
+		Ok(Box::new(EpubBook::new(file, loading_chapter)?))
 	}
 
-	fn load_buf(&self, _filename: &str, content: Vec<u8>, chapter_index: usize) -> Result<Box<dyn Book>>
+	fn load_buf(&self, _filename: &str, content: Vec<u8>, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>>
 	{
-		Ok(Box::new(EpubBook::new(Cursor::new(content), chapter_index)?))
+		Ok(Box::new(EpubBook::new(Cursor::new(content), loading_chapter)?))
 	}
 }
 
@@ -202,7 +202,8 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 }
 
 impl<R: Read + Seek> EpubBook<R> {
-	pub fn new(reader: R, mut chapter_index: usize) -> Result<Self> {
+	pub fn new(reader: R, loading_chapter: LoadingChapter) -> Result<Self>
+	{
 		let mut zip = ZipArchive::new(reader)?;
 		if is_encrypted(&zip) {
 			return Err(anyhow!("Encrypted epub."));
@@ -240,6 +241,10 @@ impl<R: Read + Seek> EpubBook<R> {
 		let toc = parse_ncx(&ncx_text)?;
 
 		let chapter_count = content_opf.spine.len();
+		let mut chapter_index = match loading_chapter {
+			LoadingChapter::Index(index) => index,
+			LoadingChapter::Last => chapter_count - 1,
+		};
 		if chapter_index >= chapter_count {
 			chapter_index = chapter_count - 1;
 		}

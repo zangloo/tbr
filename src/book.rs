@@ -262,6 +262,11 @@ impl PartialEq for Line {
 	}
 }
 
+pub enum LoadingChapter {
+	Index(usize),
+	Last,
+}
+
 pub trait Book {
 	fn chapter_count(&self) -> usize { 1 }
 	fn prev_chapter(&mut self) -> Result<Option<usize>> {
@@ -309,12 +314,12 @@ pub(crate) trait Loader {
 		}
 		false
 	}
-	fn load_file(&self, filename: &str, mut file: std::fs::File, chapter_index: usize) -> Result<Box<dyn Book>> {
+	fn load_file(&self, filename: &str, mut file: std::fs::File, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>> {
 		let mut content: Vec<u8> = Vec::new();
 		file.read_to_end(&mut content)?;
-		self.load_buf(filename, content, chapter_index)
+		self.load_buf(filename, content, loading_chapter)
 	}
-	fn load_buf(&self, filename: &str, buf: Vec<u8>, chapter_index: usize) -> Result<Box<dyn Book>>;
+	fn load_buf(&self, filename: &str, buf: Vec<u8>, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>>;
 }
 
 impl BookLoader {
@@ -326,15 +331,15 @@ impl BookLoader {
 		}
 		false
 	}
-	pub fn load(&self, filename: &str, content: BookContent, chapter: usize) -> Result<Box<dyn Book>> {
+	pub fn load(&self, filename: &str, content: BookContent, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>> {
 		for loader in self.loaders.iter() {
 			if loader.support(filename) {
 				let book = match content {
 					File(..) => {
 						let file = OpenOptions::new().read(true).open(filename)?;
-						loader.load_file(filename, file, chapter)?
+						loader.load_file(filename, file, loading_chapter)?
 					}
-					Buf(buf) => loader.load_buf(filename, buf, chapter)?,
+					Buf(buf) => loader.load_buf(filename, buf, loading_chapter)?,
 				};
 				return Ok(book);
 			}

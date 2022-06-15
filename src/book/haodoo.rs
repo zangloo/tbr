@@ -4,7 +4,7 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 use anyhow::{anyhow, Result};
 use encoding_rs::Encoding;
 
-use crate::book::{Book, Line, Loader};
+use crate::book::{Book, LoadingChapter, Line, Loader};
 use crate::common::{decode_text, detect_charset, txt_lines};
 use crate::list::ListEntry;
 use crate::common::TraceInfo;
@@ -86,13 +86,13 @@ impl Loader for HaodooLoader {
 		&self.extensions
 	}
 
-	fn load_file(&self, _filename: &str, file: std::fs::File, chapter_index: usize) -> Result<Box<dyn Book>> {
-		Ok(Box::new(HaodooBook::new(file, chapter_index)?))
+	fn load_file(&self, _filename: &str, file: std::fs::File, chapter_position: LoadingChapter) -> Result<Box<dyn Book>> {
+		Ok(Box::new(HaodooBook::new(file, chapter_position)?))
 	}
 
-	fn load_buf(&self, _filename: &str, content: Vec<u8>, chapter_index: usize) -> Result<Box<dyn Book>>
+	fn load_buf(&self, _filename: &str, content: Vec<u8>, chapter_position: LoadingChapter) -> Result<Box<dyn Book>>
 	{
-		Ok(Box::new(HaodooBook::new(Cursor::new(content), chapter_index)?))
+		Ok(Box::new(HaodooBook::new(Cursor::new(content), chapter_position)?))
 	}
 }
 
@@ -111,15 +111,19 @@ struct Chapter {
 }
 
 impl<R: Read + Seek> HaodooBook<R> {
-	pub fn new(reader: R, chapter_index: usize) -> Result<Self> {
-		let mut book = parse_header(reader, chapter_index)?;
+	pub fn new(reader: R, loading_chapter: LoadingChapter) -> Result<Self> {
+		let mut book = parse_header(reader)?;
 		book.load_toc()?;
-		book.goto_chapter(chapter_index)?;
+		book.chapter_index = match loading_chapter {
+			LoadingChapter::Index(index) => index,
+			LoadingChapter::Last => book.chapters.len() - 1,
+		};
+		book.goto_chapter(book.chapter_index)?;
 		Ok(book)
 	}
 }
 
-fn parse_header<R: Read + Seek>(mut reader: R, current_chapter: usize) -> Result<HaodooBook<R>> {
+fn parse_header<R: Read + Seek>(mut reader: R) -> Result<HaodooBook<R>> {
 	let mut header = [0u8; HEADER_LENGTH];
 	reader.read_exact(&mut header).expect("Invalid header");
 
@@ -147,7 +151,7 @@ fn parse_header<R: Read + Seek>(mut reader: R, current_chapter: usize) -> Result
 		record_offsets,
 		encrypt_chapter_index: None,
 		chapters: vec![],
-		chapter_index: current_chapter,
+		chapter_index: 0,
 	})
 }
 

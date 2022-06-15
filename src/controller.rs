@@ -238,7 +238,8 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 						.with_last_chapter();
 					self.book = load_book(&self.container_manager, &mut self.container, &mut new_reading)?;
 					let lines = self.book.lines();
-					let position = self.render.prev_page(&self.book, lines, lines.len(), lines[new_reading.line - 1].len(), context);
+					let line_index = lines.len() - 1;
+					let position = self.render.prev_page(&self.book, lines, line_index, lines[line_index].len(), context);
 					new_reading.chapter = self.book.current_chapter();
 					new_reading.line = position.line;
 					new_reading.position = position.offset;

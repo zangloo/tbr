@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 
-use crate::book::{Book, EMPTY_CHAPTER_CONTENT};
+use crate::book::{Book, LoadingChapter, EMPTY_CHAPTER_CONTENT};
 use crate::{BookLoader, ReadingInfo};
 use crate::container::zip::ZipLoader;
 
@@ -27,19 +27,19 @@ impl ContainerManager {
 		}
 	}
 
-	pub fn load_book(&self, container: &mut Box<dyn Container>, book_index: usize, mut chapter: usize) -> Result<Box<dyn Book>> {
-		let book_name = if chapter == usize::MAX {
-			chapter = container.inner_book_names().len() - 1;
-			&container.inner_book_names()[chapter]
+	pub fn load_book(&self, container: &mut Box<dyn Container>, book_index: usize, chapter: usize) -> Result<Box<dyn Book>> {
+		let book_name = match container.inner_book_names().get(book_index) {
+			Some(name) => name,
+			None => return Err(anyhow!("Invalid book index: {}", book_index)),
+		};
+		let loading_chapter = if chapter == usize::MAX {
+			LoadingChapter::Last
 		} else {
-			match container.inner_book_names().get(book_index) {
-				Some(name) => name,
-				None => return Err(anyhow!("Invalid book index: {}", book_index)),
-			}
+			LoadingChapter::Index(chapter)
 		};
 		let filename = book_name.name().clone();
 		let content = container.book_content(book_index)?;
-		let book = self.book_loader.load(&filename, content, chapter)?;
+		let book = self.book_loader.load(&filename, content, loading_chapter)?;
 		let lines = &mut book.lines();
 		let line_count = lines.len();
 		if line_count == 0 {

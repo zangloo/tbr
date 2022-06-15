@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::book::{Book, Line, Loader};
+use crate::book::{Book, LoadingChapter, Line, Loader};
 use crate::html_convertor::{html_content, HtmlContent};
 use crate::common::TraceInfo;
 
@@ -24,7 +24,7 @@ impl Loader for HtmlLoader {
 		&self.extensions
 	}
 
-	fn load_buf(&self, _filename: &str, content: Vec<u8>, _chapter: usize) -> Result<Box<dyn Book>> {
+	fn load_buf(&self, _filename: &str, content: Vec<u8>, _loading_chapter: LoadingChapter) -> Result<Box<dyn Book>> {
 		let content = html_content(content)?;
 		Ok(Box::new(HtmlBook { content }))
 	}
