@@ -322,7 +322,6 @@ fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Ve
 			file.read_to_end(&mut buf)?;
 			Ok(buf)
 		}
-		Err(ZipError::FileNotFound) => Err(anyhow!("{} not found in archive", name)),
 		Err(e) => Err(anyhow!("failed load {}: {}", name, e.to_string())),
 	}
 }
