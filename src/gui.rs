@@ -9,7 +9,7 @@ use std::str::FromStr;
 use anyhow::Result;
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::{egui, IconData};
-use eframe::egui::{Button, Color32, FontData, FontDefinitions, Frame, Id, ImageButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
+use eframe::egui::{Button, FontData, FontDefinitions, Frame, Id, ImageButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
 use egui::{Area, ComboBox, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit};
 use egui_extras::RetainedImage;
@@ -23,12 +23,14 @@ use crate::container::{BookContent, BookName, Container, load_book, load_contain
 use crate::controller::{Controller, HighlightInfo, HighlightMode};
 use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPosition, RenderContext, RenderLine};
 
+pub type Color32 = egui::Color32;
+
 const ICON_SIZE: Vec2 = Vec2 { x: 32.0, y: 32.0 };
 const INLINE_ICON_SIZE: Vec2 = Vec2 { x: 16.0, y: 16.0 };
 const APP_ICON_SIZE: u32 = 48;
 const MIN_FONT_SIZE: u8 = 20;
 const MAX_FONT_SIZE: u8 = 50;
-const FONT_FILE_EXTENSIONS: [&str; 2] = ["ttf", "otf"];
+const FONT_FILE_EXTENSIONS: [&str; 3] = ["ttf", "otf", "ttc"];
 
 const README_TEXT_FILENAME: &str = "readme";
 const README_TEXT: &str = "

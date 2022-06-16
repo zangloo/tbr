@@ -6,18 +6,18 @@ use std::ops::Range;
 use std::slice::Iter;
 use anyhow::{anyhow, Result};
 use regex::Regex;
-#[cfg(feature = "gui")]
-use eframe::egui::Color32;
 
 use crate::book::epub::EpubLoader;
 use crate::book::haodoo::HaodooLoader;
 use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
 use crate::common::char_index_for_byte;
+use crate::common::TraceInfo;
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
 use crate::list::ListEntry;
-use crate::common::TraceInfo;
+#[cfg(feature = "gui")]
+use crate::gui::Color32;
 
 mod epub;
 mod txt;
