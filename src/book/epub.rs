@@ -8,6 +8,7 @@ use anyhow::{anyhow, Result};
 use regex::Regex;
 use strip_bom::StripBom;
 use xmltree::Element;
+use zip::result::ZipError;
 use zip::ZipArchive;
 
 use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader};
@@ -315,9 +316,15 @@ fn zip_string<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Str
 
 #[inline]
 fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Vec<u8>> {
-	let mut buf = vec![];
-	zip.by_name(name)?.read_to_end(&mut buf)?;
-	Ok(buf)
+	match zip.by_name(name) {
+		Ok(mut file) => {
+			let mut buf = vec![];
+			file.read_to_end(&mut buf)?;
+			Ok(buf)
+		}
+		Err(ZipError::FileNotFound) => Err(anyhow!("{} not found in archive", name)),
+		Err(e) => Err(anyhow!("failed load {}: {}", name, e.to_string())),
+	}
 }
 
 
