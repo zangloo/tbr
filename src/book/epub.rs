@@ -35,6 +35,7 @@ struct ContentOPF {
 	pub language: String,
 	pub manifest: Manifest,
 	pub spine: Spine,
+	pub toc_id: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -219,7 +220,7 @@ impl<R: Read + Seek> EpubBook<R> {
 		let (css_cache, images) = load_cache(&mut zip, &content_opf_dir, &content_opf.manifest);
 
 		let nxc_path = &content_opf.manifest
-			.get("ncx")
+			.get(content_opf.toc_id.as_ref().unwrap_or(&"ncx".to_string()))
 			.ok_or(anyhow!("Invalid content.opf file, no ncx"))?
 			.href;
 		let nxc_path = concat_path(content_opf_dir.clone(), nxc_path);
@@ -438,30 +439,29 @@ fn parse_manifest(manifest: &Element) -> Manifest {
 }
 
 #[inline]
-fn parse_spine<R: Read + Seek>(spine: &Element, manifest: &Manifest, content_opf_dir: &PathBuf, zip: &ZipArchive<R>) -> Option<Spine> {
+fn parse_spine<R: Read + Seek>(spine: &Element, manifest: &Manifest, content_opf_dir: &PathBuf, zip: &ZipArchive<R>) -> Option<(Spine, Option<String>)> {
 	let file_names: HashSet<&str> = zip.file_names().collect();
-	Some(
-		spine
-			.children
-			.iter()
-			.filter_map(|node| {
-				if let Some(el) = node.as_element() {
-					if el.name == "itemref" {
-						let id = el.attributes.get("idref")?.to_string();
-						let item = manifest.get(&id)?;
-						let item_path = concat_path(content_opf_dir.clone(), &item.href);
-						let item_path = item_path.to_str()?;
-						#[cfg(windows)]
-							let item_path = &item_path.replace("\\", "/");
-						if file_names.contains(item_path as &str) {
-							return Some(id);
-						}
+	let chapters = spine.children
+		.iter()
+		.filter_map(|node| {
+			if let Some(el) = node.as_element() {
+				if el.name == "itemref" {
+					let id = el.attributes.get("idref")?.to_string();
+					let item = manifest.get(&id)?;
+					let item_path = concat_path(content_opf_dir.clone(), &item.href);
+					let item_path = item_path.to_str()?;
+					#[cfg(windows)]
+						let item_path = &item_path.replace("\\", "/");
+					if file_names.contains(item_path as &str) {
+						return Some(id);
 					}
 				}
-				None
-			})
-			.collect(),
-	)
+			}
+			None
+		})
+		.collect();
+	let toc_id = spine.attributes.get("toc").map(|id| id.clone());
+	Some((chapters, toc_id))
 }
 
 fn parse_content_opf<R: Read + Seek>(text: &str, content_opf_dir: &PathBuf, zip: &ZipArchive<R>) -> Option<ContentOPF> {
@@ -477,13 +477,14 @@ fn parse_content_opf<R: Read + Seek>(text: &str, content_opf_dir: &PathBuf, zip:
 		.map(|s| s.to_string());
 	let language = metadata.get_child("language")?.get_text()?.to_string();
 	let manifest = parse_manifest(manifest);
-	let spine = parse_spine(spine, &manifest, content_opf_dir, zip)?;
+	let (spine, toc_id) = parse_spine(spine, &manifest, content_opf_dir, zip)?;
 	Some(ContentOPF {
 		title,
 		author,
 		language,
 		manifest,
 		spine,
+		toc_id,
 	})
 }
 
