@@ -39,16 +39,17 @@ zip = "0.5"
 lexical-sort = "0.3"
 strip_bom = "1.0"
 
-eframe = "0.18"
-egui = "0.18"
-egui_extras = { version = "0.18", features = ["svg"] }
-rfd = "0.8"
-static-files = "0.2"
 markup5ever = "0.10"
 scraper = "0.12"
 cssparser = "0.29"
 parcel_css = "1.0.0-alpha"
 ego-tree = "0.6"
-image = "0.24"
+
 fluent = "0.16"
 unic-langid = "0.9"
+
+eframe = "0.18"
+egui = "0.18"
+egui_extras = { version = "0.18", features = ["svg"] }
+rfd = "0.8"
+image = "0.24"
