@@ -275,24 +275,35 @@ impl<R: Read + Seek> EpubBook<R> {
 	}
 
 	fn target_position(&mut self, target_file: &str, target_anchor: Option<String>) -> Option<TraceInfo> {
+		fn target_position_in_chapter(chapter_index: usize, chapter: &Chapter, target_anchor: &Option<String>) -> Option<TraceInfo> {
+			if let Some(anchor) = target_anchor {
+				if let Some(position) = chapter.id_map.get(anchor) {
+					return Some(TraceInfo {
+						chapter: chapter_index,
+						line: position.line,
+						offset: position.offset,
+					});
+				}
+			}
+			None
+		}
+		if target_file.len() == 0 {
+			let chapter_index = self.current_chapter();
+			let chapter = self.load_chapter(chapter_index).ok()?;
+			return target_position_in_chapter(chapter_index, chapter, &target_anchor);
+		}
 		for (chapter_index, item_id) in self.content_opf.spine.iter().enumerate() {
 			let manifest = self.content_opf.manifest.get(item_id)?;
 			if target_file == manifest.href {
 				let chapter = self.load_chapter(chapter_index).ok()?;
-				if let Some(anchor) = &target_anchor {
-					if let Some(position) = chapter.id_map.get(anchor) {
-						return Some(TraceInfo {
-							chapter: chapter_index,
-							line: position.line,
-							offset: position.offset,
-						});
-					}
-				}
-				return Some(TraceInfo {
-					chapter: chapter_index,
-					line: 0,
-					offset: 0,
-				});
+				return match target_position_in_chapter(chapter_index, chapter, &target_anchor) {
+					Some(ti) => Some(ti),
+					None => Some(TraceInfo {
+						chapter: chapter_index,
+						line: 0,
+						offset: 0,
+					})
+				};
 			}
 		}
 		None
