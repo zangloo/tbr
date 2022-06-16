@@ -5,7 +5,6 @@ use std::io::Read;
 use std::io::Seek;
 use std::path::PathBuf;
 use anyhow::{anyhow, Result};
-use regex::Regex;
 use strip_bom::StripBom;
 use xmltree::Element;
 use zip::ZipArchive;
@@ -202,13 +201,10 @@ impl<R: Read + Seek> EpubBook<R> {
 			return Err(anyhow!("Encrypted epub."));
 		}
 		let container_text = zip_string(&mut zip, "META-INF/container.xml")?;
-		// TODO: make this more robust
-		let content_opf_re = Regex::new(r#"rootfile full-path="(\S*)""#).unwrap();
-
-		let content_opf_path = match content_opf_re.captures(&container_text) {
-			Some(captures) => captures.get(1).unwrap().as_str().to_string(),
-			None => return Err(anyhow!("Malformatted/missing container.xml file")),
-		};
+		let container = Element::parse(container_text.strip_bom().as_bytes())?;
+		let rootfiles = container.get_child("rootfiles").ok_or(anyhow!("invalid container.xml: no rootfiles"))?;
+		let rootfile = rootfiles.get_child("rootfile").ok_or(anyhow!("invalid container.xml: no rootfile"))?;
+		let content_opf_path = rootfile.attributes.get("full-path").ok_or(anyhow!("invalid container.xml: no full-path"))?;
 		let content_opf_dir = match PathBuf::from(&content_opf_path).parent() {
 			Some(p) => p.to_path_buf(),
 			None => PathBuf::new(),
