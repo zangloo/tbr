@@ -218,17 +218,12 @@ impl<R: Read + Seek> EpubBook<R> {
 
 		let (css_cache, images) = load_cache(&mut zip, &content_opf_dir, &content_opf.manifest);
 
-		let mut nxc_path = content_opf_dir.clone();
-		nxc_path.push(
-			&content_opf
-				.manifest
-				.get("ncx")
-				.ok_or(anyhow!("Malformatted content.opf file"))?
-				.href,
-		);
-		// TODO: check if this would always work
-		let ncx_path = nxc_path.into_os_string().into_string().unwrap();
-		// println!("ncx path: {}", &ncx_path);
+		let nxc_path = &content_opf.manifest
+			.get("ncx")
+			.ok_or(anyhow!("Invalid content.opf file, no ncx"))?
+			.href;
+		let nxc_path = concat_path(content_opf_dir.clone(), nxc_path);
+		let ncx_path = nxc_path.to_str().unwrap();
 		let ncx_text = zip_string(&mut zip, &ncx_path)?;
 		let toc = parse_ncx(&ncx_text)?;
 
@@ -314,7 +309,10 @@ fn zip_string<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Str
 }
 
 #[inline]
-fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Vec<u8>> {
+fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Vec<u8>>
+{
+	#[cfg(windows)]
+		let name = &name.replace("\\", "/");
 	match zip.by_name(name) {
 		Ok(mut file) => {
 			let mut buf = vec![];
@@ -453,7 +451,9 @@ fn parse_spine<R: Read + Seek>(spine: &Element, manifest: &Manifest, content_opf
 						let item = manifest.get(&id)?;
 						let item_path = concat_path(content_opf_dir.clone(), &item.href);
 						let item_path = item_path.to_str()?;
-						if file_names.contains(item_path) {
+						#[cfg(windows)]
+							let item_path = &item_path.replace("\\", "/");
+						if file_names.contains(item_path as &str) {
 							return Some(id);
 						}
 					}
@@ -567,6 +567,8 @@ fn concat_path(mut path: PathBuf, mut sub_path: &str) -> PathBuf
 		path.pop();
 		sub_path = &sub_path[3..];
 	}
+	#[cfg(windows)]
+		let sub_path = &sub_path.replace("/", "\\");
 	path.push(sub_path);
 	path
 }
