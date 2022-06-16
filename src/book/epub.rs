@@ -8,7 +8,6 @@ use anyhow::{anyhow, Result};
 use regex::Regex;
 use strip_bom::StripBom;
 use xmltree::Element;
-use zip::result::ZipError;
 use zip::ZipArchive;
 
 use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader};
