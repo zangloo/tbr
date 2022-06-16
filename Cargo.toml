@@ -44,7 +44,6 @@ egui = "0.18"
 egui_extras = { version = "0.18", features = ["svg"] }
 rfd = "0.8"
 static-files = "0.2"
-path-absolutize = "3.0"
 markup5ever = "0.10"
 scraper = "0.12"
 cssparser = "0.29"

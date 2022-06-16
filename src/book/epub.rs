@@ -5,7 +5,6 @@ use std::io::Read;
 use std::io::Seek;
 use std::path::PathBuf;
 use anyhow::{anyhow, Result};
-use path_absolutize::Absolutize;
 use regex::Regex;
 use strip_bom::StripBom;
 use xmltree::Element;
@@ -331,29 +330,21 @@ fn load_cache<R: Read + Seek>(zip: &mut ZipArchive<R>, cwd: &PathBuf, manifest: 
 		let mut images = HashMap::new();
 	for (_, item) in manifest {
 		if item.media_type == "text/css" {
-			let path = cwd.join(&item.href);
-			let absolute_path = path.to_str().unwrap();
-			if let Ok(content) = zip_string(zip, absolute_path) {
-				let absolut_path = if absolute_path.starts_with("/") {
-					absolute_path.to_string()
-				} else {
-					"/".to_owned() + absolute_path
-				};
-				css_cache.insert(absolut_path, content);
+			let full_path = concat_path(cwd.clone(), &item.href);
+			if let Some(full_path) = full_path.to_str() {
+				if let Ok(content) = zip_string(zip, full_path) {
+					css_cache.insert(full_path.to_string(), content);
+				}
 			}
 			continue;
 		}
 		#[cfg(feature = "gui")]
 		if item.media_type.starts_with("image/") {
-			let path = cwd.join(&item.href);
-			let absolute_path = path.to_str().unwrap();
-			if let Ok(content) = zip_content(zip, absolute_path) {
-				let absolut_path = if absolute_path.starts_with("/") {
-					absolute_path.to_string()
-				} else {
-					"/".to_owned() + absolute_path
-				};
-				images.insert(absolut_path, content);
+			let full_path = concat_path(cwd.clone(), &item.href);
+			if let Some(full_path) = full_path.to_str() {
+				if let Ok(content) = zip_content(zip, full_path) {
+					images.insert(full_path.to_string(), content);
+				}
 			}
 		}
 	}
@@ -537,23 +528,10 @@ fn toc_title(nav_point: &NavPoint) -> &String {
 	label
 }
 
-fn build_cwd(full_path: &str) -> PathBuf
-{
-	let cwd_path = if full_path.starts_with("/") {
-		full_path.to_string()
-	} else {
-		"/".to_owned() + &full_path
-	};
-	let mut cwd = PathBuf::from(cwd_path);
-	cwd.pop();
-	cwd
-}
-
 fn resolve<'a, T>(cwd: &PathBuf, path: &str, cache: &'a HashMap<String, T>) -> Option<(String, &'a T)>
 {
-	let path = cwd.join(path);
-	let absolute_path = path.absolutize().unwrap();
-	let path_str = absolute_path.to_str().unwrap();
+	let full_path = concat_path(cwd.clone(), path);
+	let path_str = full_path.to_str()?;
 	let content = cache.get(path_str)?;
 	Some((path_str.to_string(), content))
 }
@@ -571,11 +549,11 @@ fn chapter_path(chapter_index: usize, content_opf: &ContentOPF, content_opf_dir:
 	}
 	let src_file = &item.href;
 	let full_path = content_opf_dir.clone();
-	let full_path = concat_path(full_path, src_file);
-	let full_path = full_path.to_str().unwrap().to_string();
-	let cwd = build_cwd(&full_path);
+	let mut full_path = concat_path(full_path, src_file);
+	let full_path_str = full_path.to_str().unwrap().to_string();
+	full_path.pop();
 
-	Ok((full_path, cwd, src_file.clone()))
+	Ok((full_path_str, full_path, src_file.clone()))
 }
 
 fn concat_path(mut path: PathBuf, mut sub_path: &str) -> PathBuf
