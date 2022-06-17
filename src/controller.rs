@@ -331,7 +331,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			self.redraw(context);
 			Some(self.status_msg())
 		} else {
-			Some(String::from("Can't resolve location."))
+			None
 		}
 	}
 

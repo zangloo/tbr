@@ -6,7 +6,7 @@ use std::io::Seek;
 use std::path::PathBuf;
 use anyhow::{anyhow, Result};
 use strip_bom::StripBom;
-use xmltree::Element;
+use xmltree::{Element, XMLNode};
 use zip::ZipArchive;
 
 use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader};
@@ -37,13 +37,15 @@ struct ContentOPF {
 	pub toc_id: Option<String>,
 }
 
-#[allow(dead_code)]
 struct NavPoint {
-	pub id: String,
+	#[allow(dead_code)]
+	pub id: Option<String>,
 	pub label: Option<String>,
+	#[allow(dead_code)]
 	pub play_order: Option<usize>,
+	#[allow(dead_code)]
 	pub level: usize,
-	pub src_file: String,
+	pub src_file: Option<String>,
 	pub src_anchor: Option<String>,
 }
 
@@ -159,7 +161,7 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 
 	fn toc_position(&mut self, toc_index: usize) -> Option<TraceInfo> {
 		let np = self.toc.get(toc_index)?;
-		let src_file = np.src_file.clone();
+		let src_file = np.src_file.as_ref()?.to_string();
 		let src_anchor = np.src_anchor.clone();
 		self.target_position(&src_file, src_anchor)
 	}
@@ -215,14 +217,33 @@ impl<R: Read + Seek> EpubBook<R> {
 
 		let (css_cache, images) = load_cache(&mut zip, &content_opf_dir, &content_opf.manifest);
 
-		let nxc_path = &content_opf.manifest
-			.get(content_opf.toc_id.as_ref().unwrap_or(&"ncx".to_string()))
-			.ok_or(anyhow!("Invalid content.opf file, no ncx"))?
-			.href;
-		let nxc_path = concat_path(content_opf_dir.clone(), nxc_path);
-		let ncx_path = nxc_path.to_str().unwrap();
-		let ncx_text = zip_string(&mut zip, &ncx_path)?;
-		let toc = parse_ncx(&ncx_text)?;
+		let toc = match content_opf.manifest.get(content_opf.toc_id.as_ref().unwrap_or(&"ncx".to_string())) {
+			Some(ManifestItem { href, .. }) => {
+				let nxc_path = concat_path(content_opf_dir.clone(), href);
+				let ncx_path = nxc_path.to_str().unwrap();
+				let ncx_text = zip_string(&mut zip, &ncx_path)?;
+				parse_ncx(&ncx_text)?
+			}
+			None => {
+				let mut toc = None;
+				for (_id, item) in &content_opf.manifest {
+					if let Some(properties) = &item.properties {
+						if properties.contains("nav") {
+							let nav_path = concat_path(content_opf_dir.clone(), &item.href);
+							let nav_path = nav_path.to_str().unwrap();
+							let nav_text = zip_string(&mut zip, &nav_path)?;
+							toc = Some(parse_nav_doc(&nav_text)?);
+							break;
+						}
+					}
+				}
+				if let Some(toc) = toc {
+					toc
+				} else {
+					return Err(anyhow!("Invalid content.opf file, no ncx or nav"));
+				}
+			}
+		};
 
 		let chapter_count = content_opf.spine.len();
 		let mut chapter_index = match loading_chapter {
@@ -260,7 +281,7 @@ impl<R: Read + Seek> EpubBook<R> {
 				let toc_index = toc_index_for_chapter(chapter_index,
 					&src_file, &html_content.id_map, &self.content_opf, &self.toc);
 				let title = html_content.title
-					.unwrap_or_else(|| toc_title(&self.toc[toc_index]).clone());
+					.unwrap_or_else(|| toc_title(&self.toc[toc_index]).to_string());
 				let chapter = Chapter {
 					path: src_file.clone(),
 					title: String::from(title),
@@ -364,14 +385,14 @@ fn load_cache<R: Read + Seek>(zip: &mut ZipArchive<R>, cwd: &PathBuf, manifest: 
 
 fn parse_nav_points(nav_points_element: &Element, level: usize, nav_points: &mut Vec<NavPoint>) {
 	fn parse_element(el: &Element, level: usize) -> Option<NavPoint> {
-		let id = el.attributes.get("id")?.to_string();
+		let id = Some(el.attributes.get("id")?.to_string());
 		let play_order: Option<usize> = el
 			.attributes
 			.get("playOrder")
 			.and_then(|po| po.parse().ok());
 		let src = el.get_child("content")?.attributes.get("src")?.to_string();
 		let mut src_split = src.split('#');
-		let src_file = String::from(src_split.next()?);
+		let src_file = Some(String::from(src_split.next()?));
 		let src_anchor = src_split.next().and_then(|str| Some(String::from(str)));
 		let label = el
 			.get_child("navLabel")
@@ -406,9 +427,10 @@ fn parse_nav_points(nav_points_element: &Element, level: usize, nav_points: &mut
 		});
 }
 
-fn parse_ncx(text: &str) -> Result<Vec<NavPoint>> {
+fn parse_ncx(text: &str) -> Result<Vec<NavPoint>>
+{
 	let ncx = Element::parse(text.strip_bom().as_bytes())
-		.map_err(|_e| anyhow!("Invalid XML"))?;
+		.map_err(|_e| anyhow!("Failed parse ncx"))?;
 	let nav_map = ncx
 		.get_child("navMap")
 		.ok_or_else(|| anyhow!("Missing navMap"))?;
@@ -418,6 +440,99 @@ fn parse_ncx(text: &str) -> Result<Vec<NavPoint>> {
 		Err(anyhow!("Could not parse NavPoints"))
 	} else {
 		Ok(nav_points)
+	}
+}
+
+/// parse Navigation document
+/// according to https://www.w3.org/publishing/epub3/epub-packages.html#sec-package-nav-def
+fn parse_nav_doc(text: &str) -> Result<Vec<NavPoint>>
+{
+	fn search_nav(element: &Element) -> Option<&Element>
+	{
+		for child in &element.children {
+			if let Some(element) = child.as_element() {
+				if element.name == "nav" && element.attributes.get("type").map_or(false, |t| t == "toc") {
+					return Some(element);
+				}
+				let option = search_nav(element);
+				if option.is_some() {
+					return option;
+				}
+			}
+		}
+		None
+	}
+	fn process(children: &Vec<XMLNode>, toc: &mut Vec<NavPoint>, level: usize) -> Result<()>
+	{
+		for child in children {
+			match child {
+				XMLNode::Element(Element { name, children, .. }) if name == "li" => {
+					// li
+					//     In this order:
+					//         (span or a) [exactly 1]
+					//         ol [conditionally required]
+					let a = children.get(0).ok_or(anyhow!("Invalid entry in Navigation document"))?;
+					let a = a.as_element().ok_or(anyhow!("Invalid entry node in Navigation document"))?;
+					let label = match a.attributes.get("title") {
+						Some(title) => title.clone(),
+						None => a.get_text()
+							.ok_or(anyhow!("Navigation document entry with no text"))?
+							.to_string()
+					};
+					if label.len() == 0 {
+						return Err(anyhow!("Navigation document entry with empty text"));
+					}
+					let (src_file, src_anchor) = if let Some(href) = a.attributes.get("href") {
+						// In the case of the toc nav, landmarks nav and page-list nav, it MUST resolve to an Top-level Content Document or fragment therein.
+						let mut parts = href.split('#');
+						let src_file = Some(parts.next()
+							.map(|a| a.to_string())
+							.ok_or(anyhow!("Navigation document entry href not resolve to an Top-level Content Document or fragment therein"))?);
+						let src_anchor = parts.next().map(|a| a.to_string());
+						(src_file, src_anchor)
+					} else {
+						(None, None)
+					};
+
+					toc.push(NavPoint {
+						id: None,
+						label: Some(label),
+						play_order: None,
+						level,
+						src_file,
+						src_anchor,
+					});
+					if let Some(node) = children.get(1) {
+						match node {
+							XMLNode::Element(Element { name, children, .. }) if name == "ol" =>
+								process(children, toc, level + 1)?,
+							_ => {}
+						}
+					}
+				}
+				_ => {}
+			}
+		}
+		Ok(())
+	}
+	let document = Element::parse(text.strip_bom().as_bytes())
+		.map_err(|_e| anyhow!("Failed parse Navigation document"))?;
+	let body = document.get_child("body").ok_or(anyhow!("Navigation document without body"))?;
+	let nav = search_nav(body).ok_or(anyhow!("Navigation document without nav of toc"))?;
+	let mut toc = vec![];
+	for child in &nav.children {
+		match child {
+			XMLNode::Element(Element { name, children, .. }) if name == "ol" => {
+				process(children, &mut toc, 1)?;
+				break;
+			}
+			_ => {}
+		}
+	}
+	if toc.len() == 0 {
+		Err(anyhow!("Navigation document with no entries"))
+	} else {
+		Ok(toc)
 	}
 }
 
@@ -500,7 +615,8 @@ fn is_encrypted<R: Read + Seek>(zip: &ZipArchive<R>) -> bool {
 }
 
 fn toc_index_for_chapter<'a>(chapter_index: usize, chapter_path: &str, id_map: &HashMap<String, Position>,
-	opf: &ContentOPF, toc: &'a Vec<NavPoint>) -> usize {
+	opf: &ContentOPF, toc: &'a Vec<NavPoint>) -> usize
+{
 	if toc.len() == 0 {
 		return 0;
 	}
@@ -508,21 +624,23 @@ fn toc_index_for_chapter<'a>(chapter_index: usize, chapter_path: &str, id_map: &
 	for current_chapter in (0..=chapter_index).rev() {
 		for toc_index in 0..toc.len() {
 			let np = &toc[toc_index];
-			if current_chapter == chapter_index {
-				if chapter_path == np.src_file {
-					if let Some(anchor) = &np.src_anchor {
-						if id_map.contains_key(anchor) {
+			if let Some(src_file) = &np.src_file {
+				if current_chapter == chapter_index {
+					if chapter_path == src_file {
+						if let Some(anchor) = &np.src_anchor {
+							if id_map.contains_key(anchor) {
+								return toc_index;
+							}
+						} else {
 							return toc_index;
 						}
-					} else {
-						return toc_index;
 					}
-				}
-			} else {
-				let spine = &opf.spine[current_chapter];
-				let manifest = &opf.manifest.get(spine).unwrap();
-				if manifest.href == np.src_file {
-					file_matched = Some(toc_index);
+				} else {
+					let spine = &opf.spine[current_chapter];
+					let manifest = &opf.manifest.get(spine).unwrap();
+					if manifest.href == *src_file {
+						file_matched = Some(toc_index);
+					}
 				}
 			}
 		}
@@ -533,10 +651,13 @@ fn toc_index_for_chapter<'a>(chapter_index: usize, chapter_path: &str, id_map: &
 	0
 }
 
-fn toc_title(nav_point: &NavPoint) -> &String {
+fn toc_title(nav_point: &NavPoint) -> &str {
 	let label = match &nav_point.label {
 		Some(label) => label,
-		None => &nav_point.src_file,
+		None => match &nav_point.src_file {
+			Some(src_file) => src_file,
+			None => "blank",
+		}
 	};
 	label
 }

@@ -4,12 +4,12 @@ use cursive::traits::Scrollable;
 use cursive::views::{Dialog, OnEventView, SelectView};
 
 pub struct ListEntry<'a> {
-	pub title: &'a String,
+	pub title: &'a str,
 	pub value: usize,
 }
 
 impl<'a> ListEntry<'a> {
-	pub(crate) fn new(title: &'a String, value: usize) -> Self {
+	pub(crate) fn new(title: &'a str, value: usize) -> Self {
 		ListEntry { title, value }
 	}
 }
