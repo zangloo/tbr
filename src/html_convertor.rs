@@ -321,14 +321,12 @@ fn load_styles<'a, F>(document: &Html, file_resolver: Option<F>) -> HashMap<Node
 					continue;
 				}
 				for selector in &style_rule.selectors.0 {
-					for component in selector.iter() {
-						let component_str = component.to_css_string();
-						if let Ok(selector) = Selector::parse(&component_str) {
-							for element in document.select(&selector) {
-								element_styles.insert(element.id(), styles.clone());
-							}
-						};
-					}
+					let selector_str = selector.to_css_string();
+					if let Ok(selector) = Selector::parse(&selector_str) {
+						for element in document.select(&selector) {
+							element_styles.insert(element.id(), styles.clone());
+						}
+					};
 				}
 			}
 		}
