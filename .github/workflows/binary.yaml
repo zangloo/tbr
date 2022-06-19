@@ -1,6 +1,9 @@
 name: Binary
 
-on: [push]
+on:
+  push:
+    tags:
+      - "v*.*.*"
 
 jobs:
   build-win:
