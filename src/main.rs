@@ -270,7 +270,7 @@ fn load_config(filename: Option<String>, config_file: PathBuf, themes_dir: &Path
 				search_pattern: String::from(""),
 				current: filepath,
 				history: vec![],
-				theme_name: String::from("dark"),
+				theme_name: String::from("bright"),
 				themes: themes_map,
 				#[cfg(feature = "gui")]
 				gui: Default::default(),
@@ -311,5 +311,6 @@ fn create_default_theme_files(themes_map: &HashMap<String, PathBuf>, themes_dir:
 #[cfg(feature = "i18n")]
 fn default_locale() -> String
 {
-	"zh_CN".to_string()
+	use sys_locale::get_locale;
+	get_locale().unwrap_or_else(|| String::from(i18n::DEFAULT_LOCALE))
 }

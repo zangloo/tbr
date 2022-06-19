@@ -1,4 +1,5 @@
 title = 漢
+readme = 可以在linux以及windows上使用的桌面阅读器，支持epub，haodoo。
 copy-content = 复制内容
 lookup-dictionary = 查阅字典
 add-bookmark = 增加书签

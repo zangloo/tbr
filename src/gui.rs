@@ -33,19 +33,20 @@ const MAX_FONT_SIZE: u8 = 50;
 const FONT_FILE_EXTENSIONS: [&str; 3] = ["ttf", "otf", "ttc"];
 
 const README_TEXT_FILENAME: &str = "readme";
-const README_TEXT: &str = "
-The terminal and gui e-book reader
-";
 
 struct ReadmeContainer {
 	book_names: Vec<BookName>,
+	text: String,
 }
 
 impl ReadmeContainer {
 	#[inline]
-	fn new() -> Self
+	fn new(text: &str) -> Self
 	{
-		ReadmeContainer { book_names: vec![BookName::new(README_TEXT_FILENAME.to_string(), 0)] }
+		ReadmeContainer {
+			book_names: vec![BookName::new(README_TEXT_FILENAME.to_string(), 0)],
+			text: text.to_string(),
+		}
 	}
 }
 
@@ -57,7 +58,7 @@ impl Container for ReadmeContainer {
 
 	#[inline]
 	fn book_content(&mut self, _inner_index: usize) -> Result<BookContent> {
-		Ok(BookContent::Buf(README_TEXT.as_bytes().to_vec()))
+		Ok(BookContent::Buf(self.text.as_bytes().to_vec()))
 	}
 }
 
@@ -68,9 +69,9 @@ struct ReadmeBook {
 impl ReadmeBook
 {
 	#[inline]
-	fn new() -> Self
+	fn new(text: &str) -> Self
 	{
-		ReadmeBook { lines: txt_lines(README_TEXT) }
+		ReadmeBook { lines: txt_lines(text) }
 	}
 }
 
@@ -919,8 +920,9 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 		let title = reading.filename.clone();
 		(container, book, reading, title)
 	} else {
-		let container: Box<dyn Container> = Box::new(ReadmeContainer::new());
-		let book: Box<dyn Book> = Box::new(ReadmeBook::new());
+		let readme = i18n.msg("readme");
+		let container: Box<dyn Container> = Box::new(ReadmeContainer::new(readme.as_ref()));
+		let book: Box<dyn Book> = Box::new(ReadmeBook::new(readme.as_ref()));
 		(container, book, ReadingInfo::new(README_TEXT_FILENAME), "The e-book reader".to_string())
 	};
 	let controller = Controller::from_data(reading, &configuration.search_pattern, container_manager, container, book, render)?;

@@ -1,4 +1,5 @@
 title = En
+readme = A terminal and gui e-book reader for linux and windows，support epub, haodoo.
 copy-content = copy content
 lookup-dictionary = lookup dictionary
 add-bookmark = add bookmark

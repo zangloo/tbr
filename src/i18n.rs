@@ -1,10 +1,11 @@
 use anyhow::Result;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use anyhow::anyhow;
 use fluent::{FluentArgs, FluentBundle, FluentResource, FluentValue};
 use unic_langid::LanguageIdentifier;
 use crate::Asset;
+
+pub const DEFAULT_LOCALE: &str = "en_US";
 
 pub struct I18n {
 	bundles: HashMap<String, FluentBundle<FluentResource>>,
@@ -33,18 +34,21 @@ impl I18n
 				bundles.insert(name.to_string(), bundle);
 			}
 		}
-		if !bundles.contains_key(locale) {
-			return Err(anyhow!("No locale defined: {}", locale));
-		}
+		let locale = if bundles.contains_key(locale) {
+			locale
+		} else {
+			DEFAULT_LOCALE
+		};
 		Ok(I18n { bundles, locale: locale.to_string(), locale_list })
 	}
 
 	pub fn set_locale(&mut self, locale: &str) -> Result<()>
 	{
-		if !self.bundles.contains_key(locale) {
-			return Err(anyhow!("No locale defined: {}", locale));
+		if self.bundles.contains_key(locale) {
+			self.locale = locale.to_string();
+		} else {
+			self.locale = DEFAULT_LOCALE.to_string();
 		}
-		self.locale = locale.to_string();
 		Ok(())
 	}
 
