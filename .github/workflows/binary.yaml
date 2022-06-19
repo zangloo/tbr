@@ -26,6 +26,6 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          files: target/release/PROJECT_NAME.exe
+          files: target/release/tbr.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
