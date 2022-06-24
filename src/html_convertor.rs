@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Deref;
 use anyhow::{anyhow, Result};
@@ -83,7 +84,7 @@ fn newline_for_class(context: &mut ParseContext, element: &Element)
 		if let Some(class) = element.attr("class") {
 			for class_name in DIV_PUSH_CLASSES {
 				if class.contains(class_name) {
-					context.content.lines.push(Line::default());
+					new_line(context, true);
 					return;
 				}
 			}
@@ -179,7 +180,7 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						context.content.id_map.clear()
 					}
 					local_name!("script") => {}
-					local_name!("div") | local_name!("dt") => {
+					local_name!("div") => {
 						newline_for_class(context, element);
 						convert_dom_to_lines(child.children(), context);
 						newline_for_class(context, element);
@@ -211,6 +212,7 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 					local_name!("p")
 					| local_name!("blockquote")
 					| local_name!("tr")
+					| local_name!("dt")
 					| local_name!("li") => new_paragraph(child, context),
 					local_name!("br") => {
 						new_line(context, true);
@@ -251,9 +253,12 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 					let mut offset = position.offset;
 					for i in position.line..context.content.lines.len() {
 						let line = &mut context.content.lines[i];
-						let range = offset..line.len();
-						for style in &element_styles {
-							line.push_style(style.clone(), range.clone());
+						let len = line.len();
+						if len > offset {
+							let range = offset..len;
+							for style in &element_styles {
+								line.push_style(style.clone(), range.clone());
+							}
 						}
 						offset = 0;
 					}
@@ -323,7 +328,11 @@ fn load_styles<'a, F>(document: &Html, file_resolver: Option<F>) -> HashMap<Node
 				let selector_str = style_rule.selectors.to_css_string();
 				if let Ok(selector) = Selector::parse(&selector_str) {
 					for element in document.select(&selector) {
-						element_styles.insert(element.id(), styles.clone());
+						let mut styles = styles.clone();
+						match element_styles.entry(element.id()) {
+							Entry::Occupied(o) => o.into_mut().append(&mut styles),
+							Entry::Vacant(v) => { v.insert(styles); }
+						};
 					}
 				};
 			}
