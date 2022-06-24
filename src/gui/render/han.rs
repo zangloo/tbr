@@ -313,7 +313,7 @@ impl GuiRender for GuiHanRender
 						let last_left = last_rect.left();
 						if last_left < left {
 							left = last_left;
-							(line_margin, char_margin, stroke_width) = draw_properties(last_rect, false, true);
+							(line_margin, char_margin, stroke_width) = draw_properties(last_rect, false, end);
 						}
 						let draw_bottom = if end {
 							last_rect.bottom() - char_margin
