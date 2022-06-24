@@ -121,6 +121,7 @@ impl GuiRender for GuiHanRender
 				let (draw_offset, style) = if let Some(range) = char_style.border {
 					if range.len() == 1 {
 						let space = draw_height / 2.0;
+						rect.max.y += draw_height;
 						(Pos2::new(0.0, space), Some((TextStyle::Border, range.clone())))
 					} else if i == range.start {
 						let space = draw_height / 2.0;
@@ -185,6 +186,32 @@ impl GuiRender for GuiHanRender
 	fn draw_style(&self, draw_text: &RenderLine, ui: &mut Ui)
 	{
 		#[inline]
+		fn draw_properties(rect: &Rect, start: bool, end: bool) -> (f32, f32, f32)
+		{
+			let line_margin = line_margin(rect);
+			let char_margin = char_margin(rect, start, end);
+			let stroke_width = stroke_width_for_space(line_margin);
+			(line_margin, char_margin, stroke_width)
+		}
+		#[inline]
+		fn char_margin(rect: &Rect, start: bool, end: bool) -> f32 {
+			if start {
+				if end {
+					rect.height() / 8.0
+				} else {
+					rect.height() / 6.0
+				}
+			} else if end {
+				rect.height() / 6.0
+			} else {
+				rect.height() / 4.0
+			}
+		}
+		#[inline]
+		fn line_margin(rect: &Rect) -> f32 {
+			rect.width() / 4.0
+		}
+		#[inline]
 		fn underline(ui: &mut Ui, left: f32, top: f32, bottom: f32, stroke_width: f32, color: Color32) {
 			let stroke = Stroke::new(stroke_width, color);
 			ui.painter().vline(left, RangeInclusive::new(top, bottom), stroke);
@@ -218,15 +245,12 @@ impl GuiRender for GuiHanRender
 					match style {
 						TextStyle::Line(_)
 						| TextStyle::Link(_) => {
-							let height = bottom - top;
-							let space = height / 4.0;
-							let stroke_width = stroke_width_for_space(space);
-							underline(ui, left - space, top + space, bottom - space, stroke_width, draw_char.color);
+							let (line_margin, char_margin, stroke_width) = draw_properties(rect, true, true);
+							underline(ui, left - line_margin, top + char_margin, bottom - char_margin, stroke_width, draw_char.color);
 						}
 						TextStyle::Border => {
-							let space = draw_char.draw_offset.y / 2.0;
-							let stroke_width = stroke_width_for_space(space);
-							border(ui, left - space, rect.right() + space, top + space, bottom - space, true, true, stroke_width, draw_char.color);
+							let (line_margin, char_margin, stroke_width) = draw_properties(rect, true, true);
+							border(ui, left - line_margin, rect.right() + line_margin, top + char_margin, bottom - char_margin, true, true, stroke_width, draw_char.color);
 						}
 						TextStyle::FontSize { .. }
 						| TextStyle::Image(_) => {}
@@ -235,15 +259,12 @@ impl GuiRender for GuiHanRender
 					match style {
 						TextStyle::Line(_)
 						| TextStyle::Link(_) => {
-							let height = bottom - top;
-							let space = height / 4.0;
-							let stroke_width = stroke_width_for_space(space);
-							underline(ui, left - space, top, bottom - space, stroke_width, draw_char.color);
+							let (line_margin, char_margin, stroke_width) = draw_properties(rect, false, true);
+							underline(ui, left - line_margin, top + char_margin, bottom - char_margin, stroke_width, draw_char.color);
 						}
 						TextStyle::Border => {
-							let space = (bottom - top) / 6.0;
-							let stroke_width = stroke_width_for_space(space);
-							border(ui, left - space, rect.right() + space, top, bottom - space, false, true, stroke_width, draw_char.color);
+							let (line_margin, char_margin, stroke_width) = draw_properties(rect, false, true);
+							border(ui, left - line_margin, rect.right() + line_margin, top + char_margin, bottom - char_margin, false, true, stroke_width, draw_char.color);
 						}
 						TextStyle::FontSize { .. }
 						| TextStyle::Image(_) => {}
@@ -252,29 +273,16 @@ impl GuiRender for GuiHanRender
 					let start = offset == range.start;
 					i += 1;
 					if i < len {
-						let (draw_top, color, mut draw_left, mut stroke_width, mut space, style) = match style {
+						let mut left = rect.left();
+						let (draw_top, color, style, mut line_margin, mut char_margin, mut stroke_width) = match style {
 							TextStyle::Line(_)
-							| TextStyle::Link(_) => {
-								let height = bottom - top;
-								let space = height / 4.0;
-								let stroke_width = stroke_width_for_space(space);
+							| TextStyle::Link(_)
+							| TextStyle::Border => {
+								let (line_margin, char_margin, stroke_width) = draw_properties(rect, start, false);
 								if start {
-									(top + space, draw_char.color, left - space, stroke_width, space, style.clone())
+									(top + char_margin, draw_char.color, style.clone(), line_margin, char_margin, stroke_width)
 								} else {
-									(top, draw_char.color, left - space, stroke_width, space, style.clone())
-								}
-							}
-							TextStyle::Border => {
-								let space = if start {
-									(bottom - top) / 6.0
-								} else {
-									(bottom - top) / 4.0
-								};
-								let stroke_width = stroke_width_for_space(space);
-								if start {
-									(top + space, draw_char.color, left - space, stroke_width, space, TextStyle::Border)
-								} else {
-									(top, draw_char.color, left - space, stroke_width, space, TextStyle::Border)
+									(top, draw_char.color, style.clone(), line_margin, char_margin, stroke_width)
 								}
 							}
 							TextStyle::FontSize { .. }
@@ -292,57 +300,42 @@ impl GuiRender for GuiHanRender
 						let stop = char_left + i;
 						while i < stop - 1 {
 							let draw_char = &chars[i];
-							let this_rect = draw_char.rect;
-							let height = this_rect.height();
-							let this_space = height / 4.0;
-							let this_left = this_rect.left() - this_space;
-							if this_left < draw_left {
-								draw_left = this_left;
-								space = this_space;
-								stroke_width = stroke_width_for_space(space);
+							let this_rect = &draw_char.rect;
+							let this_left = this_rect.left();
+							if this_left < left {
+								left = this_left;
+								(line_margin, char_margin, stroke_width) = draw_properties(this_rect, false, false);
 							}
 							i += 1;
 						}
 						let draw_char = &chars[i];
-						let last_rect = draw_char.rect;
-						let this_space = match style {
-							TextStyle::Line(_) | TextStyle::Link(_) => last_rect.height() / 4.0,
-							TextStyle::Border => last_rect.height() / 6.0,
-							_ => { panic!("internal error"); }
-						};
-						let this_left = last_rect.left() - this_space;
-						if this_left < draw_left {
-							draw_left = this_left;
-							space = this_space;
-							stroke_width = stroke_width_for_space(space);
+						let last_rect = &draw_char.rect;
+						let last_left = last_rect.left();
+						if last_left < left {
+							left = last_left;
+							(line_margin, char_margin, stroke_width) = draw_properties(last_rect, false, true);
 						}
-						let bottom = if end {
-							last_rect.bottom() - this_space
+						let draw_bottom = if end {
+							last_rect.bottom() - char_margin
 						} else {
 							last_rect.bottom()
 						};
+						let draw_left = left - line_margin;
 						match style {
-							TextStyle::Line(_) | TextStyle::Link(_) => underline(ui, draw_left, draw_top, bottom, stroke_width, color),
-							TextStyle::Border => border(ui, draw_left, last_rect.right() + space, draw_top, bottom, start, end, stroke_width, color),
+							TextStyle::Line(_) | TextStyle::Link(_) => underline(ui, draw_left, draw_top, draw_bottom, stroke_width, color),
+							TextStyle::Border => border(ui, draw_left, last_rect.right() + line_margin, draw_top, draw_bottom, start, end, stroke_width, color),
 							_ => { panic!("internal error"); }
 						};
 					} else {
 						let color = draw_char.color;
-						let height = bottom - top;
 						match style {
 							TextStyle::Line(_) | TextStyle::Link(_) => {
-								let space = height / 4.0;
-								let stroke_width = stroke_width_for_space(space);
-								underline(ui, left - space, top + space, bottom, stroke_width, color)
+								let (line_margin, char_margin, stroke_width) = draw_properties(rect, start, false);
+								underline(ui, left - line_margin, top + char_margin, bottom, stroke_width, color)
 							}
 							TextStyle::Border => {
-								let space = if start {
-									height / 6.0
-								} else {
-									height / 4.0
-								};
-								let stroke_width = stroke_width_for_space(space);
-								border(ui, left - space, rect.right() + space, top + space, bottom, start, false, stroke_width, color)
+								let (line_margin, char_margin, stroke_width) = draw_properties(rect, start, false);
+								border(ui, left - line_margin, rect.right() + line_margin, top + char_margin, bottom, start, false, stroke_width, color)
 							}
 							_ => { panic!("internal error"); }
 						};

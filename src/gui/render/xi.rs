@@ -151,6 +151,7 @@ impl GuiRender for GuiXiRender
 				let (draw_offset, style) = if let Some(range) = char_style.border {
 					if range.len() == 1 {
 						let space = draw_width / 2.0;
+						rect.max.x += draw_width;
 						(Pos2::new(space, 0.0), Some((TextStyle::Border, range.clone())))
 					} else if i == range.start {
 						let space = draw_width / 2.0;
@@ -297,9 +298,9 @@ impl GuiRender for GuiXiRender
 							underline(ui, bottom + space, left + space, right - space, stroke_width, draw_char.color);
 						}
 						TextStyle::Border => {
-							let space = draw_char.draw_offset.y / 2.0;
+							let space = draw_char.draw_offset.x / 2.0;
 							let stroke_width = stroke_width_for_space(space);
-							border(ui, rect.top() - space, bottom + space, left + space, right - space, true, true, stroke_width, draw_char.color);
+							border(ui, rect.left() + space, right - space, rect.top() - space, bottom + space, true, true, stroke_width, draw_char.color);
 						}
 						TextStyle::FontSize { .. }
 						| TextStyle::Image(_) => {}
