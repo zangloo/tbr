@@ -468,14 +468,14 @@ impl ReaderApp {
 	{
 		for line in &self.render_lines {
 			if let Some(dc) = line.char_at_pos(click_position) {
-				if let Some(link_index) = self.controller.book.lines()[dc.line].link_iter(true, |link| {
+				if let Some(link_index) = self.controller.book.lines()[line.line].link_iter(true, |link| {
 					if link.range.contains(&dc.offset) {
 						(true, Some(link.index))
 					} else {
 						(false, None)
 					}
 				}) {
-					self.controller.goto_link(dc.line, link_index, ui)?;
+					self.controller.goto_link(line.line, link_index, ui)?;
 					return Ok(true);
 				}
 			}

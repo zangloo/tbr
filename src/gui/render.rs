@@ -1,13 +1,12 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::ops::Range;
 use eframe::egui::{Align2, FontFamily, FontId, Rect, Rounding, Stroke, Ui};
 use eframe::emath::{Pos2, Vec2};
 use eframe::epaint::Color32;
 use egui::{ColorImage, Mesh, Shape, TextureHandle};
 use image::imageops::FilterType;
 
-use crate::book::{Book, CharStyle, Colors, Line, TextStyle};
+use crate::book::{Book, CharStyle, Colors, Line};
 use crate::common::Position;
 use crate::controller::{HighlightInfo, HighlightMode, Render};
 use crate::gui::render::han::GuiHanRender;
@@ -18,32 +17,50 @@ mod han;
 mod xi;
 
 #[derive(Clone)]
-pub(super) struct RenderChar {
+pub(super) enum TextDecoration {
+	// rect, stroke width, is first, is last, color
+	Border { rect: Rect, stroke_width: f32, start: bool, end: bool, color: Color32 },
+	// start(x,y), length,stroke width, is first, color
+	UnderLine { pos2: Pos2, length: f32, stroke_width: f32, color: Color32 },
+}
+
+#[derive(Clone)]
+pub(super) struct CharCell {
 	pub char: char,
 	pub font_size: f32,
 	pub color: Color32,
 	pub background: Option<Color32>,
-	pub style: Option<(TextStyle, Range<usize>)>,
+	pub draw_offset: Pos2,
+	pub char_size: Pos2,
+}
 
-	pub line: usize,
+#[derive(Clone)]
+pub(super) enum RenderCell {
+	Char(CharCell),
+	Image(String),
+}
+
+#[derive(Clone)]
+pub(super) struct RenderChar {
+	pub cell: RenderCell,
 	pub offset: usize,
 	pub rect: Rect,
-	pub draw_offset: Pos2,
 }
 
 #[derive(Clone)]
 pub(super) struct RenderLine {
 	pub(super) chars: Vec<RenderChar>,
 	pub(super) line: usize,
-	pub(super) draw_size: f32,
-	pub(super) line_space: f32,
+	draw_size: f32,
+	line_space: f32,
+	decorations: Vec<TextDecoration>,
 }
 
 impl RenderLine
 {
 	fn new(line: usize, draw_size: f32, line_space: f32) -> Self
 	{
-		RenderLine { chars: vec![], line, draw_size, line_space }
+		RenderLine { chars: vec![], line, draw_size, line_space, decorations: vec![] }
 	}
 
 	pub(super) fn char_at_pos(&self, pos: Pos2) -> Option<&RenderChar>
@@ -54,6 +71,11 @@ impl RenderLine
 			}
 		}
 		None
+	}
+
+	pub fn add_decoration(&mut self, decoration: TextDecoration)
+	{
+		self.decorations.push(decoration)
 	}
 }
 
@@ -92,7 +114,7 @@ pub(super) trait GuiRender: Render<Ui> {
 	fn create_render_line(&self, line: usize, render_context: &RenderContext) -> RenderLine;
 	fn update_base_line_for_delta(&self, context: &mut RenderContext, delta: f32);
 	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
-	fn draw_style(&self, draw_text: &RenderLine, ui: &mut Ui);
+	fn draw_decoration(&self, decoration: &TextDecoration, ui: &mut Ui);
 	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData>;
 	// return (line, offset) position
 	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, retc: &Rect) -> (PointerPosition, PointerPosition);
@@ -153,17 +175,22 @@ pub(super) trait GuiRender: Render<Ui> {
 	{
 		for render_line in render_lines {
 			for dc in &render_line.chars {
-				if let Some((TextStyle::Image(name), _)) = &dc.style {
-					self.draw_image(&name, &dc.rect, ui);
-				} else {
-					if let Some(bg) = dc.background {
-						ui.painter().rect(dc.rect.clone(), Rounding::none(), bg, Stroke::default());
+				match &dc.cell {
+					RenderCell::Image(name) => {
+						self.draw_image(name, &dc.rect, ui);
 					}
-					let draw_position = Pos2::new(dc.rect.min.x + dc.draw_offset.x, dc.rect.min.y + dc.draw_offset.y);
-					paint_char(ui, dc.char, dc.font_size, &draw_position, Align2::LEFT_TOP, dc.color);
+					RenderCell::Char(cell) => {
+						if let Some(bg) = cell.background {
+							ui.painter().rect(dc.rect.clone(), Rounding::none(), bg, Stroke::default());
+						}
+						let draw_position = Pos2::new(dc.rect.min.x + cell.draw_offset.x, dc.rect.min.y + cell.draw_offset.y);
+						paint_char(ui, cell.char, cell.font_size, &draw_position, Align2::LEFT_TOP, cell.color);
+					}
 				}
 			}
-			self.draw_style(render_line, ui);
+			for decoration in &render_line.decorations {
+				self.draw_decoration(decoration, ui);
+			}
 		}
 	}
 
@@ -401,9 +428,4 @@ pub(super) fn create_render(render_type: &str) -> Box<dyn GuiRender>
 	} else {
 		Box::new(GuiXiRender::new())
 	}
-}
-
-#[inline]
-pub(self) fn stroke_width_for_space(space: f32) -> f32 {
-	space / 4.0
 }

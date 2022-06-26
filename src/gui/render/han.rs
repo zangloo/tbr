@@ -1,11 +1,14 @@
 use std::collections::HashMap;
-use std::ops::RangeInclusive;
-use eframe::egui::{Align2, Color32, Pos2, Rect, Stroke, Ui};
+use std::iter::Enumerate;
+use std::ops::Range;
+use std::vec::IntoIter;
+use eframe::egui::{Align2, Color32, Pos2, Rect, Ui};
+use egui::Stroke;
 
-use crate::book::{Book, Line, TextStyle, IMAGE_CHAR};
+use crate::book::{Book, CharStyle, Line};
 use crate::common::{HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::{HighlightInfo, Render};
-use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size, update_for_highlight, stroke_width_for_space, ImageDrawingData, PointerPosition};
+use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration};
 use crate::Position;
 
 pub(super) struct GuiHanRender {
@@ -88,21 +91,20 @@ impl GuiRender for GuiHanRender
 			return wrapped_empty_lines;
 		}
 		let mut draw_lines = vec![];
-		let mut draw_line = self.create_render_line(line, context);
+		let mut draw_chars = vec![];
 		let mut top = context.rect.min.y;
 		let max_top = context.rect.max.y;
 
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, &context.colors);
-			let (char, mut rect, font_size, draw_offset, style) = if let Some((path, size)) = self.with_image(&char_style, book, &context.rect, ui) {
+			let (cell, mut rect) = if let Some((path, size)) = self.with_image(&char_style, book, &context.rect, ui) {
 				let left = context.line_base - size.x;
 				let bottom = top + size.y;
 				let rect = Rect::from_min_max(
 					Pos2::new(left, top),
 					Pos2::new(context.line_base, bottom),
 				);
-				let style = Some((TextStyle::Image(path), i..i + 1));
-				(IMAGE_CHAR, rect, context.font_size as f32, Pos2::ZERO, style)
+				(RenderCell::Image(path), rect)
 			} else {
 				if i == 0 && with_leading(text) {
 					top = context.rect.min.y + context.leading_space;
@@ -117,233 +119,95 @@ impl GuiRender for GuiHanRender
 					&Pos2::new(context.line_base, top),
 					Align2::RIGHT_TOP,
 					Color32::BLACK);
-				let draw_height = rect.height();
-				let (draw_offset, style) = if let Some(range) = char_style.border {
+				let color = char_style.color;
+				let char_size = Pos2::new(rect.width(), rect.height());
+				let draw_offset = if let Some(range) = &char_style.border {
+					let draw_height = rect.height();
+					let padding = draw_height / 2.0;
+					let max = &mut rect.max;
 					if range.len() == 1 {
-						let space = draw_height / 2.0;
-						rect.max.y += draw_height;
-						(Pos2::new(0.0, space), Some((TextStyle::Border, range.clone())))
+						max.y += draw_height;
+						Pos2::new(0.0, padding)
 					} else if i == range.start {
-						let space = draw_height / 2.0;
-						rect.max.y += space;
-						(Pos2::new(0.0, space), Some((TextStyle::Border, range.clone())))
+						max.y += padding;
+						Pos2::new(0.0, padding)
 					} else if i == range.end - 1 {
-						let space = draw_height / 2.0;
-						rect.max.y += space;
-						(Pos2::ZERO, Some((TextStyle::Border, range.clone())))
+						max.y += padding;
+						Pos2::ZERO
 					} else {
-						(Pos2::ZERO, Some((TextStyle::Border, range.clone())))
+						Pos2::ZERO
 					}
-				} else if let Some((line, range)) = char_style.line {
-					(Pos2::ZERO, Some((TextStyle::Line(line), range.clone())))
-				} else if let Some((target, range)) = char_style.link {
-					(Pos2::ZERO, Some((TextStyle::Link(target), range.clone())))
 				} else {
-					(Pos2::ZERO, None)
+					Pos2::ZERO
 				};
-				(char, rect, font_size, draw_offset, style)
+				let background = update_for_highlight(line, i, char_style.background, &context.colors, highlight);
+				let cell = CharCell {
+					char,
+					font_size,
+					color,
+					background,
+					draw_offset,
+					char_size,
+				};
+				(RenderCell::Char(cell), rect)
 			};
-			let draw_width = rect.width();
 			if top + rect.height() > max_top {
-				let line_delta = draw_line.draw_size + draw_line.line_space;
-				context.line_base -= line_delta;
-				draw_lines.push(draw_line);
-				draw_line = self.create_render_line(line, context);
+				let mut render_line = self.create_render_line(line, context);
+				setup_decorations(draw_chars, &mut render_line, context);
+				context.line_base -= render_line.draw_size + render_line.line_space;
+				let line_delta = render_line.draw_size + render_line.line_space;
+				draw_lines.push(render_line);
+				draw_chars = vec![];
+				// the char wrapped to new line, so update positions
+				let y_delta = top - context.rect.min.y;
 				rect = Rect {
-					min: Pos2::new(rect.min.x - line_delta, rect.min.y - top + context.rect.min.y),
-					max: Pos2::new(rect.max.x - line_delta, rect.max.y - top + context.rect.min.y),
-				}
+					min: Pos2::new(rect.min.x - line_delta, rect.min.y - y_delta),
+					max: Pos2::new(rect.max.x - line_delta, rect.max.y - y_delta),
+				};
 			}
-			if draw_width > draw_line.draw_size {
-				draw_line.draw_size = draw_width;
-				if char != IMAGE_CHAR {
-					draw_line.line_space = draw_width / 2.0;
-				}
-			}
-			let color = char_style.color;
-			let background = update_for_highlight(line, i, char_style.background, &context.colors, highlight);
 			let dc = RenderChar {
-				char,
-				font_size,
-				color,
-				background,
-				style,
-				line,
+				cell,
 				offset: i,
 				rect,
-				draw_offset,
 			};
-			draw_line.chars.push(dc);
+			draw_chars.push((dc, char_style));
 			top = rect.max.y;
 		}
-		if draw_line.chars.len() > 0 {
-			context.line_base -= draw_line.draw_size + draw_line.line_space;
-			draw_lines.push(draw_line);
+		if draw_chars.len() > 0 {
+			let mut render_line = self.create_render_line(line, context);
+			setup_decorations(draw_chars, &mut render_line, context);
+			context.line_base -= render_line.draw_size + render_line.line_space;
+			draw_lines.push(render_line);
 		}
 		return draw_lines;
 	}
 
-	fn draw_style(&self, draw_text: &RenderLine, ui: &mut Ui)
-	{
-		#[inline]
-		fn draw_properties(rect: &Rect, start: bool, end: bool) -> (f32, f32, f32)
-		{
-			let line_margin = line_margin(rect);
-			let char_margin = char_margin(rect, start, end);
-			let stroke_width = stroke_width_for_space(line_margin);
-			(line_margin, char_margin, stroke_width)
-		}
-		#[inline]
-		fn char_margin(rect: &Rect, start: bool, end: bool) -> f32 {
-			if start {
-				if end {
-					rect.height() / 8.0
-				} else {
-					rect.height() / 6.0
-				}
-			} else if end {
-				rect.height() / 6.0
-			} else {
-				rect.height() / 4.0
-			}
-		}
-		#[inline]
-		fn line_margin(rect: &Rect) -> f32 {
-			rect.width() / 4.0
-		}
+	fn draw_decoration(&self, decoration: &TextDecoration, ui: &mut Ui) {
 		#[inline]
 		fn underline(ui: &mut Ui, left: f32, top: f32, bottom: f32, stroke_width: f32, color: Color32) {
 			let stroke = Stroke::new(stroke_width, color);
-			ui.painter().vline(left, RangeInclusive::new(top, bottom), stroke);
+			ui.painter().vline(left, top..=bottom, stroke);
 		}
 
 		#[inline]
 		fn border(ui: &mut Ui, left: f32, right: f32, top: f32, bottom: f32, start: bool, end: bool, stroke_width: f32, color: Color32) {
 			let stroke = Stroke::new(stroke_width, color);
-			ui.painter().vline(left, RangeInclusive::new(top, bottom), stroke);
-			ui.painter().vline(right, RangeInclusive::new(top, bottom), stroke);
+			ui.painter().vline(left, top..=bottom, stroke);
+			ui.painter().vline(right, top..=bottom, stroke);
 			if start {
-				ui.painter().hline(RangeInclusive::new(left, right), top, stroke);
+				ui.painter().hline(left..=right, top, stroke);
 			}
 			if end {
-				ui.painter().hline(RangeInclusive::new(left, right), bottom, stroke);
+				ui.painter().hline(left..=right, bottom, stroke);
 			}
 		}
-
-		let mut i = 0;
-		let chars = &draw_text.chars;
-		let len = chars.len();
-		while i < len {
-			let draw_char = &chars[i];
-			if let Some((style, range)) = &draw_char.style {
-				let offset = draw_char.offset;
-				let rect = &draw_char.rect;
-				let left = rect.left();
-				let top = rect.top();
-				let bottom = rect.bottom();
-				if range.len() == 1 {
-					match style {
-						TextStyle::Line(_)
-						| TextStyle::Link(_) => {
-							let (line_margin, char_margin, stroke_width) = draw_properties(rect, true, true);
-							underline(ui, left - line_margin, top + char_margin, bottom - char_margin, stroke_width, draw_char.color);
-						}
-						TextStyle::Border => {
-							let (line_margin, char_margin, stroke_width) = draw_properties(rect, true, true);
-							border(ui, left - line_margin, rect.right() + line_margin, top + char_margin, bottom - char_margin, true, true, stroke_width, draw_char.color);
-						}
-						TextStyle::FontSize { .. }
-						| TextStyle::Image(_) => {}
-					}
-				} else if offset == range.end - 1 {
-					match style {
-						TextStyle::Line(_)
-						| TextStyle::Link(_) => {
-							let (line_margin, char_margin, stroke_width) = draw_properties(rect, false, true);
-							underline(ui, left - line_margin, top + char_margin, bottom - char_margin, stroke_width, draw_char.color);
-						}
-						TextStyle::Border => {
-							let (line_margin, char_margin, stroke_width) = draw_properties(rect, false, true);
-							border(ui, left - line_margin, rect.right() + line_margin, top + char_margin, bottom - char_margin, false, true, stroke_width, draw_char.color);
-						}
-						TextStyle::FontSize { .. }
-						| TextStyle::Image(_) => {}
-					}
-				} else {
-					let start = offset == range.start;
-					i += 1;
-					if i < len {
-						let mut left = rect.left();
-						let (draw_top, color, style, mut line_margin, mut char_margin, mut stroke_width) = match style {
-							TextStyle::Line(_)
-							| TextStyle::Link(_)
-							| TextStyle::Border => {
-								let (line_margin, char_margin, stroke_width) = draw_properties(rect, start, false);
-								if start {
-									(top + char_margin, draw_char.color, style.clone(), line_margin, char_margin, stroke_width)
-								} else {
-									(top, draw_char.color, style.clone(), line_margin, char_margin, stroke_width)
-								}
-							}
-							TextStyle::FontSize { .. }
-							| TextStyle::Image(_) => {
-								continue;
-							}
-						};
-						let draw_char_left = len - i;
-						let style_char_left = range.end - offset - 1;
-						let (char_left, end) = if draw_char_left >= style_char_left {
-							(style_char_left, true)
-						} else {
-							(draw_char_left, false)
-						};
-						let stop = char_left + i;
-						while i < stop - 1 {
-							let draw_char = &chars[i];
-							let this_rect = &draw_char.rect;
-							let this_left = this_rect.left();
-							if this_left < left {
-								left = this_left;
-								(line_margin, char_margin, stroke_width) = draw_properties(this_rect, false, false);
-							}
-							i += 1;
-						}
-						let draw_char = &chars[i];
-						let last_rect = &draw_char.rect;
-						let last_left = last_rect.left();
-						if last_left < left {
-							left = last_left;
-							(line_margin, char_margin, stroke_width) = draw_properties(last_rect, false, end);
-						}
-						let draw_bottom = if end {
-							last_rect.bottom() - char_margin
-						} else {
-							last_rect.bottom()
-						};
-						let draw_left = left - line_margin;
-						match style {
-							TextStyle::Line(_) | TextStyle::Link(_) => underline(ui, draw_left, draw_top, draw_bottom, stroke_width, color),
-							TextStyle::Border => border(ui, draw_left, last_rect.right() + line_margin, draw_top, draw_bottom, start, end, stroke_width, color),
-							_ => { panic!("internal error"); }
-						};
-					} else {
-						let color = draw_char.color;
-						match style {
-							TextStyle::Line(_) | TextStyle::Link(_) => {
-								let (line_margin, char_margin, stroke_width) = draw_properties(rect, start, false);
-								underline(ui, left - line_margin, top + char_margin, bottom, stroke_width, color)
-							}
-							TextStyle::Border => {
-								let (line_margin, char_margin, stroke_width) = draw_properties(rect, start, false);
-								border(ui, left - line_margin, rect.right() + line_margin, top + char_margin, bottom, start, false, stroke_width, color)
-							}
-							_ => { panic!("internal error"); }
-						};
-						break;
-					}
-				}
+		match decoration {
+			TextDecoration::Border { rect, stroke_width, start, end, color } => {
+				border(ui, rect.min.x, rect.max.x, rect.min.y, rect.max.y, *start, *end, *stroke_width, *color);
 			}
-			i += 1;
+			TextDecoration::UnderLine { pos2, length, stroke_width, color, .. } => {
+				underline(ui, pos2.x, pos2.y, pos2.y + length, *stroke_width, *color);
+			}
 		}
 	}
 
@@ -376,5 +240,155 @@ impl GuiRender for GuiHanRender
 			line_base = left;
 		}
 		(PointerPosition::Tail, PointerPosition::Tail)
+	}
+}
+
+fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut RenderLine, context: &RenderContext)
+{
+	#[inline]
+	fn update_size(render_line: &mut RenderLine, draw_size: f32, cell: &RenderCell) {
+		if draw_size > render_line.draw_size {
+			render_line.draw_size = draw_size;
+			if !matches!( cell, RenderCell::Image(_)) {
+				render_line.line_space = draw_size / 2.0;
+			};
+		}
+	}
+	#[inline]
+	fn setup_underline(mut draw_char: RenderChar, range: &Range<usize>, render_line: &mut RenderLine,
+		index: usize, len: usize, iter: &mut Enumerate<IntoIter<(RenderChar, CharStyle)>>, context: &RenderContext) -> TextDecoration {
+		let rect = &draw_char.rect;
+		let min = &rect.min;
+		let left = min.x;
+		let top = min.y;
+		let offset = draw_char.offset;
+		let (color, padding) = match draw_char.cell {
+			RenderCell::Image(_) => (context.colors.color, 0.0),
+			RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 2.0),
+		};
+		let margin = padding / 4.0;
+		let mut draw_left = left;
+		let draw_top = if offset == range.start {
+			top + margin
+		} else {
+			top
+		};
+		let style_left = range.end - offset - 1;
+		let chars_left = len - index - 1;
+		let (left_count, end) = if style_left <= chars_left {
+			(style_left, true)
+		} else {
+			(chars_left, false)
+		};
+		if left_count > 0 {
+			render_line.chars.push(draw_char);
+			for _ in 1..left_count {
+				let e = iter.next().unwrap();
+				update_size(render_line, e.1.0.rect.width(), &e.1.0.cell);
+				if draw_left > e.1.0.rect.left() {
+					draw_left = e.1.0.rect.left()
+				}
+				render_line.chars.push(e.1.0);
+			}
+			let e = iter.next().unwrap();
+			update_size(render_line, e.1.0.rect.width(), &e.1.0.cell);
+			if draw_left > e.1.0.rect.left() {
+				draw_left = e.1.0.rect.left()
+			}
+			draw_char = e.1.0;
+		}
+		let draw_bottom = if end {
+			draw_char.rect.bottom() - margin
+		} else {
+			draw_char.rect.bottom()
+		};
+		draw_left -= margin;
+		render_line.chars.push(draw_char);
+		TextDecoration::UnderLine {
+			pos2: Pos2 { x: draw_left, y: draw_top },
+			length: draw_bottom - draw_top,
+			stroke_width: margin / 2.0,
+			color,
+		}
+	}
+
+	let len = draw_chars.len();
+	if len == 0 {
+		return;
+	}
+	let len = draw_chars.len();
+	let mut iter = draw_chars.into_iter().enumerate();
+	while let Some((index, (mut draw_char, char_style))) = iter.next() {
+		let rect = &draw_char.rect;
+		let min = &rect.min;
+		let max = &rect.max;
+		let left = min.x;
+		let right = max.x;
+		let top = min.y;
+		update_size(render_line, right - left, &draw_char.cell);
+		if let Some(range) = char_style.border {
+			let offset = draw_char.offset;
+			let (color, padding) = match draw_char.cell {
+				RenderCell::Image(_) => (context.colors.color, 0.0),
+				RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 2.0),
+			};
+			let margin = padding / 4.0;
+			let mut border_left = left;
+			let (start, border_top) = if offset == range.start {
+				(true, top + padding - margin)
+			} else {
+				(false, top)
+			};
+			let style_left = range.end - offset - 1;
+			let chars_left = len - index - 1;
+			let (left_count, end) = if style_left <= chars_left {
+				(style_left, true)
+			} else {
+				(chars_left, false)
+			};
+			if left_count > 0 {
+				render_line.chars.push(draw_char);
+				for _ in 1..left_count {
+					let e = iter.next().unwrap();
+					update_size(render_line, e.1.0.rect.width(), &e.1.0.cell);
+					if border_left > e.1.0.rect.left() {
+						border_left = e.1.0.rect.left()
+					}
+					render_line.chars.push(e.1.0);
+				}
+				let e = iter.next().unwrap();
+				update_size(render_line, e.1.0.rect.width(), &e.1.0.cell);
+				if border_left > e.1.0.rect.left() {
+					border_left = e.1.0.rect.left()
+				}
+				draw_char = e.1.0;
+			}
+			let border_bottom = if end {
+				draw_char.rect.bottom() - padding + margin
+			} else {
+				draw_char.rect.bottom()
+			};
+			render_line.chars.push(draw_char);
+			border_left -= margin;
+			let border_right = right + margin;
+			render_line.add_decoration(TextDecoration::Border {
+				rect: Rect {
+					min: Pos2 { x: border_left, y: border_top },
+					max: Pos2 { x: border_right, y: border_bottom },
+				},
+				stroke_width: margin / 2.0,
+				start,
+				end,
+				color,
+			});
+		} else if let Some((_, range)) = char_style.line {
+			let decoration = setup_underline(draw_char, &range, render_line, index, len, &mut iter, context);
+			render_line.add_decoration(decoration);
+		} else if let Some((_, range)) = char_style.link {
+			let decoration = setup_underline(draw_char, &range, render_line, index, len, &mut iter, context);
+			render_line.add_decoration(decoration);
+		} else {
+			render_line.chars.push(draw_char);
+		}
 	}
 }
