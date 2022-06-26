@@ -357,6 +357,16 @@ impl ReaderApp {
 			drop(input);
 			self.controller.switch_link_next(ui);
 			true
+		} else if input.consume_key(Modifiers::NONE, Key::C) {
+			drop(input);
+			self.sidebar = true;
+			self.sidebar_list = SidebarList::Chapter;
+			false
+		} else if input.consume_key(Modifiers::NONE, Key::H) {
+			drop(input);
+			self.sidebar = true;
+			self.sidebar_list = SidebarList::History;
+			false
 		} else if input.consume_key(Modifiers::NONE, Key::Enter) {
 			drop(input);
 			self.controller.try_goto_link(ui)?;
