@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Deref;
 use anyhow::{anyhow, Result};
-use cssparser::{RGBA, ToCss};
+use cssparser::RGBA;
 use ego_tree::iter::Children;
 use ego_tree::{NodeId, NodeRef};
 use markup5ever::{LocalName, Namespace, Prefix, QualName};
@@ -327,7 +327,7 @@ fn load_styles<'a, F>(document: &Html, file_resolver: Option<F>) -> HashMap<Node
 				if styles.len() == 0 {
 					continue;
 				}
-				let selector_str = style_rule.selectors.to_css_string();
+				let selector_str = style_rule.selectors.to_string();
 				if let Ok(selector) = Selector::parse(&selector_str) {
 					for element in document.select(&selector) {
 						let mut styles = styles.clone();
