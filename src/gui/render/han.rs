@@ -123,10 +123,10 @@ impl GuiRender for GuiHanRender
 				let char_size = Pos2::new(rect.width(), rect.height());
 				let draw_offset = if let Some(range) = &char_style.border {
 					let draw_height = rect.height();
-					let padding = draw_height / 2.0;
+					let padding = draw_height / 8.0;
 					let max = &mut rect.max;
 					if range.len() == 1 {
-						max.y += draw_height;
+						max.y += padding * 2.0;
 						Pos2::new(0.0, padding)
 					} else if i == range.start {
 						max.y += padding;
@@ -264,12 +264,11 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 		let offset = draw_char.offset;
 		let (color, padding) = match draw_char.cell {
 			RenderCell::Image(_) => (context.colors.color, 0.0),
-			RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 2.0),
+			RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 8.0),
 		};
-		let margin = padding / 4.0;
 		let mut draw_left = left;
 		let draw_top = if offset == range.start {
-			top + margin
+			top + padding
 		} else {
 			top
 		};
@@ -298,16 +297,16 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 			draw_char = e.1.0;
 		}
 		let draw_bottom = if end {
-			draw_char.rect.bottom() - margin
+			draw_char.rect.bottom() - padding
 		} else {
 			draw_char.rect.bottom()
 		};
-		draw_left -= margin;
+		draw_left -= padding;
 		render_line.chars.push(draw_char);
 		TextDecoration::UnderLine {
 			pos2: Pos2 { x: draw_left, y: draw_top },
 			length: draw_bottom - draw_top,
-			stroke_width: margin / 2.0,
+			stroke_width: padding / 2.0,
 			color,
 		}
 	}
@@ -330,12 +329,11 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 			let offset = draw_char.offset;
 			let (color, padding) = match draw_char.cell {
 				RenderCell::Image(_) => (context.colors.color, 0.0),
-				RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 2.0),
+				RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 8.0),
 			};
-			let margin = padding / 4.0;
 			let mut border_left = left;
 			let (start, border_top) = if offset == range.start {
-				(true, top + padding - margin)
+				(true, top)
 			} else {
 				(false, top)
 			};
@@ -363,20 +361,16 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 				}
 				draw_char = e.1.0;
 			}
-			let border_bottom = if end {
-				draw_char.rect.bottom() - padding + margin
-			} else {
-				draw_char.rect.bottom()
-			};
+			let border_bottom = draw_char.rect.bottom();
 			render_line.chars.push(draw_char);
-			border_left -= margin;
-			let border_right = right + margin;
+			border_left -= padding;
+			let border_right = right + padding;
 			render_line.add_decoration(TextDecoration::Border {
 				rect: Rect {
 					min: Pos2 { x: border_left, y: border_top },
 					max: Pos2 { x: border_right, y: border_bottom },
 				},
-				stroke_width: margin / 2.0,
+				stroke_width: padding / 2.0,
 				start,
 				end,
 				color,
