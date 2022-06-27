@@ -667,4 +667,10 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		self.highlight = None;
 		self.redraw(context);
 	}
+
+	#[inline]
+	pub fn toc_index(&self) -> usize
+	{
+		self.book.toc_index(self.reading.line, self.reading.position)
+	}
 }

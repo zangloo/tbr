@@ -223,6 +223,12 @@ impl ReadingView {
 	}
 
 	#[inline]
+	pub fn toc_index(&self) -> usize
+	{
+		self.controller.toc_index()
+	}
+
+	#[inline]
 	pub fn switch_book(&mut self, reading: ReadingInfo) -> String
 	{
 		self.controller.switch_book(reading, &mut self.render_context)

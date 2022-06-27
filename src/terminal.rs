@@ -74,8 +74,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 					select_book(s);
 					return;
 				}
-				let reading = reading_view.reading_info();
-				let toc_index = book.toc_index(reading.line, reading.position);
+				let toc_index = reading_view.toc_index();
 				let dialog = list_dialog("Select TOC", option.unwrap().into_iter(), toc_index, move |s, new_index| {
 					let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
 					if toc_index != new_index {
