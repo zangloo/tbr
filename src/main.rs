@@ -85,6 +85,8 @@ pub struct ReadingInfo {
 	chapter: usize,
 	line: usize,
 	position: usize,
+	#[serde(default)]
+	custom_color: bool,
 	ts: u64,
 }
 
@@ -96,6 +98,7 @@ impl ReadingInfo {
 			chapter: 0,
 			line: 0,
 			position: 0,
+			custom_color: true,
 			ts: 0,
 		}
 	}
@@ -124,6 +127,7 @@ impl Clone for ReadingInfo {
 			chapter: self.chapter,
 			line: self.line,
 			position: self.position,
+			custom_color: self.custom_color,
 			ts: ReadingInfo::now(),
 		}
 	}

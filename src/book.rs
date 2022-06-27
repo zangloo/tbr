@@ -202,7 +202,7 @@ impl Line {
 	}
 
 	#[cfg(feature = "gui")]
-	pub fn char_style_at(&self, index: usize, colors: &Colors) -> CharStyle
+	pub fn char_style_at(&self, index: usize, custom_color: bool, colors: &Colors) -> CharStyle
 	{
 		let mut char_style = CharStyle {
 			font_scale: 1.0,
@@ -230,8 +230,8 @@ impl Line {
 					}
 					TextStyle::Border => char_style.border = Some(range.clone()),
 					TextStyle::Line(line) => char_style.line = Some((*line, range.clone())),
-					TextStyle::Color(color) => char_style.color = *color,
-					TextStyle::BackgroundColor(color) => char_style.background = Some(*color),
+					TextStyle::Color(color) => if custom_color { char_style.color = *color },
+					TextStyle::BackgroundColor(color) => if custom_color { char_style.background = Some(*color) },
 				}
 			}
 		}

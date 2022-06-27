@@ -523,6 +523,9 @@ impl ReaderApp {
 		if ImageButton::new(sidebar_id, ICON_SIZE).ui(ui).clicked() {
 			self.sidebar = !sidebar;
 		}
+
+		let setting = self.setup_setting_button(ui);
+
 		let file_open_id = self.image(ui.ctx(), "file_open.svg");
 		if ImageButton::new(file_open_id, ICON_SIZE).ui(ui).clicked() {
 			let mut dialog = rfd::FileDialog::new();
@@ -611,7 +614,31 @@ impl ReaderApp {
 			ui.label(status_msg);
 		});
 
-		theme_dropdown || i18n_dropdown || render_dropdown || searching
+		setting || theme_dropdown || i18n_dropdown || render_dropdown || searching
+	}
+
+	fn setup_setting_button(&mut self, ui: &mut Ui) -> bool
+	{
+		let setting_id = self.image(ui.ctx(), "setting.svg");
+		let setting_popup = ui.make_persistent_id("setting_popup");
+		let setting_button = ImageButton::new(setting_id, ICON_SIZE).ui(ui);
+		if setting_button.clicked() {
+			ui.memory().toggle_popup(setting_popup);
+		}
+		egui::popup::popup_below_widget(ui, setting_popup, &setting_button, |ui| {
+			ui.set_min_width(200.0);
+			let custom_color_id = if self.controller.reading.custom_color {
+				self.image(ui.ctx(), "custom_color_off.svg")
+			} else {
+				self.image(ui.ctx(), "custom_color_on.svg")
+			};
+			let label = self.i18n.msg("custom-color");
+			if Button::image_and_text(custom_color_id, INLINE_ICON_SIZE, label.as_ref()).ui(ui).clicked() {
+				self.controller.reading.custom_color = !self.controller.reading.custom_color;
+				self.update_context(ui);
+				self.controller.redraw(ui);
+			}
+		}).is_some()
 	}
 
 	fn setup_theme_button(&mut self, ui: &mut Ui) -> bool
@@ -642,6 +669,7 @@ impl ReaderApp {
 			colors: self.colors.clone(),
 			font_size: self.font_size,
 			default_font_measure: self.default_font_measure,
+			custom_color: self.controller.reading.custom_color,
 			rect: self.view_rect,
 			leading_space: 0.0,
 			max_page_size: 0.0,

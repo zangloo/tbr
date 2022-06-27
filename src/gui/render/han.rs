@@ -98,7 +98,7 @@ impl GuiRender for GuiHanRender
 		let mut line_space = 0.0;
 
 		for i in start_offset..end_offset {
-			let char_style = text.char_style_at(i, &context.colors);
+			let char_style = text.char_style_at(i, context.custom_color, &context.colors);
 			let (cell, mut rect) = if let Some((path, size)) = self.with_image(&char_style, book, &context.rect, ui) {
 				let left = context.line_base - size.x;
 				let bottom = top + size.y;

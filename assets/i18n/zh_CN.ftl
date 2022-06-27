@@ -9,3 +9,4 @@ search-hint = 查找
 font-demo = 字體測試简体Abc123
 font-file = 字体文件
 font-fail = 字体加载失败：{ $error }
+custom-color = 书籍自定义颜色

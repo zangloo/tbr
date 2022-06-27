@@ -88,6 +88,9 @@ pub(super) struct RenderContext
 	// default single char size
 	pub default_font_measure: Vec2,
 
+	// use book custom color
+	pub custom_color: bool,
+
 	// draw rect
 	pub rect: Rect,
 	pub leading_space: f32,
