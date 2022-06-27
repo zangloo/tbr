@@ -585,13 +585,10 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		let (line1, offset1, line2, offset2) = if from.line > to.line {
 			(to.line, to.offset, from.line, from.offset + 1)
 		} else if from.line == to.line {
-			if from.offset > to.offset {
+			if from.offset >= to.offset {
 				(to.line, to.offset, from.line, from.offset + 1)
-			} else if from.offset < to.offset {
-				(from.line, from.offset, to.line, to.offset + 1)
 			} else {
-				self.redraw(context);
-				return selected_text;
+				(from.line, from.offset, to.line, to.offset + 1)
 			}
 		} else {
 			(from.line, from.offset, to.line, to.offset + 1)

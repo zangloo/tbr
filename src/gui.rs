@@ -31,6 +31,7 @@ const APP_ICON_SIZE: u32 = 48;
 const MIN_FONT_SIZE: u8 = 20;
 const MAX_FONT_SIZE: u8 = 50;
 const FONT_FILE_EXTENSIONS: [&str; 3] = ["ttf", "otf", "ttc"];
+const MIN_TEXT_SELECT_DISTANCE: f32 = 4.0;
 
 const README_TEXT_FILENAME: &str = "readme";
 
@@ -275,6 +276,12 @@ impl ReaderApp {
 		let lines = &self.render_lines;
 		let line_count = lines.len();
 		if line_count == 0 {
+			return;
+		}
+		if (original_pos.x - current_pos.x).abs() < MIN_TEXT_SELECT_DISTANCE
+			&& (original_pos.y - current_pos.y).abs() < MIN_TEXT_SELECT_DISTANCE {
+			self.selected_text = String::new();
+			self.controller.clear_highlight(ui);
 			return;
 		}
 		let (line1, offset1) = self.controller.render.pointer_pos(&original_pos, &self.render_lines, &self.view_rect);
