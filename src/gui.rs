@@ -222,7 +222,7 @@ impl ReaderApp {
 	#[inline]
 	fn update_status(&mut self, status: String)
 	{
-		self.current_toc = self.controller.book.toc_index();
+		self.current_toc = self.controller.book.toc_index(self.controller.reading.line, self.controller.reading.position);
 		self.status = AppStatus::Normal(status);
 	}
 

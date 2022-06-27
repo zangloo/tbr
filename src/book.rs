@@ -293,8 +293,13 @@ pub trait Book {
 		}
 	}
 	fn current_chapter(&self) -> usize { 0 }
-	fn title(&self) -> Option<&String> { None }
-	fn toc_index(&self) -> usize { 0 }
+	fn title(&self, line: usize, offset: usize) -> Option<&str> {
+		let toc_list = self.toc_list()?;
+		let toc_index = self.toc_index(line, offset);
+		let toc = toc_list.get(toc_index)?;
+		Some(toc.title)
+	}
+	fn toc_index(&self, _line: usize, _offset: usize) -> usize { 0 }
 	fn toc_list(&self) -> Option<Vec<ListEntry>> { None }
 	fn toc_position(&mut self, _toc_index: usize) -> Option<TraceInfo> { None }
 	fn lines(&self) -> &Vec<Line>;

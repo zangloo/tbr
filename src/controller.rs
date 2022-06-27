@@ -140,7 +140,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 
 	pub fn status_msg(&self) -> String
 	{
-		let title = match self.book.title() {
+		let title = match self.book.title(self.reading.line, self.reading.position) {
 			Some(t) => t,
 			None => {
 				let names = self.container.inner_book_names();

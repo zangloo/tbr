@@ -51,17 +51,14 @@ struct NavPoint {
 
 struct Chapter {
 	path: String,
-	title: String,
 	lines: Vec<Line>,
 	id_map: HashMap<String, Position>,
-	toc_index: usize,
 }
 
 struct EpubBook<R: Read + Seek> {
 	zip: ZipArchive<R>,
 	#[allow(dead_code)]
 	content_opf_dir: PathBuf,
-	#[allow(dead_code)]
 	content_opf: ContentOPF,
 	toc: Vec<NavPoint>,
 	chapter_cache: HashMap<usize, Chapter>,
@@ -140,14 +137,48 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 		self.chapter_index
 	}
 
-	fn title(&self) -> Option<&String> {
-		Some(&self.chapter_cache.get(&self.chapter_index)?.title)
+	fn title(&self, line: usize, offset: usize) -> Option<&str> {
+		let toc_index = self.toc_index(line, offset);
+		let toc = self.toc.get(toc_index)?;
+		Some(toc_title(toc))
 	}
 
-	fn toc_index(&self) -> usize {
+	fn toc_index(&self, line: usize, offset: usize) -> usize {
 		self.chapter_cache
 			.get(&self.chapter_index)
-			.map_or(0, |c| c.toc_index)
+			.map_or(0, |c| {
+				let toc = &self.toc;
+				let len = toc.len();
+				if len == 0 {
+					return 0;
+				}
+				let mut file_matched = None;
+				let spine = &self.content_opf.spine[self.chapter_index];
+				let manifest = &self.content_opf.manifest[spine];
+				let chapter_href = &manifest.href;
+				for toc_index in 0..len {
+					let np = &toc[toc_index];
+					if let Some(src_file) = &np.src_file {
+						if chapter_href == src_file {
+							if let Some(anchor) = &np.src_anchor {
+								if let Some(position) = c.id_map.get(anchor) {
+									if position.line < line || (position.line == line && position.offset <= offset) {
+										file_matched = Some(toc_index);
+									} else {
+										break;
+									}
+								}
+							} else {
+								file_matched = Some(toc_index);
+							}
+						}
+					}
+				}
+				if let Some(the_last_index_found) = file_matched {
+					return the_last_index_found;
+				}
+				0
+			})
 	}
 
 	fn toc_list(&self) -> Option<Vec<ListEntry>> {
@@ -278,16 +309,10 @@ impl<R: Read + Seek> EpubBook<R> {
 				let html_content = html_str_content(&html_str, Some(|path: String| {
 					Some(resolve(&cwd, &path, css_cache)?.1)
 				}))?;
-				let toc_index = toc_index_for_chapter(chapter_index,
-					&src_file, &html_content.id_map, &self.content_opf, &self.toc);
-				let title = html_content.title
-					.unwrap_or_else(|| toc_title(&self.toc[toc_index]).to_string());
 				let chapter = Chapter {
 					path: src_file.clone(),
-					title: String::from(title),
 					lines: html_content.lines,
 					id_map: html_content.id_map,
-					toc_index,
 				};
 				v.insert(chapter)
 			}
@@ -612,43 +637,6 @@ fn parse_content_opf<R: Read + Seek>(text: &str, content_opf_dir: &PathBuf, zip:
 
 fn is_encrypted<R: Read + Seek>(zip: &ZipArchive<R>) -> bool {
 	zip.file_names().find(|f| *f == "META-INF/encryption.xml").is_some()
-}
-
-fn toc_index_for_chapter<'a>(chapter_index: usize, chapter_path: &str, id_map: &HashMap<String, Position>,
-	opf: &ContentOPF, toc: &'a Vec<NavPoint>) -> usize
-{
-	if toc.len() == 0 {
-		return 0;
-	}
-	let mut file_matched = None;
-	for current_chapter in (0..=chapter_index).rev() {
-		for toc_index in 0..toc.len() {
-			let np = &toc[toc_index];
-			if let Some(src_file) = &np.src_file {
-				if current_chapter == chapter_index {
-					if chapter_path == src_file {
-						if let Some(anchor) = &np.src_anchor {
-							if id_map.contains_key(anchor) {
-								return toc_index;
-							}
-						} else {
-							return toc_index;
-						}
-					}
-				} else {
-					let spine = &opf.spine[current_chapter];
-					let manifest = &opf.manifest.get(spine).unwrap();
-					if manifest.href == *src_file {
-						file_matched = Some(toc_index);
-					}
-				}
-			}
-		}
-		if let Some(the_last_index_found) = file_matched {
-			return the_last_index_found;
-		}
-	}
-	0
 }
 
 fn toc_title(nav_point: &NavPoint) -> &str {

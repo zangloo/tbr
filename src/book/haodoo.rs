@@ -184,7 +184,7 @@ impl<R: Read + Seek> Book for HaodooBook<R> {
 		self.chapter_index
 	}
 
-	fn title(&self) -> Option<&String> {
+	fn title(&self, _line: usize, _offset: usize) -> Option<&str> {
 		if matches!(self.book_type, PDBType::PalmDoc) {
 			None
 		} else {
@@ -192,7 +192,7 @@ impl<R: Read + Seek> Book for HaodooBook<R> {
 		}
 	}
 
-	fn toc_index(&self) -> usize {
+	fn toc_index(&self, _line: usize, _offset: usize) -> usize {
 		self.chapter_index
 	}
 
