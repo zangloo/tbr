@@ -94,6 +94,8 @@ impl GuiRender for GuiHanRender
 		let mut draw_chars = vec![];
 		let mut top = context.rect.min.y;
 		let max_top = context.rect.max.y;
+		let mut draw_size = 0.0;
+		let mut line_space = 0.0;
 
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, &context.colors);
@@ -152,7 +154,9 @@ impl GuiRender for GuiHanRender
 				(RenderCell::Char(cell), rect)
 			};
 			if top + rect.height() > max_top {
-				let mut render_line = self.create_render_line(line, context);
+				let mut render_line = RenderLine::new(line, draw_size, line_space);
+				draw_size = 0.0;
+				line_space = 0.0;
 				setup_decorations(draw_chars, &mut render_line, context);
 				context.line_base -= render_line.draw_size + render_line.line_space;
 				let line_delta = render_line.draw_size + render_line.line_space;
@@ -165,6 +169,12 @@ impl GuiRender for GuiHanRender
 					max: Pos2::new(rect.max.x - line_delta, rect.max.y - y_delta),
 				};
 			}
+			if draw_size < rect.width() {
+				draw_size = rect.width();
+				if !matches!(cell, RenderCell::Image(_)) {
+					line_space = draw_size / 2.0
+				}
+			}
 			let dc = RenderChar {
 				cell,
 				offset: i,
@@ -174,7 +184,7 @@ impl GuiRender for GuiHanRender
 			top = rect.max.y;
 		}
 		if draw_chars.len() > 0 {
-			let mut render_line = self.create_render_line(line, context);
+			let mut render_line = RenderLine::new(line, draw_size, line_space);
 			setup_decorations(draw_chars, &mut render_line, context);
 			context.line_base -= render_line.draw_size + render_line.line_space;
 			draw_lines.push(render_line);
@@ -246,27 +256,17 @@ impl GuiRender for GuiHanRender
 fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut RenderLine, context: &RenderContext)
 {
 	#[inline]
-	fn update_size(render_line: &mut RenderLine, draw_size: f32, cell: &RenderCell) {
-		if draw_size > render_line.draw_size {
-			render_line.draw_size = draw_size;
-			if !matches!( cell, RenderCell::Image(_)) {
-				render_line.line_space = draw_size / 2.0;
-			};
-		}
-	}
-	#[inline]
 	fn setup_underline(mut draw_char: RenderChar, range: &Range<usize>, render_line: &mut RenderLine,
 		index: usize, len: usize, iter: &mut Enumerate<IntoIter<(RenderChar, CharStyle)>>, context: &RenderContext) -> TextDecoration {
 		let rect = &draw_char.rect;
 		let min = &rect.min;
-		let left = min.x;
+		let mut left = min.x;
 		let top = min.y;
 		let offset = draw_char.offset;
 		let (color, padding) = match draw_char.cell {
 			RenderCell::Image(_) => (context.colors.color, 0.0),
 			RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 8.0),
 		};
-		let mut draw_left = left;
 		let draw_top = if offset == range.start {
 			top + padding
 		} else {
@@ -283,16 +283,14 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 			render_line.chars.push(draw_char);
 			for _ in 1..left_count {
 				let e = iter.next().unwrap();
-				update_size(render_line, e.1.0.rect.width(), &e.1.0.cell);
-				if draw_left > e.1.0.rect.left() {
-					draw_left = e.1.0.rect.left()
+				if left > e.1.0.rect.left() {
+					left = e.1.0.rect.left()
 				}
 				render_line.chars.push(e.1.0);
 			}
 			let e = iter.next().unwrap();
-			update_size(render_line, e.1.0.rect.width(), &e.1.0.cell);
-			if draw_left > e.1.0.rect.left() {
-				draw_left = e.1.0.rect.left()
+			if left > e.1.0.rect.left() {
+				left = e.1.0.rect.left()
 			}
 			draw_char = e.1.0;
 		}
@@ -301,7 +299,7 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 		} else {
 			draw_char.rect.bottom()
 		};
-		draw_left -= padding;
+		let draw_left = left - padding;
 		render_line.chars.push(draw_char);
 		TextDecoration::UnderLine {
 			pos2: Pos2 { x: draw_left, y: draw_top },
@@ -310,28 +308,19 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 			color,
 		}
 	}
-
-	let len = draw_chars.len();
-	if len == 0 {
-		return;
-	}
 	let len = draw_chars.len();
 	let mut iter = draw_chars.into_iter().enumerate();
 	while let Some((index, (mut draw_char, char_style))) = iter.next() {
-		let rect = &draw_char.rect;
-		let min = &rect.min;
-		let max = &rect.max;
-		let left = min.x;
-		let right = max.x;
-		let top = min.y;
-		update_size(render_line, right - left, &draw_char.cell);
 		if let Some(range) = char_style.border {
+			let rect = &draw_char.rect;
+			let min = &rect.min;
+			let top = min.y;
 			let offset = draw_char.offset;
 			let (color, padding) = match draw_char.cell {
 				RenderCell::Image(_) => (context.colors.color, 0.0),
 				RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 8.0),
 			};
-			let mut border_left = left;
+			let mut left = min.x;
 			let (start, border_top) = if offset == range.start {
 				(true, top)
 			} else {
@@ -348,23 +337,24 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 				render_line.chars.push(draw_char);
 				for _ in 1..left_count {
 					let e = iter.next().unwrap();
-					update_size(render_line, e.1.0.rect.width(), &e.1.0.cell);
-					if border_left > e.1.0.rect.left() {
-						border_left = e.1.0.rect.left()
+					let new_left = e.1.0.rect.left();
+					if left > new_left {
+						left = new_left;
 					}
 					render_line.chars.push(e.1.0);
 				}
 				let e = iter.next().unwrap();
-				update_size(render_line, e.1.0.rect.width(), &e.1.0.cell);
-				if border_left > e.1.0.rect.left() {
-					border_left = e.1.0.rect.left()
+				let new_left = e.1.0.rect.left();
+				if left > new_left {
+					left = new_left;
 				}
 				draw_char = e.1.0;
 			}
-			let border_bottom = draw_char.rect.bottom();
+			let max = &draw_char.rect.max;
+			let border_bottom = max.y;
+			let border_left = left - padding;
+			let border_right = max.x + padding;
 			render_line.chars.push(draw_char);
-			border_left -= padding;
-			let border_right = right + padding;
 			render_line.add_decoration(TextDecoration::Border {
 				rect: Rect {
 					min: Pos2 { x: border_left, y: border_top },

@@ -309,13 +309,11 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 		index: usize, len: usize, iter: &mut Enumerate<IntoIter<(RenderChar, CharStyle)>>, context: &RenderContext) -> TextDecoration {
 		let rect = &draw_char.rect;
 		let min = &rect.min;
-		let max = &rect.max;
 		let left = min.x;
-		let bottom = max.y;
 		let offset = draw_char.offset;
 		let (color, padding) = match draw_char.cell {
 			RenderCell::Image(_) => (context.colors.color, 0.0),
-			RenderCell::Char(CharCell { char_size, color, .. }) => (color, char_size.x / 8.0),
+			RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.x / 8.0),
 		};
 		let draw_left = if offset == range.start {
 			left + padding
@@ -338,13 +336,14 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 			let e = iter.next().unwrap();
 			draw_char = e.1.0;
 		}
+		let max = draw_char.rect.max;
 		let draw_right = if end {
-			draw_char.rect.right() - padding
+			max.x - padding
 		} else {
-			draw_char.rect.right()
+			max.x
 		};
+		let draw_bottom = max.y + padding;
 		render_line.chars.push(draw_char);
-		let draw_bottom = bottom + padding;
 		TextDecoration::UnderLine {
 			pos2: Pos2 { x: draw_left, y: draw_bottom },
 			length: draw_right - draw_left,
@@ -358,9 +357,7 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 		if let Some(range) = char_style.border {
 			let rect = &draw_char.rect;
 			let min = &rect.min;
-			let max = &rect.max;
 			let left = min.x;
-			let bottom = max.y;
 			let offset = draw_char.offset;
 			let (color, padding) = match draw_char.cell {
 				RenderCell::Image(_) => (context.colors.color, 0.0),
@@ -396,10 +393,11 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 				}
 				draw_char = e.1.0;
 			}
-			let border_right = draw_char.rect.right();
-			render_line.chars.push(draw_char);
+			let max = &draw_char.rect.max;
+			let border_right = max.x;
 			let border_top = top - padding;
-			let border_bottom = bottom + padding;
+			let border_bottom = max.y + padding;
+			render_line.chars.push(draw_char);
 			render_line.add_decoration(TextDecoration::Border {
 				rect: Rect {
 					min: Pos2 { x: border_left, y: border_top },
