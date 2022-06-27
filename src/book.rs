@@ -29,16 +29,19 @@ pub const IMAGE_CHAR: char = '🖼';
 
 type TextDecorationLine = parcel_css::properties::text::TextDecorationLine;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TextStyle {
 	Line(TextDecorationLine),
 	Border,
 	FontSize { scale: f32, relative: bool },
 	Image(String),
 	Link(String),
+	Color(Color32),
+	BackgroundColor(Color32),
 }
 
 #[cfg(feature = "gui")]
+#[derive(Debug)]
 pub struct CharStyle {
 	pub font_scale: f32,
 	pub color: Color32,
@@ -210,7 +213,7 @@ impl Line {
 			link: None,
 			image: None,
 		};
-		for (style, range) in &self.styles {
+		for (style, range) in self.styles.iter().rev() {
 			if range.contains(&index) {
 				match style {
 					TextStyle::FontSize { scale, relative } => {
@@ -227,6 +230,8 @@ impl Line {
 					}
 					TextStyle::Border => char_style.border = Some(range.clone()),
 					TextStyle::Line(line) => char_style.line = Some((*line, range.clone())),
+					TextStyle::Color(color) => char_style.color = *color,
+					TextStyle::BackgroundColor(color) => char_style.background = Some(*color),
 				}
 			}
 		}

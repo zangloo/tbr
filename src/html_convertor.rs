@@ -2,15 +2,17 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Deref;
 use anyhow::{anyhow, Result};
-use cssparser::ToCss;
+use cssparser::{RGBA, ToCss};
 use ego_tree::iter::Children;
 use ego_tree::{NodeId, NodeRef};
+use egui::Color32;
 use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use parcel_css::properties::{border, font, Property};
 use parcel_css::properties::border::{Border, BorderSideWidth};
 use parcel_css::properties::font::FontSize;
 use parcel_css::rules::CssRule;
 use parcel_css::stylesheet::{ParserOptions, StyleSheet};
+use parcel_css::values::color::CssColor;
 use parcel_css::values::length::{Length, LengthPercentage, LengthValue};
 use parcel_css::values::percentage;
 use scraper::{Html, Node, Selector};
@@ -357,6 +359,9 @@ fn convert_style(property: &Property) -> Option<TextStyle>
 		}
 		Property::FontSize(size) => Some(font_size(size)),
 		Property::TextDecorationLine(line, _) => Some(TextStyle::Line(*line)),
+		Property::Color(color) => Some(TextStyle::Color(css_color(color)?)),
+		Property::BackgroundColor(color) => Some(TextStyle::BackgroundColor(css_color(color)?)),
+		Property::Background(bg) => Some(TextStyle::BackgroundColor(css_color(&bg[0].color)?)),
 		_ => None,
 	}
 }
@@ -492,5 +497,20 @@ fn length_value(value: &LengthValue, default_size: f32) -> (f32, bool)
 		| LengthValue::Lvmax(_)
 		| LengthValue::Dvmax(_)
 		=> (1.0, false),
+	}
+}
+
+fn css_color(color: &CssColor) -> Option<Color32>
+{
+	#[inline]
+	fn convert(rgba: &RGBA) -> Color32 {
+		Color32::from_rgba_unmultiplied(rgba.red, rgba.green, rgba.blue, rgba.alpha)
+	}
+	match color {
+		CssColor::CurrentColor => None,
+		CssColor::RGBA(rgba) => Some(convert(rgba)),
+		CssColor::LAB(_)
+		| CssColor::Predefined(_)
+		| CssColor::Float(_) => Some(convert(&color.into())),
 	}
 }
