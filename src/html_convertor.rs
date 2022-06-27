@@ -5,7 +5,6 @@ use anyhow::{anyhow, Result};
 use cssparser::{RGBA, ToCss};
 use ego_tree::iter::Children;
 use ego_tree::{NodeId, NodeRef};
-use egui::Color32;
 use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use parcel_css::properties::{border, font, Property};
 use parcel_css::properties::border::{Border, BorderSideWidth};
@@ -21,6 +20,7 @@ use scraper::node::Element;
 use crate::book::{EMPTY_CHAPTER_CONTENT, IMAGE_CHAR, Line, TextStyle};
 use crate::common::plain_text;
 use crate::common::Position;
+use crate::gui::Color32;
 
 pub struct HtmlContent {
 	pub title: Option<String>,
