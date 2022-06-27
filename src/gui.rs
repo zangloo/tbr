@@ -398,6 +398,18 @@ impl ReaderApp {
 			drop(input);
 			self.controller.switch_chapter(false, ui)?;
 			true
+		} else if input.consume_key(Modifiers::CTRL, Key::ArrowUp) {
+			drop(input);
+			if self.configuration.gui.font_size < MAX_FONT_SIZE {
+				self.configuration.gui.font_size += 2;
+			}
+			false
+		} else if input.consume_key(Modifiers::CTRL, Key::ArrowDown) {
+			drop(input);
+			if self.configuration.gui.font_size > MIN_FONT_SIZE {
+				self.configuration.gui.font_size -= 2;
+			}
+			false
 		} else if input.consume_key(Modifiers::NONE, Key::Escape) {
 			if self.sidebar {
 				self.sidebar = false;
