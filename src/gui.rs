@@ -561,29 +561,6 @@ impl ReaderApp {
 			}
 		}
 
-		// setup render dropdown
-		let han_text = self.i18n.msg("render-han");
-		let xi_text = self.i18n.msg("render-xi");
-		let mut selected_text = if self.configuration.render_type == "han" { han_text.as_ref() } else { xi_text.as_ref() };
-		let mut selected_render = None;
-		let render_dropdown = ComboBox::from_id_source("render")
-			.selected_text(selected_text.to_string())
-			.show_ui(ui, |ui| {
-				if ui.selectable_value(&mut selected_text, han_text.as_ref(), han_text.as_ref()).clicked() {
-					selected_render = Some("han");
-				};
-				if ui.selectable_value(&mut selected_text, xi_text.as_ref(), xi_text.as_ref()).clicked() {
-					selected_render = Some("xi");
-				};
-			}).inner.is_some();
-		if let Some(render_type) = selected_render {
-			if render_type != &self.configuration.render_type {
-				self.configuration.render_type = render_type.to_string();
-				self.controller.render = create_render(render_type);
-				self.controller.redraw(ui);
-			}
-		}
-
 		let search_id = self.image(ui.ctx(), "search.svg");
 		ui.image(search_id, ICON_SIZE);
 		let search_edit = ui.add(TextEdit::singleline(&mut self.configuration.search_pattern)
@@ -614,7 +591,7 @@ impl ReaderApp {
 			ui.label(status_msg);
 		});
 
-		setting || theme_dropdown || i18n_dropdown || render_dropdown || searching
+		setting || theme_dropdown || i18n_dropdown || searching
 	}
 
 	fn setup_setting_button(&mut self, ui: &mut Ui) -> bool
@@ -627,6 +604,22 @@ impl ReaderApp {
 		}
 		egui::popup::popup_below_widget(ui, setting_popup, &setting_button, |ui| {
 			ui.set_min_width(200.0);
+
+			// switch render
+			let han_text = self.i18n.msg("render-han");
+			let xi_text = self.i18n.msg("render-xi");
+			let han = self.configuration.render_type == "han";
+			let label = if han { xi_text.as_ref() } else { han_text.as_ref() };
+			if Button::new(label).ui(ui).clicked() {
+				let render_type = if han { "xi" } else { "han" };
+				self.configuration.render_type = render_type.to_string();
+				self.controller.render = create_render(render_type);
+				self.controller.redraw(ui);
+			}
+
+			ui.separator();
+
+			// enable/disable custom color of book
 			let custom_color_id = if self.controller.reading.custom_color {
 				self.image(ui.ctx(), "custom_color_off.svg")
 			} else {
