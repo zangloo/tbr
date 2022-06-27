@@ -222,7 +222,7 @@ impl ReaderApp {
 		self.status = AppStatus::Normal(status);
 	}
 
-	fn setup_popup(&mut self, ui: &mut Ui, original_pos: Pos2, current_pos: Pos2) {
+	fn select_text(&mut self, ui: &mut Ui, original_pos: Pos2, current_pos: Pos2) {
 		#[inline]
 		fn offset_index(line: &RenderLine, offset: &PointerPosition) -> usize {
 			match offset {
@@ -460,7 +460,7 @@ impl ReaderApp {
 					if input.pointer.primary_down() {
 						if let Some(from_pos) = input.pointer.press_origin() {
 							drop(input);
-							self.setup_popup(ui, from_pos, pointer_pos);
+							self.select_text(ui, from_pos, pointer_pos);
 						}
 					}
 					false
@@ -603,6 +603,7 @@ impl ReaderApp {
 			ui.set_min_width(200.0);
 			for entry in &self.theme_entries {
 				if ui.button(entry.0.clone()).clicked() {
+					self.configuration.theme_name = entry.0.clone();
 					self.colors = convert_colors(&entry.1);
 					self.update_context(ui);
 					self.controller.redraw(ui);
