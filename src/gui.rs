@@ -606,11 +606,17 @@ impl ReaderApp {
 			ui.set_min_width(200.0);
 
 			// switch render
-			let han_text = self.i18n.msg("render-han");
-			let xi_text = self.i18n.msg("render-xi");
 			let han = self.configuration.render_type == "han";
-			let label = if han { xi_text.as_ref() } else { han_text.as_ref() };
-			if Button::new(label).ui(ui).clicked() {
+			let button = if han {
+				let xi_text = self.i18n.msg("render-xi");
+				let render_id = self.image(ui.ctx(), "render_xi.svg");
+				Button::image_and_text(render_id, INLINE_ICON_SIZE, xi_text.as_ref())
+			} else {
+				let han_text = self.i18n.msg("render-han");
+				let render_id = self.image(ui.ctx(), "render_han.svg");
+				Button::image_and_text(render_id, INLINE_ICON_SIZE, han_text.as_ref())
+			};
+			if button.ui(ui).clicked() {
 				let render_type = if han { "xi" } else { "han" };
 				self.configuration.render_type = render_type.to_string();
 				self.controller.render = create_render(render_type);
