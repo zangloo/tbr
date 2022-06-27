@@ -11,7 +11,7 @@ use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::{egui, IconData};
 use eframe::egui::{Button, FontData, FontDefinitions, Frame, Id, ImageButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
-use egui::{Area, ComboBox, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit};
+use egui::{Area, ComboBox, CursorIcon, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit};
 use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
 use image::imageops::FilterType;
@@ -437,17 +437,16 @@ impl ReaderApp {
 			if rect.contains(pointer_pos) {
 				if response.clicked() {
 					drop(input);
-					match self.click_event(pointer_pos, ui) {
-						Ok(action) => if action {
-							self.update_status(self.controller.status_msg());
-							true
-						} else {
-							false
-						}
-						Err(e) => {
+					if let Some((line, link_index)) = self.link_resolve(pointer_pos) {
+						if let Err(e) = self.controller.goto_link(line, link_index, ui) {
 							self.error(e.to_string());
 							false
+						} else {
+							self.update_status(self.controller.status_msg());
+							true
 						}
+					} else {
+						false
 					}
 				} else if input.scroll_delta.y != 0.0 {
 					let delta = input.scroll_delta.y;
@@ -475,12 +474,18 @@ impl ReaderApp {
 						self.popup_menu = Some(pointer_pos);
 					}
 					false
+				} else if input.pointer.primary_down() {
+					if let Some(from_pos) = input.pointer.press_origin() {
+						drop(input);
+						self.select_text(ui, from_pos, pointer_pos);
+					}
+					false
 				} else {
-					if input.pointer.primary_down() {
-						if let Some(from_pos) = input.pointer.press_origin() {
-							drop(input);
-							self.select_text(ui, from_pos, pointer_pos);
-						}
+					drop(input);
+					if let Some(_) = self.link_resolve(pointer_pos) {
+						ui.output().cursor_icon = CursorIcon::PointingHand;
+					} else {
+						ui.output().cursor_icon = CursorIcon::Default;
 					}
 					false
 				}
@@ -493,10 +498,10 @@ impl ReaderApp {
 		Ok(action)
 	}
 
-	fn click_event(&mut self, click_position: Pos2, ui: &mut Ui) -> Result<bool>
+	fn link_resolve(&self, mouse_position: Pos2) -> Option<(usize, usize)>
 	{
 		for line in &self.render_lines {
-			if let Some(dc) = line.char_at_pos(click_position) {
+			if let Some(dc) = line.char_at_pos(mouse_position) {
 				if let Some(link_index) = self.controller.book.lines()[line.line].link_iter(true, |link| {
 					if link.range.contains(&dc.offset) {
 						(true, Some(link.index))
@@ -504,12 +509,11 @@ impl ReaderApp {
 						(false, None)
 					}
 				}) {
-					self.controller.goto_link(line.line, link_index, ui)?;
-					return Ok(true);
+					return Some((line.line, link_index));
 				}
 			}
 		}
-		Ok(false)
+		None
 	}
 
 	fn setup_toolbar(&mut self, frame: &mut eframe::Frame, ui: &mut Ui) -> bool
