@@ -11,7 +11,7 @@ use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::{egui, IconData};
 use eframe::egui::{Button, FontData, FontDefinitions, Frame, Id, ImageButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
-use egui::{Area, ComboBox, CursorIcon, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit};
+use egui::{Area, CursorIcon, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit, TextStyle};
 use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
 use image::imageops::FilterType;
@@ -144,10 +144,13 @@ fn insert_font(fonts: &mut FontDefinitions, name: &str, font_data: FontData) {
 		.insert(0, name.to_string());
 }
 
+#[derive(PartialEq)]
 enum SidebarList {
 	Chapter,
 	History,
 	Font,
+	Theme,
+	Language,
 }
 
 enum AppStatus {
@@ -540,27 +543,6 @@ impl ReaderApp {
 			}
 		}
 
-		let theme_dropdown = self.setup_theme_button(ui);
-
-		// setup i18n dropdown
-		let locale_title = self.i18n.msg("title");
-		let mut locale_text = locale_title.as_ref();
-		let mut selected_locale = None;
-		let i18n_dropdown = ComboBox::from_id_source("i18n")
-			.selected_text(locale_text.to_string())
-			.show_ui(ui, |ui| {
-				for (locale, name) in self.i18n.locales() {
-					if ui.selectable_value(&mut locale_text, name, name).clicked() {
-						selected_locale = Some(locale.clone());
-					};
-				}
-			}).inner.is_some();
-		if let Some(locale) = selected_locale {
-			if let Err(e) = self.i18n.set_locale(&locale) {
-				self.error(e.to_string());
-			}
-		}
-
 		let search_id = self.image(ui.ctx(), "search.svg");
 		ui.image(search_id, ICON_SIZE);
 		let search_edit = ui.add(TextEdit::singleline(&mut self.configuration.search_pattern)
@@ -591,7 +573,7 @@ impl ReaderApp {
 			ui.label(status_msg);
 		});
 
-		setting || theme_dropdown || i18n_dropdown || searching
+		setting || searching
 	}
 
 	fn setup_setting_button(&mut self, ui: &mut Ui) -> bool
@@ -636,27 +618,6 @@ impl ReaderApp {
 				self.controller.reading.custom_color = !self.controller.reading.custom_color;
 				self.update_context(ui);
 				self.controller.redraw(ui);
-			}
-		}).is_some()
-	}
-
-	fn setup_theme_button(&mut self, ui: &mut Ui) -> bool
-	{
-		let themes_id = self.image(ui.ctx(), "themes.svg");
-		let themes_popup = ui.make_persistent_id("themes_popup");
-		let theme_button = ImageButton::new(themes_id, ICON_SIZE).ui(ui);
-		if theme_button.clicked() {
-			ui.memory().toggle_popup(themes_popup);
-		}
-		egui::popup::popup_below_widget(ui, themes_popup, &theme_button, |ui| {
-			ui.set_min_width(200.0);
-			for entry in &self.theme_entries {
-				if ui.button(entry.0.clone()).clicked() {
-					self.configuration.theme_name = entry.0.clone();
-					self.colors = convert_colors(&entry.1);
-					self.update_context(ui);
-					self.controller.redraw(ui);
-				}
 			}
 		}).is_some()
 	}
@@ -712,29 +673,28 @@ impl eframe::App for ReaderApp {
 		});
 
 		if self.sidebar {
-			let width = ctx.available_rect().width() / 4.0;
-			egui::SidePanel::left("sidebar").max_width(width).show(ctx, |ui| {
+			let width = ctx.available_rect().width() / 3.0;
+			egui::SidePanel::left("sidebar").default_width(width).width_range(width..=width).show(ctx, |ui| {
 				egui::menu::bar(ui, |ui| {
-					let (chapter_icon, history_icon, font_icon) = match self.sidebar_list {
-						SidebarList::Chapter => ("chapter_on.svg", "history_off.svg", "font_off.svg"),
-						SidebarList::History => ("chapter_off.svg", "history_on.svg", "font_off.svg"),
-						SidebarList::Font => ("chapter_off.svg", "history_off.svg", "font_on.svg"),
-					};
-					let chapter_id = self.image(ui.ctx(), chapter_icon);
-					let chapter_button = ImageButton::new(chapter_id, ICON_SIZE).ui(ui);
-					if chapter_button.clicked() {
-						self.sidebar_list = SidebarList::Chapter;
-					}
-					let history_id = self.image(ui.ctx(), history_icon);
-					let history_button = ImageButton::new(history_id, ICON_SIZE).ui(ui);
-					if history_button.clicked() {
-						self.sidebar_list = SidebarList::History;
-					}
-					let font_id = self.image(ui.ctx(), font_icon);
-					let font_button = ImageButton::new(font_id, ICON_SIZE).ui(ui);
-					if font_button.clicked() {
-						self.sidebar_list = SidebarList::Font;
-					}
+					let chapter_text = self.i18n.msg("tab-chapter");
+					let text = RichText::new(chapter_text.as_ref()).text_style(TextStyle::Heading);
+					ui.selectable_value(&mut self.sidebar_list, SidebarList::Chapter, text);
+
+					let history_text = self.i18n.msg("tab-history");
+					let text = RichText::new(history_text.as_ref()).text_style(TextStyle::Heading);
+					ui.selectable_value(&mut self.sidebar_list, SidebarList::History, text);
+
+					let font_text = self.i18n.msg("tab-font");
+					let text = RichText::new(font_text.as_ref()).text_style(TextStyle::Heading);
+					ui.selectable_value(&mut self.sidebar_list, SidebarList::Font, text);
+
+					let theme_text = self.i18n.msg("tab-theme");
+					let text = RichText::new(theme_text.as_ref()).text_style(TextStyle::Heading);
+					ui.selectable_value(&mut self.sidebar_list, SidebarList::Theme, text);
+
+					let lang_text = self.i18n.msg("tab-lang");
+					let text = RichText::new(lang_text.as_ref()).text_style(TextStyle::Heading);
+					ui.selectable_value(&mut self.sidebar_list, SidebarList::Language, text);
 				});
 				ScrollArea::new([false, true]).max_width(width).show(ui, |ui| {
 					match self.sidebar_list {
@@ -750,12 +710,8 @@ impl eframe::App for ReaderApp {
 									ui.heading(RichText::from(bookname).color(Color32::LIGHT_RED));
 									if let Some(toc) = self.controller.book.toc_list() {
 										for entry in toc {
-											if self.current_toc == entry.value {
-												ui.label(RichText::from(entry.title)
-													.background_color(Color32::WHITE).
-													color(Color32::BLUE));
-											} else if ui.button(RichText::from(entry.title)
-												.background_color(Color32::WHITE)).clicked() {
+											let current = self.current_toc == entry.value;
+											if ui.selectable_label(current, entry.title).clicked() {
 												selected_toc = Some(entry.value);
 											}
 										}
@@ -843,6 +799,32 @@ impl eframe::App for ReaderApp {
 										("error", e.to_string())
 									]);
 									self.error(error);
+								}
+							}
+						}
+						SidebarList::Theme => {
+							for entry in &self.theme_entries {
+								let current = self.configuration.theme_name == entry.0;
+								if ui.selectable_label(current, &entry.0).clicked() {
+									self.configuration.theme_name = entry.0.clone();
+									self.colors = convert_colors(&entry.1);
+									self.update_context(ui);
+									self.controller.redraw(ui);
+								}
+							}
+						}
+						SidebarList::Language => {
+							let mut selected_locale = None;
+							let locale_title = self.i18n.msg("title");
+							let mut locale_text = locale_title.as_ref();
+							for (locale, name) in self.i18n.locales() {
+								if ui.selectable_value(&mut locale_text, name, name).clicked() {
+									selected_locale = Some(locale.clone());
+								};
+							}
+							if let Some(locale) = selected_locale {
+								if let Err(e) = self.i18n.set_locale(&locale) {
+									self.error(e.to_string());
 								}
 							}
 						}
