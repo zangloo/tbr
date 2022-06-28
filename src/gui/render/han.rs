@@ -3,7 +3,7 @@ use std::iter::Enumerate;
 use std::ops::Range;
 use std::vec::IntoIter;
 use eframe::egui::{Align2, Color32, Pos2, Rect, Ui};
-use egui::Stroke;
+use egui::{Stroke, Vec2};
 
 use crate::book::{Book, CharStyle, Line};
 use crate::common::{HAN_RENDER_CHARS_PAIRS, with_leading};
@@ -122,25 +122,25 @@ impl GuiRender for GuiHanRender
 					Align2::RIGHT_TOP,
 					Color32::BLACK);
 				let color = char_style.color;
-				let char_size = Pos2::new(rect.width(), rect.height());
+				let char_size = Vec2::new(rect.width(), rect.height());
 				let draw_offset = if let Some(range) = &char_style.border {
 					let draw_height = rect.height();
-					let padding = draw_height / 8.0;
+					let padding = draw_height / 4.0;
 					let max = &mut rect.max;
 					if range.len() == 1 {
 						max.y += padding * 2.0;
-						Pos2::new(0.0, padding)
+						Vec2::new(0.0, padding)
 					} else if i == range.start {
 						max.y += padding;
-						Pos2::new(0.0, padding)
+						Vec2::new(0.0, padding)
 					} else if i == range.end - 1 {
 						max.y += padding;
-						Pos2::ZERO
+						Vec2::ZERO
 					} else {
-						Pos2::ZERO
+						Vec2::ZERO
 					}
 				} else {
-					Pos2::ZERO
+					Vec2::ZERO
 				};
 				let background = update_for_highlight(line, i, char_style.background, &context.colors, highlight);
 				let cell = CharCell {
@@ -265,10 +265,11 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 		let offset = draw_char.offset;
 		let (color, padding) = match draw_char.cell {
 			RenderCell::Image(_) => (context.colors.color, 0.0),
-			RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 8.0),
+			RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 4.0),
 		};
+		let margin = padding / 2.0;
 		let draw_top = if offset == range.start {
-			top + padding
+			top + margin
 		} else {
 			top
 		};
@@ -295,16 +296,16 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 			draw_char = e.1.0;
 		}
 		let draw_bottom = if end {
-			draw_char.rect.bottom() - padding
+			draw_char.rect.bottom() - margin
 		} else {
 			draw_char.rect.bottom()
 		};
-		let draw_left = left - padding;
+		let draw_left = left - margin;
 		render_line.chars.push(draw_char);
 		TextDecoration::UnderLine {
 			pos2: Pos2 { x: draw_left, y: draw_top },
 			length: draw_bottom - draw_top,
-			stroke_width: padding / 2.0,
+			stroke_width: margin / 2.0,
 			color,
 		}
 	}
@@ -318,11 +319,12 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 			let offset = draw_char.offset;
 			let (color, padding) = match draw_char.cell {
 				RenderCell::Image(_) => (context.colors.color, 0.0),
-				RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 8.0),
+				RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 4.0),
 			};
+			let margin = padding / 2.0;
 			let mut left = min.x;
 			let (start, border_top) = if offset == range.start {
-				(true, top)
+				(true, top + margin)
 			} else {
 				(false, top)
 			};
@@ -351,16 +353,16 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut
 				draw_char = e.1.0;
 			}
 			let max = &draw_char.rect.max;
-			let border_bottom = max.y;
-			let border_left = left - padding;
-			let border_right = max.x + padding;
+			let border_bottom = max.y - margin;
+			let border_left = left - margin;
+			let border_right = max.x + margin;
 			render_line.chars.push(draw_char);
 			render_line.add_decoration(TextDecoration::Border {
 				rect: Rect {
 					min: Pos2 { x: border_left, y: border_top },
 					max: Pos2 { x: border_right, y: border_bottom },
 				},
-				stroke_width: padding / 2.0,
+				stroke_width: margin / 2.0,
 				start,
 				end,
 				color,

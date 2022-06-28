@@ -30,8 +30,8 @@ pub(super) struct CharCell {
 	pub font_size: f32,
 	pub color: Color32,
 	pub background: Option<Color32>,
-	pub draw_offset: Pos2,
-	pub char_size: Pos2,
+	pub draw_offset: Vec2,
+	pub char_size: Vec2,
 }
 
 #[derive(Clone)]
@@ -184,7 +184,10 @@ pub(super) trait GuiRender: Render<Ui> {
 					}
 					RenderCell::Char(cell) => {
 						if let Some(bg) = cell.background {
-							ui.painter().rect(dc.rect.clone(), Rounding::none(), bg, Stroke::default());
+							let min = dc.rect.min + cell.draw_offset;
+							let max = min + cell.char_size;
+							let rect = Rect::from_min_max(min, max);
+							ui.painter().rect(rect, Rounding::none(), bg, Stroke::default());
 						}
 						let draw_position = Pos2::new(dc.rect.min.x + cell.draw_offset.x, dc.rect.min.y + cell.draw_offset.y);
 						paint_char(ui, cell.char, cell.font_size, &draw_position, Align2::LEFT_TOP, cell.color);
