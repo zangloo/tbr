@@ -3,21 +3,10 @@ use cursive::event::Key::Esc;
 use cursive::traits::Scrollable;
 use cursive::views::{Dialog, OnEventView, SelectView};
 
-pub struct ListEntry<'a> {
-	pub title: &'a str,
-	pub value: usize,
-}
-
-impl<'a> ListEntry<'a> {
-	pub(crate) fn new(title: &'a str, value: usize) -> Self {
-		ListEntry { title, value }
-	}
-}
-
 pub(crate) fn list_dialog<'a, F, I>(title: &str, iterator: I, current_value: usize, callback: F) -> OnEventView<Dialog>
 	where
 		F: Fn(&mut Cursive, usize) + 'static,
-		I: Iterator<Item=ListEntry<'a>>
+		I: Iterator<Item=(&'a str, usize)>,
 {
 	let mut select_view = SelectView::new()
 		.on_submit(move |s, v| {
@@ -25,9 +14,9 @@ pub(crate) fn list_dialog<'a, F, I>(title: &str, iterator: I, current_value: usi
 			callback(s, *v);
 		});
 	let mut selected = 0;
-	for (idx, entry) in iterator.enumerate() {
-		select_view.add_item(entry.title, entry.value);
-		if current_value == entry.value {
+	for (idx, (title, value)) in iterator.enumerate() {
+		select_view.add_item(title, value);
+		if current_value == value {
 			selected = idx;
 		}
 	}
@@ -42,34 +31,30 @@ pub(crate) fn list_dialog<'a, F, I>(title: &str, iterator: I, current_value: usi
 	dialog
 }
 
-pub(crate) struct ListIterator<'a, T, F>
-	where F: Fn(&T, usize) -> Option<ListEntry>
+pub struct ListIterator<'a, F>
+	where F: Fn(usize) -> Option<(&'a str, usize)>
 {
-	position: usize,
-	data: &'a T,
+	index: usize,
 	mapper: F,
 }
 
-impl<'a, T, F> ListIterator<'a, T, F>
-	where F: Fn(&T, usize) -> Option<ListEntry>
+impl<'a, F> ListIterator<'a, F>
+	where F: Fn(usize) -> Option<(&'a str, usize)>
 {
-	pub(crate) fn new(data: &'a T, mapper: F) -> Self
+	pub fn new(mapper: F) -> Self
 	{
-		ListIterator { position: 0, data, mapper }
+		ListIterator { index: 0, mapper }
 	}
 }
 
-impl<'a, T, F> Iterator for ListIterator<'a, T, F>
-	where F: Fn(&T, usize) -> Option<ListEntry>
+impl<'a, F> Iterator for ListIterator<'a, F>
+	where F: Fn(usize) -> Option<(&'a str, usize)>
 {
-	type Item = ListEntry<'a>;
+	type Item = (&'a str, usize);
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let result = match (self.mapper)(self.data, self.position) {
-			Some(entry) => entry,
-			None => return None,
-		};
-		self.position += 1;
-		Some(result)
+		let ret = (self.mapper)(self.index)?;
+		self.index += 1;
+		Some(ret)
 	}
 }

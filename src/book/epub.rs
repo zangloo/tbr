@@ -11,7 +11,7 @@ use zip::ZipArchive;
 
 use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader};
 use crate::html_convertor::html_str_content;
-use crate::list::ListEntry;
+use crate::list::ListIterator;
 use crate::common::{Position, TraceInfo};
 
 struct ManifestItem {
@@ -178,13 +178,13 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 			})
 	}
 
-	fn toc_list(&self) -> Option<Vec<ListEntry>> {
-		let mut list = vec![];
-		for (index, np) in self.toc.iter().enumerate() {
-			let title = toc_title(np);
-			list.push(ListEntry::new(title, index));
-		}
-		Some(list)
+	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=(&str, usize)> + '_>>
+	{
+		let iter = ListIterator::new(|index| {
+			let toc = self.toc.get(index)?;
+			Some((toc_title(toc), index))
+		});
+		Some(Box::new(iter))
 	}
 
 	fn toc_position(&mut self, toc_index: usize) -> Option<TraceInfo> {

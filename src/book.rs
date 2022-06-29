@@ -15,7 +15,6 @@ use crate::common::char_index_for_byte;
 use crate::common::TraceInfo;
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
-use crate::list::ListEntry;
 #[cfg(feature = "gui")]
 use crate::gui::Color32;
 
@@ -293,14 +292,9 @@ pub trait Book {
 		}
 	}
 	fn current_chapter(&self) -> usize { 0 }
-	fn title(&self, line: usize, offset: usize) -> Option<&str> {
-		let toc_list = self.toc_list()?;
-		let toc_index = self.toc_index(line, offset);
-		let toc = toc_list.get(toc_index)?;
-		Some(toc.title)
-	}
+	fn title(&self, _line: usize, _offset: usize) -> Option<&str> { None }
 	fn toc_index(&self, _line: usize, _offset: usize) -> usize { 0 }
-	fn toc_list(&self) -> Option<Vec<ListEntry>> { None }
+	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=(&str, usize)> + '_>> { None }
 	fn toc_position(&mut self, _toc_index: usize) -> Option<TraceInfo> { None }
 	fn lines(&self) -> &Vec<Line>;
 	fn leading_space(&self) -> usize { 2 }

@@ -708,11 +708,11 @@ impl eframe::App for ReaderApp {
 								}
 								if index == self.controller.reading.inner_book {
 									ui.heading(RichText::from(bookname).color(Color32::LIGHT_RED));
-									if let Some(toc) = self.controller.book.toc_list() {
-										for entry in toc {
-											let current = self.current_toc == entry.value;
-											if ui.selectable_label(current, entry.title).clicked() {
-												selected_toc = Some(entry.value);
+									if let Some(toc) = self.controller.book .toc_iterator() {
+										for (title, value) in toc {
+											let current = self.current_toc == value;
+											if ui.selectable_label(current, title).clicked() {
+												selected_toc = Some(value);
 											}
 										}
 									}

@@ -6,7 +6,7 @@ use encoding_rs::Encoding;
 
 use crate::book::{Book, LoadingChapter, Line, Loader};
 use crate::common::{decode_text, detect_charset, txt_lines};
-use crate::list::ListEntry;
+use crate::list::ListIterator;
 use crate::common::TraceInfo;
 
 ///
@@ -196,15 +196,16 @@ impl<R: Read + Seek> Book for HaodooBook<R> {
 		self.chapter_index
 	}
 
-	fn toc_list(&self) -> Option<Vec<ListEntry>> {
+	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=(&str, usize)> + '_>>
+	{
 		if matches!(self.book_type, PDBType::PalmDoc) {
 			return None;
 		}
-		let mut list = vec![];
-		for (index, chapter) in self.chapters.iter().enumerate() {
-			list.push(ListEntry::new(&chapter.title, index));
-		}
-		Some(list)
+		let iter = ListIterator::new(|index| {
+			let chapter = self.chapters.get(index)?;
+			Some((&chapter.title, index))
+		});
+		Some(Box::new(iter))
 	}
 
 	fn toc_position(&mut self, toc_index: usize) -> Option<TraceInfo> {

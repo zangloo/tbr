@@ -9,7 +9,7 @@ use cursive::views::{EditView, LinearLayout, OnEventView, TextView, ViewRef};
 
 use crate::{Configuration, ReadingInfo, ThemeEntry};
 use crate::common::{get_theme, reading_info};
-use crate::list::{list_dialog, ListEntry, ListIterator};
+use crate::list::{list_dialog, ListIterator};
 use view::ReadingView;
 
 pub mod view;
@@ -68,14 +68,15 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 			.on_event('c', move |s| {
 				let reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
 				let book = reading_view.reading_book();
-				let option = book.toc_list();
+				let option = book.toc_iterator();
 				if option.is_none() {
+					drop(option);
 					drop(reading_view);
 					select_book(s);
 					return;
 				}
 				let toc_index = reading_view.toc_index();
-				let dialog = list_dialog("Select TOC", option.unwrap().into_iter(), toc_index, move |s, new_index| {
+				let dialog = list_dialog("Select TOC", option.unwrap(), toc_index, move |s, new_index| {
 					let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
 					if toc_index != new_index {
 						if let Some(status) = reading_view.goto_toc(new_index) {
@@ -124,12 +125,10 @@ fn select_book(s: &mut Cursive) {
 	if size == 1 {
 		return;
 	}
-	let li = ListIterator::new(container.inner_book_names(), |names, position| {
-		let option = names.get(position);
-		match option {
-			Some(name) => Some(ListEntry::new(&name.name(), position)),
-			None => None,
-		}
+	let names = container.inner_book_names();
+	let li = ListIterator::new(|position| {
+		let bn = names.get(position)?;
+		Some((bn.name(), position))
 	});
 	let reading = &reading_view.reading_info();
 	let dialog = list_dialog("Select inner book", li, reading.inner_book, |s, selected| {
@@ -155,13 +154,13 @@ fn select_history(s: &mut Cursive)
 		if size == 0 {
 			return None;
 		}
-		let li = ListIterator::new(history, |history, position| {
+		let li = ListIterator::new(|position| {
 			if position >= size {
 				return None;
 			}
 			let option = history.get(size - position - 1);
 			match option {
-				Some(ri) => Some(ListEntry::new(&ri.filename, position)),
+				Some(ri) => Some((&ri.filename, position)),
 				None => None,
 			}
 		});
@@ -204,9 +203,13 @@ fn select_theme(s: &mut Cursive) {
 			if entry.0.eq(&configuration.theme_name) {
 				continue;
 			}
-			themes.push(ListEntry::new(&entry.0, idx));
+			themes.push((&entry.0, idx));
 		}
-		let dialog = list_dialog("Select theme", themes.into_iter(), 0, |s, selected| {
+		let li = ListIterator::new(|position| {
+			let entry = themes.get(position)?;
+			Some((entry.0, entry.1))
+		});
+		let dialog = list_dialog("Select theme", li, 0, |s, selected| {
 			let theme = s.with_user_data(|controller_context: &mut TerminalContext| {
 				let theme_entries = &controller_context.theme_entries;
 				controller_context.configuration.theme_name = theme_entries[selected].0.clone();
