@@ -11,6 +11,7 @@ use parcel_css::properties::border::{Border, BorderSideWidth};
 use parcel_css::properties::font::FontSize;
 use parcel_css::rules::CssRule;
 use parcel_css::stylesheet::{ParserOptions, StyleSheet};
+use parcel_css::traits::Parse;
 use parcel_css::values::color::CssColor;
 use parcel_css::values::length::{Length, LengthPercentage, LengthValue};
 use parcel_css::values::percentage;
@@ -224,6 +225,13 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						if let Some(level_text) = element.attr("size") {
 							if let Ok(level) = level_text.parse::<u8>() {
 								push_font_size(&mut element_styles, level, true);
+							}
+						}
+						if let Some(color_text) = element.attr("color") {
+							if let Ok(color) = CssColor::parse_string(color_text) {
+								if let Some(color) = css_color(&color) {
+									element_styles.push(TextStyle::Color(color));
+								}
 							}
 						}
 						convert_dom_to_lines(child.children(), context);
