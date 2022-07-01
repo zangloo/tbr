@@ -172,7 +172,12 @@ impl GuiRender for GuiHanRender
 			}
 			if draw_size < rect.width() {
 				draw_size = rect.width();
-				if !matches!(cell, RenderCell::Image(_)) {
+				if matches!(cell, RenderCell::Image(_)) {
+					let default_space = context.default_font_measure.x / 2.0;
+					if line_space < default_space {
+						line_space = default_space;
+					}
+				} else {
 					line_space = draw_size / 2.0
 				}
 			}
