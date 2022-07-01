@@ -305,14 +305,14 @@ pub(super) trait GuiRender: Render<Ui> {
 		}
 	}
 
-	fn with_image(&mut self, char_style: &CharStyle, book: &Box<dyn Book>, view_rect: &Rect, ui: &mut Ui) -> Option<(String, Pos2)>
+	fn with_image(&mut self, char_style: &CharStyle, full_screen_if_image: bool, book: &Box<dyn Book>, view_rect: &Rect, ui: &mut Ui) -> Option<(String, Pos2)>
 	{
 		if let Some(href) = &char_style.image {
 			if let Some((path, bytes)) = book.image(href) {
 				let cache = self.image_cache();
 				let mut image_data = match cache.entry(path.clone()) {
 					Entry::Occupied(o) => o.into_mut(),
-					Entry::Vacant(v) => if let Some(data) = load_image_and_resize(view_rect, bytes, &path, ui) {
+					Entry::Vacant(v) => if let Some(data) = load_image_and_resize(view_rect, full_screen_if_image, bytes, &path, ui) {
 						v.insert(data)
 					} else {
 						return None;
@@ -320,7 +320,7 @@ pub(super) trait GuiRender: Render<Ui> {
 				};
 
 				if *view_rect != image_data.view_rect {
-					if let Some(new_image_data) = load_image_and_resize(view_rect, bytes, &path, ui) {
+					if let Some(new_image_data) = load_image_and_resize(view_rect, full_screen_if_image, bytes, &path, ui) {
 						cache.insert(path.clone(), new_image_data);
 						image_data = cache.get_mut(&path).unwrap();
 					} else {
@@ -348,12 +348,12 @@ pub(super) trait GuiRender: Render<Ui> {
 	}
 }
 
-fn load_image_and_resize(view_rect: &Rect, bytes: &Vec<u8>, name: &str, ui: &mut Ui) -> Option<ImageDrawingData>
+fn load_image_and_resize(view_rect: &Rect, full_screen: bool, bytes: &Vec<u8>, name: &str, ui: &mut Ui) -> Option<ImageDrawingData>
 {
 	let image = load_image(name, bytes)?;
 	let width = view_rect.width() as u32;
 	let height = view_rect.height() as u32;
-	let image = if image.width() > width || image.height() > height {
+	let image = if full_screen || image.width() > width || image.height() > height {
 		image.resize(width, height, FilterType::Nearest)
 	} else {
 		image

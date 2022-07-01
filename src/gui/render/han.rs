@@ -96,10 +96,11 @@ impl GuiRender for GuiHanRender
 		let max_top = context.rect.max.y;
 		let mut draw_size = 0.0;
 		let mut line_space = 0.0;
+		let full_screen_if_image = start_offset == 0 && end_offset == 1;
 
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, context.custom_color, &context.colors);
-			let (cell, mut rect) = if let Some((path, size)) = self.with_image(&char_style, book, &context.rect, ui) {
+			let (cell, mut rect) = if let Some((path, size)) = self.with_image(&char_style, full_screen_if_image, book, &context.rect, ui) {
 				let left = context.line_base - size.x;
 				let bottom = top + size.y;
 				let rect = Rect::from_min_max(
