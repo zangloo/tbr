@@ -142,7 +142,7 @@ pub(crate) fn txt_lines(txt: &str) -> Vec<Line> {
 		if c == '\n' {
 			lines.push(line);
 			line = Line::default();
-		} else {
+		} else if line.len() > 0 || !c.is_whitespace() {
 			line.push(c);
 		}
 	}
