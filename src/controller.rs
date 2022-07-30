@@ -567,8 +567,8 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			}
 			self.reading.line = pos.line;
 			self.reading.position = pos.offset;
-			self.push_trace(true);
 			if pos.offset == 0 {
+				self.push_trace(true);
 				self.redraw(context);
 			} else {
 				self.step_prev(context);
