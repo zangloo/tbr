@@ -307,7 +307,7 @@ fn load_styles<'a, F>(document: &Html, file_resolver: Option<F>) -> HashMap<Node
 				if let Some(href) = element.value().attr("href") {
 					if href.to_lowercase().ends_with(".css") {
 						if let Some(content) = file_resolver(href.to_string()) {
-							if let Ok(style_sheet) = StyleSheet::parse(&href, &content, ParserOptions::default()) {
+							if let Ok(style_sheet) = StyleSheet::parse(&content, ParserOptions::default()) {
 								stylesheets.push(style_sheet);
 							}
 						}
@@ -504,6 +504,12 @@ fn length_value(value: &LengthValue, default_size: f32) -> (f32, bool)
 		| LengthValue::Svmax(_)
 		| LengthValue::Lvmax(_)
 		| LengthValue::Dvmax(_)
+		| LengthValue::Cqw(_)
+		| LengthValue::Cqh(_)
+		| LengthValue::Cqi(_)
+		| LengthValue::Cqb(_)
+		| LengthValue::Cqmin(_)
+		| LengthValue::Cqmax(_)
 		=> (1.0, false),
 	}
 }
