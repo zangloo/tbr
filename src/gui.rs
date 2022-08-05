@@ -708,7 +708,7 @@ impl eframe::App for ReaderApp {
 								}
 								if index == self.controller.reading.inner_book {
 									ui.heading(RichText::from(bookname).color(Color32::LIGHT_RED));
-									if let Some(toc) = self.controller.book .toc_iterator() {
+									if let Some(toc) = self.controller.book.toc_iterator() {
 										for (title, value) in toc {
 											let current = self.current_toc == value;
 											if ui.selectable_label(current, title).clicked() {
@@ -858,15 +858,15 @@ impl eframe::App for ReaderApp {
 			if !self.dropdown && self.popup_menu.is_none() {
 				response.request_focus();
 			}
-			if let Some(pos) = &self.popup_menu {
+			if let Some(mut pos) = self.popup_menu {
 				let escape = { ui.input_mut().consume_key(Modifiers::NONE, Key::Escape) };
 				if escape {
 					self.popup_menu = None;
 				} else {
 					let text_view_popup = ui.make_persistent_id("text_view_popup");
-					Area::new(text_view_popup)
+					let popup_response = Area::new(text_view_popup)
 						.order(Order::Foreground)
-						.fixed_pos(*pos)
+						.fixed_pos(pos)
 						.drag_bounds(Rect::EVERYTHING)
 						.show(ctx, |ui| {
 							Frame::popup(&ctx.style())
@@ -881,9 +881,23 @@ impl eframe::App for ReaderApp {
 									// Button::image_and_text(texture_id, ICON_SIZE, "查阅字典").ui(ui);
 									// let texture_id = self.image(ctx, "bookmark.svg");
 									// Button::image_and_text(texture_id, ICON_SIZE, "增加书签").ui(ui);
-								})
-								.inner
-						});
+								}).inner
+						}).response;
+					let repos = if popup_response.rect.max.x > rect.max.x {
+						pos.x -= popup_response.rect.max.x - rect.max.x;
+						if popup_response.rect.max.y > rect.max.y {
+							pos.y -= popup_response.rect.max.y - rect.max.y;
+						}
+						true
+					} else if popup_response.rect.max.y > rect.max.y {
+						pos.y -= popup_response.rect.max.y - rect.max.y;
+						true
+					} else {
+						false
+					};
+					if repos {
+						self.popup_menu = Some(pos);
+					}
 					if response.clicked() || response.clicked_elsewhere() {
 						self.popup_menu = None;
 					}
