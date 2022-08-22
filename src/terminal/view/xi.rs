@@ -248,11 +248,21 @@ impl Xi
 
 #[cfg(test)]
 mod tests {
-	use crate::book::Line;
+	use crate::book::{Book, Line};
 	use crate::terminal::view::{DrawChar, DrawCharMode, Render, RenderContext};
 	use crate::terminal::view::xi::{fill_print_line, Xi};
 
 	const TEST_WIDTH: usize = 80;
+
+	struct DummyBook {
+		lines: Vec<Line>,
+	}
+
+	impl Book for DummyBook {
+		fn lines(&self) -> &Vec<Line> {
+			&self.lines
+		}
+	}
 
 	fn to_draw_line(str: &str) -> Vec<DrawChar> {
 		let mut line = vec![];
@@ -292,9 +302,10 @@ mod tests {
 			print_lines: vec![],
 			leading_space: 2,
 		};
+		let book: Box<dyn Book> = Box::new(DummyBook { lines });
 		let mut xi = Xi {};
 		// first page draw resul verify
-		let next = xi.redraw(&lines, 0, 0, &None, &mut context);
+		let next = xi.redraw(&book, &book.lines(), 0, 0, &None, &mut context);
 
 		assert!(next.is_some());
 		let next = next.unwrap();
@@ -333,7 +344,7 @@ mod tests {
 		}
 
 		// 2nd page draw resul verify
-		let next = xi.redraw(&lines, next.line, next.offset, &None, &mut context);
+		let next = xi.redraw(&book, &book.lines(), next.line, next.offset, &None, &mut context);
 
 		assert!(next.is_some());
 		let next = next.unwrap();
@@ -372,7 +383,7 @@ mod tests {
 		}
 
 		// 3rd page draw resul verify
-		let next = xi.redraw(&lines, next.line, next.offset, &None, &mut context);
+		let next = xi.redraw(&book, &book.lines(), next.line, next.offset, &None, &mut context);
 
 		assert!(next.is_none());
 		let mut result_lines = vec![];
