@@ -622,7 +622,9 @@ fn parse_content_opf<R: Read + Seek>(text: &str, content_opf_dir: &PathBuf, zip:
 		.map(|el| el.get_text())
 		.flatten()
 		.map(|s| s.to_string());
-	let language = metadata.get_child("language")?.get_text()?.to_string();
+	let language = metadata.get_child("language")
+		.map_or(String::new(), |e| e.get_text()
+			.map_or(String::new(), |s| s.to_string()));
 	let manifest = parse_manifest(manifest, content_opf_dir);
 	let (spine, toc_id) = parse_spine(spine, &manifest, zip)?;
 	Some(ContentOPF {
