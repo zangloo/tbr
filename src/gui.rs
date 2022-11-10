@@ -11,7 +11,7 @@ use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::{egui, IconData};
 use eframe::egui::{Button, FontData, FontDefinitions, Frame, Id, ImageButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
-use egui::{Area, CursorIcon, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit, TextStyle};
+use egui::{Align, Area, CursorIcon, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit, TextStyle};
 use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
 use image::imageops::FilterType;
@@ -569,7 +569,7 @@ impl ReaderApp {
 			AppStatus::Normal(status) => RichText::from(status).color(Color32::BLUE),
 			AppStatus::Error(error) => RichText::from(error).color(Color32::RED),
 		};
-		ui.with_layout(egui::Layout::right_to_left(), |ui| {
+		ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
 			ui.label(status_msg);
 		});
 
@@ -920,7 +920,7 @@ impl eframe::App for ReaderApp {
 		});
 	}
 
-	fn on_exit(&mut self, _gl: &Context) {
+	fn on_exit(&mut self, _gl: Option<&Context>) {
 		if self.controller.reading.filename != README_TEXT_FILENAME {
 			self.configuration.current = Some(self.controller.reading.filename.clone());
 			self.configuration.history.push(self.controller.reading.clone());
@@ -988,6 +988,8 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 
 	let options = eframe::NativeOptions {
 		drag_and_drop_support: true,
+		maximized: true,
+		default_theme: eframe::Theme::Light,
 		icon_data,
 		..Default::default()
 	};
@@ -1024,6 +1026,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 			Box::new(app)
 		}),
 	);
+	Ok(())
 }
 
 #[inline]

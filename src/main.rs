@@ -54,6 +54,7 @@ struct Cli {
 #[include = "*.svg"]
 #[include = "*.ttc"]
 #[include = "*.ftl"]
+#[include = "*.png"]
 pub struct Asset;
 
 pub struct ThemeEntry(String, Theme);

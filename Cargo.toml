@@ -17,10 +17,10 @@ gui = ["i18n"]
 i18n = []
 
 [target.'cfg(windows)'.dependencies]
-cursive = { version = "0.17", default-features = false, features = ["crossterm-backend", "toml"] }
+cursive = { version = "0.19", default-features = false, features = ["crossterm-backend", "toml"] }
 
 [target.'cfg(unix)'.dependencies]
-cursive = { version = "0.17", features = ["toml"] }
+cursive = { version = "0.19", features = ["toml"] }
 
 [dependencies]
 anyhow = "1.0"
@@ -29,28 +29,28 @@ dirs = "4.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
 toml = "0.5"
-rust-embed = "6.3"
+rust-embed = { version = "6.3", features = ["include-exclude"] }
 xmltree = "0.10"
 unicode-width = "0.1"
 regex = "1.5"
 chardetng = "0.1"
 encoding_rs = "0.8"
-zip = "0.5"
+zip = "0.6"
 lexical-sort = "0.3"
 strip_bom = "1.0"
 
-markup5ever = "0.10"
-scraper = "0.12"
+markup5ever = "0.11"
+scraper = "0.13"
 cssparser = "0.29"
-parcel_css = "1.0.0-alpha"
+parcel_css = "=1.0.0-alpha.30"
 ego-tree = "0.6"
 
 fluent = "0.16"
 unic-langid = "0.9"
 sys-locale = "0.2"
 
-eframe = "0.18"
-egui = "0.18"
-egui_extras = { version = "0.18", features = ["svg"] }
-rfd = "0.8"
+eframe = "0.19"
+egui = "0.19"
+egui_extras = { version = "0.19", features = ["svg"] }
+rfd = "0.10"
 image = "0.24"
