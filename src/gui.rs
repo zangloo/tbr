@@ -16,14 +16,12 @@ use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
 use image::imageops::FilterType;
 
-use crate::{Asset, Configuration, I18n, Position, ReadingInfo, ThemeEntry};
+use crate::{Asset, Color32, Configuration, I18n, Position, ReadingInfo, ThemeEntry};
 use crate::book::{Book, Colors, Line};
 use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::{Controller, HighlightInfo, HighlightMode};
 use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPosition, RenderContext, RenderLine};
-
-pub type Color32 = egui::Color32;
 
 const ICON_SIZE: Vec2 = Vec2 { x: 32.0, y: 32.0 };
 const INLINE_ICON_SIZE: Vec2 = Vec2 { x: 16.0, y: 16.0 };
@@ -195,7 +193,8 @@ struct ReaderApp {
 	sidebar: bool,
 	sidebar_list: SidebarList,
 	dropdown: bool,
-	goto_search: bool,
+	input_search: bool,
+	search_pattern: String,
 	response_rect: Rect,
 
 	view_rect: Rect,
@@ -325,7 +324,7 @@ impl ReaderApp {
 	fn setup_input(&mut self, response: &Response, frame: &mut eframe::Frame, ui: &mut Ui) -> Result<bool>
 	{
 		let rect = &response.rect;
-		let mut input = ui.input_mut();
+		let mut input = response.ctx.input_mut();
 		let action = if input.consume_key(Modifiers::NONE, Key::Space)
 			|| input.consume_key(Modifiers::NONE, Key::PageDown) {
 			drop(input);
@@ -429,7 +428,7 @@ impl ReaderApp {
 			}
 			false
 		} else if input.consume_key(Modifiers::CTRL, Key::F) {
-			self.goto_search = true;
+			self.input_search = true;
 			false
 		} else if let Some(DroppedFile { path: Some(path), .. }) = input.raw.dropped_files.first() {
 			let path = path.clone();
@@ -545,24 +544,25 @@ impl ReaderApp {
 
 		let search_id = self.image(ui.ctx(), "search.svg");
 		ui.image(search_id, ICON_SIZE);
-		let search_edit = ui.add(TextEdit::singleline(&mut self.configuration.search_pattern)
+		let search_edit = ui.add(TextEdit::singleline(&mut self.search_pattern)
 			.desired_width(100.0)
 			.hint_text(self.i18n.msg("search-hint").as_ref())
 			.id_source("search_text"));
-		let searching = if self.goto_search {
-			self.goto_search = false;
-			search_edit.request_focus();
-			true
-		} else {
-			search_edit.has_focus()
-		};
-		if search_edit.changed() {
-			if let Err(e) = self.controller.search(&self.configuration.search_pattern, ui) {
-				self.error(e.to_string());
-			} else {
-				self.update_status(self.controller.status_msg());
-			}
+		if search_edit.clicked_elsewhere() {
+			self.input_search = false;
 		}
+		if search_edit.lost_focus() {
+			self.input_search = false;
+		}
+		if search_edit.gained_focus() {
+			self.input_search = true;
+		}
+		if search_edit.ctx.input().key_pressed(Key::Enter) {
+			self.do_search(ui);
+		}
+		if self.input_search {
+			search_edit.request_focus();
+		};
 
 		let status_msg = match &self.status {
 			AppStatus::Startup => RichText::from("Starting...").color(Color32::GREEN),
@@ -573,7 +573,16 @@ impl ReaderApp {
 			ui.label(status_msg);
 		});
 
-		setting || searching
+		setting
+	}
+
+	fn do_search(&mut self, ui: &mut Ui) {
+		if let Err(e) = self.controller.search(&self.search_pattern, ui) {
+			self.error(e.to_string());
+		} else {
+			self.update_status(self.controller.status_msg());
+		}
+		self.input_search = false;
 	}
 
 	fn setup_setting_button(&mut self, ui: &mut Ui) -> bool
@@ -855,7 +864,7 @@ impl eframe::App for ReaderApp {
 				self.update_context(ui);
 				self.controller.redraw(ui);
 			}
-			if !self.dropdown && self.popup_menu.is_none() {
+			if !self.sidebar && !self.input_search && !self.dropdown && self.popup_menu.is_none() {
 				response.request_focus();
 			}
 			if let Some(mut pos) = self.popup_menu {
@@ -901,6 +910,12 @@ impl eframe::App for ReaderApp {
 					if response.clicked() || response.clicked_elsewhere() {
 						self.popup_menu = None;
 					}
+				}
+			} else if self.input_search {
+				let mut input = ui.input_mut();
+				if input.consume_key(Modifiers::NONE, Key::Enter) {
+					drop(input);
+					self.do_search(ui);
 				}
 			} else if !self.dropdown {
 				match self.setup_input(&response, frame, ui) {
@@ -982,7 +997,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 		let book: Box<dyn Book> = Box::new(ReadmeBook::new(readme.as_ref()));
 		(container, book, ReadingInfo::new(README_TEXT_FILENAME), "The e-book reader".to_string())
 	};
-	let controller = Controller::from_data(reading, &configuration.search_pattern, container_manager, container, book, render)?;
+	let controller = Controller::from_data(reading, container_manager, container, book, render)?;
 
 	let icon_data = app_icon();
 
@@ -1014,7 +1029,8 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 				dropdown: false,
 				sidebar: false,
 				sidebar_list: SidebarList::Chapter,
-				goto_search: false,
+				input_search: false,
+				search_pattern: String::new(),
 				response_rect: Rect::NOTHING,
 
 				view_rect: Rect::NOTHING,

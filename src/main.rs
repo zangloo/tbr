@@ -151,11 +151,11 @@ impl Default for GuiConfiguration
 	}
 }
 
+pub type Color32 = egui::Color32;
+
 #[derive(Serialize, Deserialize)]
 pub struct Configuration {
 	render_type: String,
-	#[serde(default)]
-	search_pattern: String,
 	current: Option<String>,
 	theme_name: String,
 	history: Vec<ReadingInfo>,
@@ -272,7 +272,6 @@ fn load_config(filename: Option<String>, config_file: PathBuf, themes_dir: &Path
 
 			(Configuration {
 				render_type: String::from("xi"),
-				search_pattern: String::from(""),
 				current: filepath,
 				history: vec![],
 				theme_name: String::from("bright"),

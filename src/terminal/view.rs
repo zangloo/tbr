@@ -182,9 +182,9 @@ impl View for ReadingView {
 }
 
 impl ReadingView {
-	pub(crate) fn new(render_type: &String, reading: ReadingInfo, search_pattern: &str) -> Result<ReadingView> {
+	pub(crate) fn new(render_type: &String, reading: ReadingInfo) -> Result<ReadingView> {
 		let render: Box<dyn TerminalRender> = load_render(render_type);
-		let controller = Controller::new(reading, search_pattern, render)?;
+		let controller = Controller::new(reading, render)?;
 		let link_color = ColorStyle::new(ColorStyle::secondary().front, PaletteColor::Background);
 		let highlight_link_color = ColorStyle::new(ColorStyle::secondary().front, ColorStyle::highlight().back);
 		Ok(ReadingView {

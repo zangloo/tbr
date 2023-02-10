@@ -11,12 +11,11 @@ use crate::book::epub::EpubLoader;
 use crate::book::haodoo::HaodooLoader;
 use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
+use crate::Color32;
 use crate::common::char_index_for_byte;
 use crate::common::TraceInfo;
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
-#[cfg(feature = "gui")]
-use crate::gui::Color32;
 
 mod epub;
 mod txt;

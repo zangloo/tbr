@@ -19,9 +19,9 @@ use scraper::{Html, Node, Selector};
 use scraper::node::Element;
 
 use crate::book::{EMPTY_CHAPTER_CONTENT, IMAGE_CHAR, Line, TextStyle};
+use crate::Color32;
 use crate::common::plain_text;
 use crate::common::Position;
-use crate::gui::Color32;
 
 pub struct HtmlContent {
 	pub title: Option<String>,

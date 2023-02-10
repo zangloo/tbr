@@ -47,7 +47,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 	let mut app = Cursive::new();
 	let theme = get_theme(&configuration.theme_name, &theme_entries)?;
 	app.set_theme(theme.clone());
-	let reading_view = ReadingView::new(&configuration.render_type, reading.clone(), &configuration.search_pattern)?;
+	let reading_view = ReadingView::new(&configuration.render_type, reading.clone())?;
 	app.set_user_data(TerminalContext { configuration, theme_entries });
 	let status_view = LinearLayout::horizontal()
 		.child(TextView::new(&reading_view.status_msg())
@@ -94,7 +94,6 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 	let controller_context: TerminalContext = app.take_user_data().unwrap();
 	configuration = controller_context.configuration;
 	configuration.current = Some(reading_now.filename.clone());
-	configuration.search_pattern = reading_view.search_pattern().to_string();
 	configuration.history.push(reading_now);
 	configuration.save()?;
 	Ok(())

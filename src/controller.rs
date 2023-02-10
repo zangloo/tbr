@@ -59,16 +59,16 @@ pub struct Controller<C, R: Render<C> + ?Sized>
 
 impl<C, R: Render<C> + ?Sized> Controller<C, R>
 {
-	pub fn new(mut reading: ReadingInfo, search_pattern: &str, render: Box<R>) -> Result<Self>
+	pub fn new(mut reading: ReadingInfo, render: Box<R>) -> Result<Self>
 	{
 		let container_manager = Default::default();
 		let mut container = load_container(&container_manager, &reading)?;
 		let book = load_book(&container_manager, &mut container, &mut reading)?;
-		Controller::from_data(reading, search_pattern, container_manager, container, book, render)
+		Controller::from_data(reading, container_manager, container, book, render)
 	}
 
 	#[inline]
-	pub fn from_data(reading: ReadingInfo, search_pattern: &str, container_manager: ContainerManager, container: Box<dyn Container>, book: Box<dyn Book>, render: Box<R>) -> Result<Self>
+	pub fn from_data(reading: ReadingInfo, container_manager: ContainerManager, container: Box<dyn Container>, book: Box<dyn Book>, render: Box<R>) -> Result<Self>
 	{
 		let trace = vec![TraceInfo { chapter: reading.chapter, line: reading.line, offset: reading.position }];
 		Ok(Controller {
@@ -77,7 +77,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			container,
 			book,
 			reading,
-			search_pattern: search_pattern.to_string(),
+			search_pattern: "".to_string(),
 			trace,
 			current_trace: 0,
 			highlight: None,
