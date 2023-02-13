@@ -705,7 +705,7 @@ impl eframe::App for ReaderApp {
 					let text = RichText::new(lang_text.as_ref()).text_style(TextStyle::Heading);
 					ui.selectable_value(&mut self.sidebar_list, SidebarList::Language, text);
 				});
-				ScrollArea::new([false, true]).max_width(width).show(ui, |ui| {
+				ScrollArea::vertical().max_width(width).show(ui, |ui| {
 					match self.sidebar_list {
 						SidebarList::Chapter => {
 							let mut selected_book = None;
@@ -720,7 +720,11 @@ impl eframe::App for ReaderApp {
 									if let Some(toc) = self.controller.book.toc_iterator() {
 										for (title, value) in toc {
 											let current = self.current_toc == value;
-											if ui.selectable_label(current, title).clicked() {
+											let label = ui.selectable_label(current, title);
+											if current {
+												label.scroll_to_me(Some(Align::Center));
+											}
+											if label.clicked() {
 												selected_toc = Some(value);
 											}
 										}
