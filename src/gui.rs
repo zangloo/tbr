@@ -1,11 +1,10 @@
-mod render;
-
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{BufReader, Cursor, Read};
 use std::ops::Index;
 use std::path::PathBuf;
 use std::str::FromStr;
+
 use anyhow::Result;
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::{egui, IconData};
@@ -22,6 +21,8 @@ use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::{Controller, HighlightInfo, HighlightMode};
 use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPosition, RenderContext, RenderLine};
+
+mod render;
 
 const ICON_SIZE: Vec2 = Vec2 { x: 32.0, y: 32.0 };
 const INLINE_ICON_SIZE: Vec2 = Vec2 { x: 16.0, y: 16.0 };
@@ -191,6 +192,7 @@ struct ReaderApp {
 	popup_menu: Option<Pos2>,
 	selected_text: String,
 	sidebar: bool,
+	chapter_list_shown: bool,
 	sidebar_list: SidebarList,
 	dropdown: bool,
 	input_search: bool,
@@ -370,10 +372,12 @@ impl ReaderApp {
 			drop(input);
 			self.sidebar = true;
 			self.sidebar_list = SidebarList::Chapter;
+			self.chapter_list_shown = false;
 			false
 		} else if input.consume_key(Modifiers::NONE, Key::H) {
 			drop(input);
 			self.sidebar = true;
+			self.chapter_list_shown = false;
 			self.sidebar_list = SidebarList::History;
 			false
 		} else if input.consume_key(Modifiers::NONE, Key::Enter) {
@@ -524,6 +528,9 @@ impl ReaderApp {
 		let sidebar_id = self.image(ui.ctx(), if sidebar { "sidebar_off.svg" } else { "sidebar_on.svg" });
 		if ImageButton::new(sidebar_id, ICON_SIZE).ui(ui).clicked() {
 			self.sidebar = !sidebar;
+			if self.sidebar {
+				self.chapter_list_shown = false;
+			}
 		}
 
 		let setting = self.setup_setting_button(ui);
@@ -721,7 +728,8 @@ impl eframe::App for ReaderApp {
 										for (title, value) in toc {
 											let current = self.current_toc == value;
 											let label = ui.selectable_label(current, title);
-											if current {
+											if current && !self.chapter_list_shown {
+												self.chapter_list_shown = true;
 												label.scroll_to_me(Some(Align::Center));
 											}
 											if label.clicked() {
@@ -1032,6 +1040,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 				selected_text: String::new(),
 				dropdown: false,
 				sidebar: false,
+				chapter_list_shown: false,
 				sidebar_list: SidebarList::Chapter,
 				input_search: false,
 				search_pattern: String::new(),
