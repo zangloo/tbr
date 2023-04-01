@@ -332,7 +332,8 @@ impl ReaderApp {
 			drop(input);
 			self.controller.next_page(ui)?;
 			true
-		} else if input.consume_key(Modifiers::NONE, Key::PageUp) {
+		} else if input.consume_key(Modifiers::SHIFT, Key::Space)
+            ||input.consume_key(Modifiers::NONE, Key::PageUp) {
 			drop(input);
 			self.controller.prev_page(ui)?;
 			true
