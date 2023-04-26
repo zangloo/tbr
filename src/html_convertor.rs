@@ -213,6 +213,7 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						new_paragraph(child, context);
 					}
 					local_name!("p")
+					| local_name!("b")
 					| local_name!("blockquote")
 					| local_name!("tr")
 					| local_name!("dt")
