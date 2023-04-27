@@ -94,7 +94,7 @@ impl Line {
 				ignore_whitespace = true;
 				continue;
 			}
-			if ignore_whitespace && ch.is_whitespace() {
+			if ignore_whitespace && ch.is_ascii_whitespace() {
 				continue;
 			} else {
 				ignore_whitespace = false;
