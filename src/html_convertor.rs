@@ -141,7 +141,7 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 		match child.value() {
 			Node::Text(contents) => {
 				let string = contents.text.to_string();
-				let text = string.trim();
+				let text = string.trim_matches(|c: char| c.is_ascii_whitespace());
 				let line = context.content.lines.last_mut().unwrap();
 				if text.len() > 0 {
 					if line.len() > 0
