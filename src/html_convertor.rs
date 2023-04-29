@@ -6,15 +6,15 @@ use cssparser::RGBA;
 use ego_tree::iter::Children;
 use ego_tree::{NodeId, NodeRef};
 use markup5ever::{LocalName, Namespace, Prefix, QualName};
-use parcel_css::properties::{border, font, Property};
-use parcel_css::properties::border::{Border, BorderSideWidth};
-use parcel_css::properties::font::FontSize;
-use parcel_css::rules::CssRule;
-use parcel_css::stylesheet::{ParserOptions, StyleSheet};
-use parcel_css::traits::Parse;
-use parcel_css::values::color::CssColor;
-use parcel_css::values::length::{Length, LengthPercentage, LengthValue};
-use parcel_css::values::percentage;
+use lightningcss::properties::{border, font, Property};
+use lightningcss::properties::border::{Border, BorderSideWidth};
+use lightningcss::properties::font::FontSize;
+use lightningcss::rules::CssRule;
+use lightningcss::stylesheet::{ParserOptions, StyleSheet};
+use lightningcss::traits::Parse;
+use lightningcss::values::color::CssColor;
+use lightningcss::values::length::{Length, LengthPercentage, LengthValue};
+use lightningcss::values::percentage;
 use scraper::{Html, Node, Selector};
 use scraper::node::Element;
 
@@ -64,7 +64,7 @@ pub(crate) fn html_str_content<'a, F>(str: &str, file_resolver: Option<F>) -> Re
 		Err(_) => return Err(anyhow!("Failed parse html"))
 	};
 	let body = document.select(&body_selector).next().unwrap();
-	if let Some(id) = &body.value().id {
+	if let Some(id) = body.value().id() {
 		context.content.id_map.insert(id.to_string(), Position::new(0, 0));
 	}
 	convert_dom_to_lines(body.children(), &mut context);
@@ -156,7 +156,7 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 				let position = Position::new(
 					context.content.lines.len() - 1,
 					context.content.lines.last().unwrap().len());
-				if let Some(id) = &element.id {
+				if let Some(id) = element.id() {
 					context.content.id_map.insert(id.to_string(), position.clone());
 				}
 				let mut element_styles = if let Some(styles) = context.element_styles.remove(&child.id()) {

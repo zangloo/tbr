@@ -25,7 +25,7 @@ mod haodoo;
 pub const EMPTY_CHAPTER_CONTENT: &str = "No content.";
 pub const IMAGE_CHAR: char = '🖼';
 
-type TextDecorationLine = parcel_css::properties::text::TextDecorationLine;
+type TextDecorationLine = lightningcss::properties::text::TextDecorationLine;
 
 #[derive(Clone, Debug)]
 pub enum TextStyle {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use eframe::egui::{Align2, FontFamily, FontId, Rect, Rounding, Stroke, Ui};
 use eframe::emath::{Pos2, Vec2};
 use eframe::epaint::Color32;
-use egui::{ColorImage, Mesh, Shape, TextureFilter, TextureHandle};
+use egui::{ColorImage, Mesh, Shape, TextureFilter, TextureHandle, TextureOptions};
 use image::imageops::FilterType;
 
 use crate::book::{Book, CharStyle, Colors, Line};
@@ -366,7 +366,10 @@ fn load_image_and_resize(view_rect: &Rect, full_screen: bool, bytes: &Vec<u8>, n
 		[draw_width as usize, draw_height as usize],
 		pixels.as_slice(),
 	);
-	let texture = ui.ctx().load_texture(name, color_image, TextureFilter::Linear);
+	let texture = ui.ctx().load_texture(name, color_image, TextureOptions {
+		magnification: TextureFilter::Linear,
+		minification: TextureFilter::Linear,
+	});
 	Some(ImageDrawingData {
 		view_rect: *view_rect,
 		image_size: Pos2::new(draw_width as f32, draw_height as f32),

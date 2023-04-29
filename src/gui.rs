@@ -5,7 +5,7 @@ use std::ops::Index;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::{egui, IconData};
 use eframe::egui::{Button, FontData, FontDefinitions, Frame, Id, ImageButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
@@ -180,6 +180,31 @@ fn setup_fonts(ctx: &egui::Context, font_paths: &Vec<PathBuf>) -> Result<()> {
 	Ok(())
 }
 
+enum GuiCommand {
+	PageDown,
+	PageUp,
+	StepForward,
+	StepBackward,
+	TraceForward,
+	TraceBackward,
+	SearchForward,
+	SearchBackward,
+	// can not disable tab for navigate between view and search box
+	// NextLink, PrevLink,
+	TryGotoLink,
+	GotoLink(usize, usize),
+	ChapterBegin,
+	ChapterEnd,
+	NextChapter,
+	PrevChapter,
+	ClearHeightLight,
+	CopyHeightLight,
+
+	MouseDrag(Pos2, Pos2),
+	MouseMove(Pos2),
+	OpenDroppedFile(PathBuf),
+}
+
 struct ReaderApp {
 	configuration: Configuration,
 	theme_entries: Vec<ThemeEntry>,
@@ -326,183 +351,170 @@ impl ReaderApp {
 	fn setup_input(&mut self, response: &Response, frame: &mut eframe::Frame, ui: &mut Ui) -> Result<bool>
 	{
 		let rect = &response.rect;
-		let mut input = response.ctx.input_mut();
-		let action = if input.consume_key(Modifiers::NONE, Key::Space)
-			|| input.consume_key(Modifiers::NONE, Key::PageDown) {
-			drop(input);
-			self.controller.next_page(ui)?;
-			true
-		} else if input.consume_key(Modifiers::SHIFT, Key::Space)
-            ||input.consume_key(Modifiers::NONE, Key::PageUp) {
-			drop(input);
-			self.controller.prev_page(ui)?;
-			true
-		} else if input.consume_key(Modifiers::NONE, Key::ArrowDown) {
-			drop(input);
-			self.controller.step_next(ui);
-			true
-		} else if input.consume_key(Modifiers::NONE, Key::ArrowUp) {
-			drop(input);
-			self.controller.step_prev(ui);
-			true
-		} else if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
-			drop(input);
-			self.controller.goto_trace(true, ui)?;
-			true
-		} else if input.consume_key(Modifiers::NONE, Key::ArrowRight) {
-			drop(input);
-			self.controller.goto_trace(false, ui)?;
-			true
-		} else if input.consume_key(Modifiers::NONE, Key::N) {
-			drop(input);
-			self.controller.search_again(true, ui)?;
-			true
-		} else if input.consume_key(Modifiers::SHIFT, Key::N) {
-			drop(input);
-			self.controller.search_again(false, ui)?;
-			true
-		} else if input.consume_key(Modifiers::SHIFT, Key::Tab) {
-			drop(input);
-			self.controller.switch_link_prev(ui);
-			true
-		} else if input.consume_key(Modifiers::NONE, Key::Tab) {
-			drop(input);
-			self.controller.switch_link_next(ui);
-			true
-		} else if input.consume_key(Modifiers::NONE, Key::C) {
-			drop(input);
-			self.sidebar = true;
-			self.sidebar_list = SidebarList::Chapter;
-			self.chapter_list_shown = false;
-			false
-		} else if input.consume_key(Modifiers::NONE, Key::H) {
-			drop(input);
-			self.sidebar = true;
-			self.chapter_list_shown = false;
-			self.sidebar_list = SidebarList::History;
-			false
-		} else if input.consume_key(Modifiers::NONE, Key::Enter) {
-			drop(input);
-			self.controller.try_goto_link(ui)?;
-			true
-		} else if input.consume_key(Modifiers::NONE, Key::Home) {
-			drop(input);
-			if self.controller.reading.line != 0 || self.controller.reading.position != 0 {
-				self.controller.redraw_at(0, 0, ui);
-				true
-			} else {
-				false
-			}
-		} else if input.consume_key(Modifiers::NONE, Key::End) {
-			drop(input);
-			self.controller.goto_end(ui);
-			true
-		} else if input.consume_key(Modifiers::CTRL, Key::D) {
-			drop(input);
-			self.controller.switch_chapter(true, ui)?;
-			true
-		} else if input.consume_key(Modifiers::CTRL, Key::B) {
-			drop(input);
-			self.controller.switch_chapter(false, ui)?;
-			true
-		} else if input.consume_key(Modifiers::CTRL, Key::ArrowUp) {
-			drop(input);
-			if self.configuration.gui.font_size < MAX_FONT_SIZE {
-				self.configuration.gui.font_size += 2;
-			}
-			false
-		} else if input.consume_key(Modifiers::CTRL, Key::ArrowDown) {
-			drop(input);
-			if self.configuration.gui.font_size > MIN_FONT_SIZE {
-				self.configuration.gui.font_size -= 2;
-			}
-			false
-		} else if input.consume_key(Modifiers::NONE, Key::Escape) {
-			if self.sidebar {
-				self.sidebar = false;
-			} else if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = self.controller.highlight {
-				drop(input);
-				self.selected_text.clear();
-				self.controller.clear_highlight(ui);
-			}
-			false
-		} else if input.consume_key(Modifiers::CTRL, Key::C) {
-			if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = self.controller.highlight {
-				drop(input);
-				ui.output().copied_text = self.selected_text.clone();
-			}
-			false
-		} else if input.consume_key(Modifiers::CTRL, Key::F) {
-			self.input_search = true;
-			false
-		} else if let Some(DroppedFile { path: Some(path), .. }) = input.raw.dropped_files.first() {
-			let path = path.clone();
-			drop(input);
-			self.open_file(path, frame, ui);
-			false
-		} else if let Some(pointer_pos) = input.pointer.interact_pos() {
-			if rect.contains(pointer_pos) {
-				if response.clicked() {
-					drop(input);
-					if let Some((line, link_index)) = self.link_resolve(pointer_pos) {
-						if let Err(e) = self.controller.goto_link(line, link_index, ui) {
-							self.error(e.to_string());
-							false
-						} else {
-							self.update_status(self.controller.status_msg());
-							true
-						}
-					} else {
-						false
-					}
-				} else if input.scroll_delta.y != 0.0 {
-					let delta = input.scroll_delta.y;
-					drop(input);
-					// delta > 0.0 for scroll up
-					if delta > 0.0 {
-						self.controller.step_prev(ui);
-					} else {
-						self.controller.step_next(ui);
-					}
-					true
-				} else if input.zoom_delta() != 1.0 {
-					if input.zoom_delta() > 1.0 {
-						if self.configuration.gui.font_size < MAX_FONT_SIZE {
-							self.configuration.gui.font_size += 2;
-						}
-					} else {
-						if self.configuration.gui.font_size > MIN_FONT_SIZE {
-							self.configuration.gui.font_size -= 2;
-						}
-					}
-					false
-				} else if response.secondary_clicked() {
-					if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = &self.controller.highlight {
-						self.popup_menu = Some(pointer_pos);
-					}
-					false
-				} else if input.pointer.primary_down() {
-					if let Some(from_pos) = input.pointer.press_origin() {
-						drop(input);
-						self.select_text(ui, from_pos, pointer_pos);
-					}
-					false
+		if let Some(command) = response.ctx.input_mut(|input| {
+			if input.consume_key(Modifiers::NONE, Key::Space)
+				|| input.consume_key(Modifiers::NONE, Key::PageDown) {
+				Some(GuiCommand::PageDown)
+			} else if input.consume_key(Modifiers::SHIFT, Key::Space)
+				|| input.consume_key(Modifiers::NONE, Key::PageUp) {
+				Some(GuiCommand::PageUp)
+			} else if input.consume_key(Modifiers::NONE, Key::ArrowDown) {
+				Some(GuiCommand::StepForward)
+			} else if input.consume_key(Modifiers::NONE, Key::ArrowUp) {
+				Some(GuiCommand::StepBackward)
+			} else if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
+				Some(GuiCommand::TraceBackward)
+			} else if input.consume_key(Modifiers::NONE, Key::ArrowRight) {
+				Some(GuiCommand::TraceForward)
+			} else if input.consume_key(Modifiers::NONE, Key::N) {
+				Some(GuiCommand::SearchForward)
+			} else if input.consume_key(Modifiers::SHIFT, Key::N) {
+				Some(GuiCommand::SearchBackward)
+				// } else if input.consume_key(Modifiers::SHIFT, Key::Tab) {
+				// 	Some(GuiCommand::PrevLink)
+				// } else if input.consume_key(Modifiers::NONE, Key::Tab) {
+				// 	Some(GuiCommand::NextLink)
+			} else if input.consume_key(Modifiers::NONE, Key::C) {
+				self.sidebar = true;
+				self.sidebar_list = SidebarList::Chapter;
+				self.chapter_list_shown = false;
+				None
+			} else if input.consume_key(Modifiers::NONE, Key::H) {
+				self.sidebar = true;
+				self.chapter_list_shown = false;
+				self.sidebar_list = SidebarList::History;
+				None
+			} else if input.consume_key(Modifiers::NONE, Key::Enter) {
+				Some(GuiCommand::TryGotoLink)
+			} else if input.consume_key(Modifiers::NONE, Key::Home) {
+				if self.controller.reading.line != 0 || self.controller.reading.position != 0 {
+					Some(GuiCommand::ChapterBegin)
 				} else {
-					drop(input);
-					if let Some(_) = self.link_resolve(pointer_pos) {
-						ui.output().cursor_icon = CursorIcon::PointingHand;
+					None
+				}
+			} else if input.consume_key(Modifiers::NONE, Key::End) {
+				Some(GuiCommand::ChapterEnd)
+			} else if input.consume_key(Modifiers::CTRL, Key::D) {
+				Some(GuiCommand::NextChapter)
+			} else if input.consume_key(Modifiers::CTRL, Key::B) {
+				Some(GuiCommand::PrevChapter)
+			} else if input.consume_key(Modifiers::CTRL, Key::ArrowUp) {
+				if self.configuration.gui.font_size < MAX_FONT_SIZE {
+					self.configuration.gui.font_size += 2;
+				}
+				None
+			} else if input.consume_key(Modifiers::CTRL, Key::ArrowDown) {
+				if self.configuration.gui.font_size > MIN_FONT_SIZE {
+					self.configuration.gui.font_size -= 2;
+				}
+				None
+			} else if input.consume_key(Modifiers::NONE, Key::Escape) {
+				if self.sidebar {
+					self.sidebar = false;
+					None
+				} else if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = self.controller.highlight {
+					Some(GuiCommand::ClearHeightLight)
+				} else {
+					None
+				}
+			} else if input.consume_key(Modifiers::CTRL, Key::C) {
+				if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = self.controller.highlight {
+					Some(GuiCommand::CopyHeightLight)
+				} else {
+					None
+				}
+			} else if input.consume_key(Modifiers::CTRL, Key::F) {
+				self.input_search = true;
+				None
+			} else if let Some(DroppedFile { path: Some(path), .. }) = input.raw.dropped_files.first() {
+				let path = path.clone();
+				Some(GuiCommand::OpenDroppedFile(path))
+			} else if let Some(pointer_pos) = input.pointer.interact_pos() {
+				if rect.contains(pointer_pos) {
+					if response.clicked() {
+						if let Some((line, link_index)) = self.link_resolve(pointer_pos) {
+							Some(GuiCommand::GotoLink(line, link_index))
+						} else {
+							None
+						}
+					} else if input.scroll_delta.y != 0.0 {
+						let delta = input.scroll_delta.y;
+						// delta > 0.0 for scroll up
+						if delta > 0.0 {
+							Some(GuiCommand::StepBackward)
+						} else {
+							Some(GuiCommand::StepForward)
+						}
+					} else if input.zoom_delta() != 1.0 {
+						if input.zoom_delta() > 1.0 {
+							if self.configuration.gui.font_size < MAX_FONT_SIZE {
+								self.configuration.gui.font_size += 2;
+							}
+						} else {
+							if self.configuration.gui.font_size > MIN_FONT_SIZE {
+								self.configuration.gui.font_size -= 2;
+							}
+						}
+						None
+					} else if response.secondary_clicked() {
+						if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = &self.controller.highlight {
+							self.popup_menu = Some(pointer_pos);
+						}
+						None
+					} else if input.pointer.primary_down() {
+						if let Some(from_pos) = input.pointer.press_origin() {
+							Some(GuiCommand::MouseDrag(from_pos, pointer_pos))
+						} else {
+							None
+						}
 					} else {
-						ui.output().cursor_icon = CursorIcon::Default;
+						Some(GuiCommand::MouseMove(pointer_pos))
 					}
-					false
+				} else {
+					None
 				}
 			} else {
-				false
+				None
 			}
+		}) {
+			match command {
+				GuiCommand::PageDown => self.controller.next_page(ui)?,
+				GuiCommand::PageUp => self.controller.prev_page(ui)?,
+				GuiCommand::StepForward => self.controller.step_next(ui),
+				GuiCommand::StepBackward => self.controller.step_prev(ui),
+				GuiCommand::TraceForward => self.controller.goto_trace(false, ui)?,
+				GuiCommand::TraceBackward => self.controller.goto_trace(true, ui)?,
+				GuiCommand::SearchForward => self.controller.search_again(true, ui)?,
+				GuiCommand::SearchBackward => self.controller.search_again(false, ui)?,
+				// GuiCommand::NextLink => self.controller.switch_link_next(ui),
+				// GuiCommand::PrevLink => self.controller.switch_link_prev(ui),
+				GuiCommand::TryGotoLink => self.controller.try_goto_link(ui)?,
+				GuiCommand::GotoLink(line, link_index) => if let Err(e) = self.controller.goto_link(line, link_index, ui) {
+					self.error(e.to_string());
+				} else {
+					self.update_status(self.controller.status_msg());
+				}
+				GuiCommand::ChapterBegin => self.controller.redraw_at(0, 0, ui),
+				GuiCommand::ChapterEnd => { self.controller.goto_end(ui); }
+				GuiCommand::NextChapter => { self.controller.switch_chapter(true, ui)?; }
+				GuiCommand::PrevChapter => { self.controller.switch_chapter(false, ui)?; }
+				GuiCommand::MouseDrag(from_pos, pointer_pos) => self.select_text(ui, from_pos, pointer_pos),
+				GuiCommand::MouseMove(pointer_pos) => if let Some(_) = self.link_resolve(pointer_pos) {
+					ui.output_mut(|output| output.cursor_icon = CursorIcon::PointingHand);
+				} else {
+					ui.output_mut(|output| output.cursor_icon = CursorIcon::Default);
+				},
+				GuiCommand::ClearHeightLight => {
+					self.selected_text.clear();
+					self.controller.clear_highlight(ui);
+				}
+				GuiCommand::CopyHeightLight => ui.output_mut(|output| output.copied_text = self.selected_text.clone()),
+				GuiCommand::OpenDroppedFile(path) => self.open_file(path, frame, ui),
+			}
+			Ok(true)
 		} else {
-			false
-		};
-		Ok(action)
+			Ok(false)
+		}
 	}
 
 	fn link_resolve(&self, mouse_position: Pos2) -> Option<(usize, usize)>
@@ -556,17 +568,19 @@ impl ReaderApp {
 			.desired_width(100.0)
 			.hint_text(self.i18n.msg("search-hint").as_ref())
 			.id_source("search_text"));
-		if search_edit.clicked_elsewhere() {
-			self.input_search = false;
+		if self.input_search {
+			if search_edit.ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Enter)) {
+				self.do_search(ui);
+			}
+			if search_edit.clicked_elsewhere() {
+				self.input_search = false;
+			}
 		}
 		if search_edit.lost_focus() {
 			self.input_search = false;
 		}
 		if search_edit.gained_focus() {
 			self.input_search = true;
-		}
-		if search_edit.ctx.input().key_pressed(Key::Enter) {
-			self.do_search(ui);
 		}
 		if self.input_search {
 			search_edit.request_focus();
@@ -599,7 +613,7 @@ impl ReaderApp {
 		let setting_popup = ui.make_persistent_id("setting_popup");
 		let setting_button = ImageButton::new(setting_id, ICON_SIZE).ui(ui);
 		if setting_button.clicked() {
-			ui.memory().toggle_popup(setting_popup);
+			ui.memory_mut(|memory| memory.toggle_popup(setting_popup));
 		}
 		egui::popup::popup_below_widget(ui, setting_popup, &setting_button, |ui| {
 			ui.set_min_width(200.0);
@@ -652,7 +666,7 @@ impl ReaderApp {
 			max_page_size: 0.0,
 			line_base: 0.0,
 		};
-		ui.data().insert_temp(render_context_id(), context);
+		ui.data_mut(|data| data.insert_temp(render_context_id(), context));
 	}
 
 	fn open_file(&mut self, path: PathBuf, frame: &mut eframe::Frame, ui: &mut Ui) {
@@ -881,8 +895,7 @@ impl eframe::App for ReaderApp {
 				response.request_focus();
 			}
 			if let Some(mut pos) = self.popup_menu {
-				let escape = { ui.input_mut().consume_key(Modifiers::NONE, Key::Escape) };
-				if escape {
+				if ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape)) {
 					self.popup_menu = None;
 				} else {
 					let text_view_popup = ui.make_persistent_id("text_view_popup");
@@ -896,7 +909,7 @@ impl eframe::App for ReaderApp {
 									let texture_id = self.image(ctx, "copy.svg");
 									let text = self.i18n.msg("copy-content");
 									if Button::image_and_text(texture_id, ICON_SIZE, text.as_ref()).ui(ui).clicked() {
-										ui.output().copied_text = self.selected_text.clone();
+										ui.output_mut(|output| output.copied_text = self.selected_text.clone());
 										self.popup_menu = None;
 									}
 									// let texture_id = self.image(ctx, "dict.svg");
@@ -924,13 +937,7 @@ impl eframe::App for ReaderApp {
 						self.popup_menu = None;
 					}
 				}
-			} else if self.input_search {
-				let mut input = ui.input_mut();
-				if input.consume_key(Modifiers::NONE, Key::Enter) {
-					drop(input);
-					self.do_search(ui);
-				}
-			} else if !self.dropdown {
+			} else if !self.input_search && !self.dropdown {
 				match self.setup_input(&response, frame, ui) {
 					Ok(action) => if action {
 						self.update_status(self.controller.status_msg());
@@ -1021,7 +1028,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 		icon_data,
 		..Default::default()
 	};
-	eframe::run_native(
+	if let Err(err) = eframe::run_native(
 		&title,
 		options,
 		Box::new(move |cc| {
@@ -1055,8 +1062,11 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 			};
 			Box::new(app)
 		}),
-	);
-	Ok(())
+	) {
+		bail!("{}", err.to_string())
+	} else {
+		Ok(())
+	}
 }
 
 #[inline]
@@ -1068,7 +1078,7 @@ fn render_context_id() -> Id
 #[inline]
 pub(self) fn get_render_context(ui: &mut Ui) -> RenderContext
 {
-	ui.data().get_temp(render_context_id()).expect("context not set")
+	ui.data_mut(|data| data.get_temp(render_context_id()).expect("context not set"))
 }
 
 #[inline]
@@ -1080,7 +1090,7 @@ fn render_lines_id() -> Id
 #[inline]
 pub(self) fn put_render_lines(ui: &mut Ui, render_lines: Vec<RenderLine>)
 {
-	ui.data().insert_temp(render_lines_id(), render_lines)
+	ui.data_mut(|data| data.insert_temp(render_lines_id(), render_lines));
 }
 
 #[inline]
@@ -1095,11 +1105,11 @@ fn update_title(frame: &mut eframe::Frame, title: &str)
 fn take_render_lines(ui: &mut Ui) -> Option<Vec<RenderLine>>
 {
 	let id = render_lines_id();
-	let mut data = ui.data();
-	if let Some(lines) = data.get_temp(id) {
-		data.remove::<Vec<RenderLine>>(id);
-		Some(lines)
-	} else {
-		None
-	}
+	ui.data_mut(|data|
+		if let Some(lines) = data.get_temp(id) {
+			data.remove::<Vec<RenderLine>>(id);
+			Some(lines)
+		} else {
+			None
+		})
 }
