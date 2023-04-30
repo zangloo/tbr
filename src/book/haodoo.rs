@@ -311,20 +311,18 @@ impl<R: Read + Seek> HaodooBook<R> {
 			PDBType::PalmDoc => {
 				let compression = record[1] == 2;
 				let text_count = read_u16(&record, 8);
-				let mut lines = vec![];
-				let mut encoding = None;
+				let mut buf = vec![];
 				for index in 1..=text_count {
 					let mut record = self.read_record(index)?;
 					if compression {
-						record = decompress_palm_doc(record);
+						decompress_palm_doc(record, &mut buf);
+					} else {
+						buf.append(&mut record);
 					}
-					if encoding.is_none() {
-						encoding = Some(detect_charset(&record, false));
-					}
-					let text = decode_text(record, encoding.unwrap())?;
-					let mut sub_lines = txt_lines(&text);
-					lines.append(&mut sub_lines);
 				}
+				let encoding = detect_charset(&buf, false);
+				let text = decode_text(buf, encoding)?;
+				let lines = txt_lines(&text);
 				self.chapters.push(Chapter { title: String::from("None"), lines: Some(lines) });
 			}
 		}
@@ -389,50 +387,41 @@ fn decrypt_pdb(record: &mut [u8]) {
 	}
 }
 
-// Some text will corrupted when decompressed :(
-fn decompress_palm_doc(data: Vec<u8>) -> Vec<u8>
+fn decompress_palm_doc(data: Vec<u8>, output: &mut Vec<u8>)
 {
-	let mut output = vec![];
-	let mut i = 0;
-
-	while i < data.len() {
-		// Get the next compressed input byte
-		let c = data[i];
-		i += 1;
-
-		if c >= 0x00C0 {
-			// type C command (space + char)
-			output.push(b' ');
-			output.push(c ^ 0x0080);
-			// output.push(c & 0x007F);
-		} else if c >= 0x0080 {
-			// type B command (sliding window sequence)
-
-			// Move this to high bits and read low bits
-			let c = ((c as u32) << 8) | data[i] as u32;
-			i += 1;
-			// 3 + low 3 bits (Beirne's 'n'+3)
-			let window_len = 3 + (c & 0x0007);
-			// next 11 bits (Beirne's 'm')
-			let window_dist = (c >> 3) & 0x07FF;
-			let mut window_copy_from = output.len() - window_dist as usize;
-			for _i in 0..window_len {
-				output.push(output[window_copy_from]);
-				window_copy_from += 1;
+	let mut slice = data.as_slice();
+	loop {
+		slice = match slice {
+			[0x00, rest @ ..] => {
+				output.push(0);
+				rest
 			}
-		} else if c >= 0x0009 {
-			// self-representing, no command
-			output.push(c);
-		} else if c >= 0x0001 {
-			// type A command (next c chars are literal)
-			for _i in 0..c {
-				output.push(data[i]);
-				i += 1;
+			[len @ 0x01..=0x08, rest @ ..] => {
+				for i in 0..*len as usize {
+					output.push(rest[i]);
+				}
+				&rest[*len as usize..]
 			}
-		} else {
-			// c == 0, also self-representing
-			output.push(c);
-		}
+			[c @ 0x09..=0x7f, rest @ ..] => {
+				output.push(*c);
+				rest
+			}
+			[c1 @ 0x80..=0xbf, rest @ ..] => {
+				let c2 = rest[0];
+				let distance = ((((*c1 as u32) << 8) | c2 as u32) >> 3) & 0x07ff;
+				let length = 3 + (c2 & 0x07);
+				let copy_from = output.len() - distance as usize;
+				for idx in copy_from..copy_from + length as usize {
+					output.push(output[idx]);
+				}
+				&rest[1..]
+			}
+			[c @ 0xc0..=0xff, rest @ ..] => {
+				output.push(b' ');
+				output.push(*c ^ 0x80);
+				rest
+			}
+			[] => break,
+		};
 	}
-	output
 }
