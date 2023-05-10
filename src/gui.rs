@@ -145,7 +145,7 @@ fn insert_font(fonts: &mut FontDefinitions, name: &str, font_data: FontData) {
 
 #[derive(PartialEq)]
 enum SidebarList {
-	Chapter,
+	Chapter(bool),
 	History,
 	Font,
 	Theme,
@@ -217,7 +217,6 @@ struct ReaderApp {
 	popup_menu: Option<Pos2>,
 	selected_text: String,
 	sidebar: bool,
-	chapter_list_shown: bool,
 	sidebar_list: SidebarList,
 	dropdown: bool,
 	input_search: bool,
@@ -376,12 +375,10 @@ impl ReaderApp {
 				// 	Some(GuiCommand::NextLink)
 			} else if input.consume_key(Modifiers::NONE, Key::C) {
 				self.sidebar = true;
-				self.sidebar_list = SidebarList::Chapter;
-				self.chapter_list_shown = false;
+				self.sidebar_list = SidebarList::Chapter(true);
 				None
 			} else if input.consume_key(Modifiers::NONE, Key::H) {
 				self.sidebar = true;
-				self.chapter_list_shown = false;
 				self.sidebar_list = SidebarList::History;
 				None
 			} else if input.consume_key(Modifiers::NONE, Key::Enter) {
@@ -541,8 +538,8 @@ impl ReaderApp {
 		let sidebar_id = self.image(ui.ctx(), if sidebar { "sidebar_off.svg" } else { "sidebar_on.svg" });
 		if ImageButton::new(sidebar_id, ICON_SIZE).ui(ui).clicked() {
 			self.sidebar = !sidebar;
-			if self.sidebar {
-				self.chapter_list_shown = false;
+			if self.sidebar && matches!(self.sidebar_list, SidebarList::Chapter(false)) {
+				self.sidebar_list = SidebarList::Chapter(true);
 			}
 		}
 
@@ -709,7 +706,7 @@ impl eframe::App for ReaderApp {
 				egui::menu::bar(ui, |ui| {
 					let chapter_text = self.i18n.msg("tab-chapter");
 					let text = RichText::new(chapter_text.as_ref()).text_style(TextStyle::Heading);
-					ui.selectable_value(&mut self.sidebar_list, SidebarList::Chapter, text);
+					ui.selectable_value(&mut self.sidebar_list, SidebarList::Chapter(true), text);
 
 					let history_text = self.i18n.msg("tab-history");
 					let text = RichText::new(history_text.as_ref()).text_style(TextStyle::Heading);
@@ -729,7 +726,7 @@ impl eframe::App for ReaderApp {
 				});
 				ScrollArea::vertical().max_width(width).show(ui, |ui| {
 					match self.sidebar_list {
-						SidebarList::Chapter => {
+						SidebarList::Chapter(init) => {
 							let mut selected_book = None;
 							let mut selected_toc = None;
 							for (index, bn) in self.controller.container.inner_book_names().iter().enumerate() {
@@ -743,8 +740,8 @@ impl eframe::App for ReaderApp {
 										for (title, value) in toc {
 											let current = self.current_toc == value;
 											let label = ui.selectable_label(current, title);
-											if current && !self.chapter_list_shown {
-												self.chapter_list_shown = true;
+											if current && init {
+												self.sidebar_list = SidebarList::Chapter(false);
 												label.scroll_to_me(Some(Align::Center));
 											}
 											if label.clicked() {
@@ -1048,8 +1045,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 				selected_text: String::new(),
 				dropdown: false,
 				sidebar: false,
-				chapter_list_shown: false,
-				sidebar_list: SidebarList::Chapter,
+				sidebar_list: SidebarList::Chapter(true),
 				input_search: false,
 				search_pattern: String::new(),
 				response_rect: Rect::NOTHING,
