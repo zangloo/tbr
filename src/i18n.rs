@@ -1,15 +1,43 @@
 use anyhow::Result;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use egui::WidgetText;
 use fluent::{FluentArgs, FluentBundle, FluentResource, FluentValue};
 use unic_langid::LanguageIdentifier;
 use crate::Asset;
 
 pub const DEFAULT_LOCALE: &str = "en_US";
 
+#[derive(Clone)]
+pub struct LocaleEntry {
+	pub locale: String,
+	pub name: String,
+}
+
+impl LocaleEntry {
+	pub fn new(locale: &str, name: &str) -> Self {
+		LocaleEntry {
+			locale: locale.to_owned(),
+			name: name.to_owned(),
+		}
+	}
+}
+
+impl PartialEq for LocaleEntry {
+	fn eq(&self, other: &Self) -> bool {
+		self.locale == other.locale
+	}
+}
+
+impl Into<WidgetText> for LocaleEntry {
+	fn into(self) -> WidgetText {
+		WidgetText::from(&self.name)
+	}
+}
+
 pub struct I18n {
 	bundles: HashMap<String, FluentBundle<FluentResource>>,
-	locale_list: Vec<(String, String)>,
+	locale_list: Vec<LocaleEntry>,
 	locale: String,
 }
 
@@ -30,7 +58,7 @@ impl I18n
 				let mut bundle = FluentBundle::new(vec![langid_en]);
 				bundle.add_resource(res).expect(&format!("Failed to add FTL resources to the bundle for : {}", name));
 				let locale_name = bundle_msg(&bundle, "title", None).expect(&format!("No title defined in : {file}"));
-				locale_list.push((name.to_string(), locale_name.to_string()));
+				locale_list.push(LocaleEntry::new(name, &locale_name));
 				bundles.insert(name.to_string(), bundle);
 			}
 		}
@@ -69,9 +97,18 @@ impl I18n
 		msg.to_string()
 	}
 
-	pub fn locales(&self) -> &Vec<(String, String)>
+	pub fn locales(&self) -> &Vec<LocaleEntry>
 	{
 		&self.locale_list
+	}
+
+	pub fn locale_text(&self, locale: &str) -> &str {
+		for entry in &self.locale_list {
+			if entry.locale == locale {
+				return &entry.name;
+			}
+		}
+		"Unknown"
 	}
 }
 

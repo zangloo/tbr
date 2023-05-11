@@ -1266,6 +1266,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui-modal"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a0f6c12317892e64d20b5940f423a1bcaca1139f91735a4171e2556c67e64ba"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "egui-winit"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3830,6 +3839,7 @@ dependencies = [
  "eframe",
  "ego-tree",
  "egui",
+ "egui-modal",
  "egui_extras",
  "encoding_rs",
  "fluent",

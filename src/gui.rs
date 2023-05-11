@@ -21,8 +21,10 @@ use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::{Controller, HighlightInfo, HighlightMode};
 use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPosition, RenderContext, RenderLine};
+use crate::gui::settings::SettingsData;
 
 mod render;
+mod settings;
 
 const ICON_SIZE: Vec2 = Vec2 { x: 32.0, y: 32.0 };
 const INLINE_ICON_SIZE: Vec2 = Vec2 { x: 16.0, y: 16.0 };
@@ -148,8 +150,6 @@ enum SidebarList {
 	Chapter(bool),
 	History,
 	Font,
-	Theme,
-	Language,
 }
 
 enum AppStatus {
@@ -218,7 +218,7 @@ struct ReaderApp {
 	selected_text: String,
 	sidebar: bool,
 	sidebar_list: SidebarList,
-	dropdown: bool,
+	setting: Option<SettingsData>,
 	input_search: bool,
 	search_pattern: String,
 	response_rect: Rect,
@@ -532,7 +532,7 @@ impl ReaderApp {
 		None
 	}
 
-	fn setup_toolbar(&mut self, frame: &mut eframe::Frame, ui: &mut Ui) -> bool
+	fn setup_toolbar(&mut self, frame: &mut eframe::Frame, ui: &mut Ui)
 	{
 		let sidebar = self.sidebar;
 		let sidebar_id = self.image(ui.ctx(), if sidebar { "sidebar_off.svg" } else { "sidebar_on.svg" });
@@ -543,7 +543,18 @@ impl ReaderApp {
 			}
 		}
 
-		let setting = self.setup_setting_button(ui);
+		let setting_id = self.image(ui.ctx(), "setting.svg");
+		if ImageButton::new(setting_id, ICON_SIZE).ui(ui).clicked() {
+			self.setting = Some(SettingsData::new(
+				self.configuration.render_type == "han",
+				self.controller.reading.custom_color,
+				&self.theme_entries,
+				&self.configuration.theme_name,
+				&self.i18n,
+				&self.configuration.gui.lang,
+			));
+		}
+		settings::try_show(ui, self);
 
 		let file_open_id = self.image(ui.ctx(), "file_open.svg");
 		if ImageButton::new(file_open_id, ICON_SIZE).ui(ui).clicked() {
@@ -591,63 +602,56 @@ impl ReaderApp {
 		ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
 			ui.label(status_msg);
 		});
-
-		setting
 	}
 
-	fn do_search(&mut self, ui: &mut Ui) {
+	fn approve_settings(&mut self, ui: &mut Ui)
+	{
+		if let Some(settings) = &self.setting {
+			let mut redraw = false;
+			let mut update_context = false;
+			let render_type = if settings.render_han { "han" } else { "xi" };
+			if render_type != self.configuration.render_type {
+				self.configuration.render_type = render_type.to_owned();
+				self.controller.render = create_render(render_type);
+				redraw = true;
+			}
+			if self.controller.reading.custom_color != settings.custom_color {
+				self.controller.reading.custom_color = settings.custom_color;
+				update_context = true;
+				redraw = true;
+			}
+			if self.configuration.theme_name != settings.theme_name {
+				for theme in &self.theme_entries {
+					if theme.0 == settings.theme_name {
+						self.configuration.theme_name = settings.theme_name.clone();
+						self.colors = convert_colors(&theme.1);
+						update_context = true;
+						redraw = true;
+					}
+				}
+			}
+			if self.configuration.gui.lang != settings.locale.locale {
+				if let Ok(()) = self.i18n.set_locale(&settings.locale.locale) {
+					self.configuration.gui.lang = settings.locale.locale.clone();
+				}
+			}
+			if update_context {
+				self.update_context(ui);
+			}
+			if redraw {
+				self.controller.redraw(ui);
+			}
+		}
+	}
+
+	fn do_search(&mut self, ui: &mut Ui)
+	{
 		if let Err(e) = self.controller.search(&self.search_pattern, ui) {
 			self.error(e.to_string());
 		} else {
 			self.update_status(self.controller.status_msg());
 		}
 		self.input_search = false;
-	}
-
-	fn setup_setting_button(&mut self, ui: &mut Ui) -> bool
-	{
-		let setting_id = self.image(ui.ctx(), "setting.svg");
-		let setting_popup = ui.make_persistent_id("setting_popup");
-		let setting_button = ImageButton::new(setting_id, ICON_SIZE).ui(ui);
-		if setting_button.clicked() {
-			ui.memory_mut(|memory| memory.toggle_popup(setting_popup));
-		}
-		egui::popup::popup_below_widget(ui, setting_popup, &setting_button, |ui| {
-			ui.set_min_width(200.0);
-
-			// switch render
-			let han = self.configuration.render_type == "han";
-			let button = if han {
-				let xi_text = self.i18n.msg("render-xi");
-				let render_id = self.image(ui.ctx(), "render_xi.svg");
-				Button::image_and_text(render_id, INLINE_ICON_SIZE, xi_text.as_ref())
-			} else {
-				let han_text = self.i18n.msg("render-han");
-				let render_id = self.image(ui.ctx(), "render_han.svg");
-				Button::image_and_text(render_id, INLINE_ICON_SIZE, han_text.as_ref())
-			};
-			if button.ui(ui).clicked() {
-				let render_type = if han { "xi" } else { "han" };
-				self.configuration.render_type = render_type.to_string();
-				self.controller.render = create_render(render_type);
-				self.controller.redraw(ui);
-			}
-
-			ui.separator();
-
-			// enable/disable custom color of book
-			let custom_color_id = if self.controller.reading.custom_color {
-				self.image(ui.ctx(), "custom_color_off.svg")
-			} else {
-				self.image(ui.ctx(), "custom_color_on.svg")
-			};
-			let label = self.i18n.msg("custom-color");
-			if Button::image_and_text(custom_color_id, INLINE_ICON_SIZE, label.as_ref()).ui(ui).clicked() {
-				self.controller.reading.custom_color = !self.controller.reading.custom_color;
-				self.update_context(ui);
-				self.controller.redraw(ui);
-			}
-		}).is_some()
 	}
 
 	#[inline]
@@ -696,7 +700,7 @@ impl eframe::App for ReaderApp {
 	fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 		egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
 			egui::menu::bar(ui, |ui| {
-				self.dropdown = self.setup_toolbar(frame, ui);
+				self.setup_toolbar(frame, ui);
 			});
 		});
 
@@ -715,14 +719,6 @@ impl eframe::App for ReaderApp {
 					let font_text = self.i18n.msg("tab-font");
 					let text = RichText::new(font_text.as_ref()).text_style(TextStyle::Heading);
 					ui.selectable_value(&mut self.sidebar_list, SidebarList::Font, text);
-
-					let theme_text = self.i18n.msg("tab-theme");
-					let text = RichText::new(theme_text.as_ref()).text_style(TextStyle::Heading);
-					ui.selectable_value(&mut self.sidebar_list, SidebarList::Theme, text);
-
-					let lang_text = self.i18n.msg("tab-lang");
-					let text = RichText::new(lang_text.as_ref()).text_style(TextStyle::Heading);
-					ui.selectable_value(&mut self.sidebar_list, SidebarList::Language, text);
 				});
 				ScrollArea::vertical().max_width(width).show(ui, |ui| {
 					match self.sidebar_list {
@@ -835,32 +831,6 @@ impl eframe::App for ReaderApp {
 								}
 							}
 						}
-						SidebarList::Theme => {
-							for entry in &self.theme_entries {
-								let current = self.configuration.theme_name == entry.0;
-								if ui.selectable_label(current, &entry.0).clicked() {
-									self.configuration.theme_name = entry.0.clone();
-									self.colors = convert_colors(&entry.1);
-									self.update_context(ui);
-									self.controller.redraw(ui);
-								}
-							}
-						}
-						SidebarList::Language => {
-							let mut selected_locale = None;
-							let locale_title = self.i18n.msg("title");
-							let mut locale_text = locale_title.as_ref();
-							for (locale, name) in self.i18n.locales() {
-								if ui.selectable_value(&mut locale_text, name, name).clicked() {
-									selected_locale = Some(locale.clone());
-								};
-							}
-							if let Some(locale) = selected_locale {
-								if let Err(e) = self.i18n.set_locale(&locale) {
-									self.error(e.to_string());
-								}
-							}
-						}
 					}
 				})
 			});
@@ -888,7 +858,7 @@ impl eframe::App for ReaderApp {
 				self.update_context(ui);
 				self.controller.redraw(ui);
 			}
-			if !self.sidebar && !self.input_search && !self.dropdown && self.popup_menu.is_none() {
+			if !self.sidebar && !self.input_search && self.setting.is_none() && self.popup_menu.is_none() {
 				response.request_focus();
 			}
 			if let Some(mut pos) = self.popup_menu {
@@ -934,7 +904,7 @@ impl eframe::App for ReaderApp {
 						self.popup_menu = None;
 					}
 				}
-			} else if !self.input_search && !self.dropdown {
+			} else if !self.input_search && self.setting.is_none() {
 				match self.setup_input(&response, frame, ui) {
 					Ok(action) => if action {
 						self.update_status(self.controller.status_msg());
@@ -1043,9 +1013,9 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 				current_toc: 0,
 				popup_menu: None,
 				selected_text: String::new(),
-				dropdown: false,
 				sidebar: false,
 				sidebar_list: SidebarList::Chapter(true),
+				setting: None,
 				input_search: false,
 				search_pattern: String::new(),
 				response_rect: Rect::NOTHING,
