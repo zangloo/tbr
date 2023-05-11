@@ -47,6 +47,7 @@ struct NavPoint {
 	pub level: usize,
 	pub src_file: Option<String>,
 	pub src_anchor: Option<String>,
+	first_chapter_index: usize,
 }
 
 struct Chapter {
@@ -155,8 +156,8 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 				let chapter_href = &manifest.href;
 				for toc_index in 0..len {
 					let np = &toc[toc_index];
-					if let Some(src_file) = &np.src_file {
-						if chapter_href == src_file {
+					match &np.src_file {
+						Some(src_file) if chapter_href == src_file => {
 							if let Some(anchor) = &np.src_anchor {
 								if let Some(position) = c.id_map.get(anchor) {
 									if position.line < line || (position.line == line && position.offset <= offset) {
@@ -168,6 +169,9 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 							} else {
 								file_matched = Some(toc_index);
 							}
+						}
+						_ => if np.first_chapter_index <= self.chapter_index {
+							file_matched = Some(toc_index);
 						}
 					}
 				}
@@ -249,7 +253,7 @@ impl<R: Read + Seek> EpubBook<R> {
 
 		let (css_cache, images) = load_cache(&mut zip, &content_opf.manifest);
 
-		let toc = match content_opf.manifest.get(content_opf.toc_id.as_ref().unwrap_or(&"ncx".to_string())) {
+		let mut toc = match content_opf.manifest.get(content_opf.toc_id.as_ref().unwrap_or(&"ncx".to_string())) {
 			Some(ManifestItem { href, .. }) => {
 				let ncx_text = zip_string(&mut zip, href)?;
 				let cwd = path_cwd(href);
@@ -276,6 +280,23 @@ impl<R: Read + Seek> EpubBook<R> {
 		};
 
 		let chapter_count = content_opf.spine.len();
+
+		let mut chapter_index = 0;
+		for np in &mut toc {
+			if let Some(src_file) = &np.src_file {
+				for i in chapter_index..chapter_count {
+					let spine = &content_opf.spine[i];
+					let manifest = &content_opf.manifest[spine];
+					let chapter_href = &manifest.href;
+					if chapter_href == src_file {
+						np.first_chapter_index = i;
+						chapter_index = i;
+						break;
+					}
+				}
+			}
+		}
+
 		let mut chapter_index = match loading_chapter {
 			LoadingChapter::Index(index) => index,
 			LoadingChapter::Last => chapter_count - 1,
@@ -426,6 +447,7 @@ fn parse_nav_points(nav_points_element: &Element, level: usize, nav_points: &mut
 			level,
 			src_file,
 			src_anchor,
+			first_chapter_index: 0,
 		})
 	}
 	nav_points_element
@@ -523,6 +545,7 @@ fn parse_nav_doc(text: &str, cwd: &PathBuf) -> Result<Vec<NavPoint>>
 						level,
 						src_file,
 						src_anchor,
+						first_chapter_index: 0,
 					});
 					if let Some(node) = children.get(1) {
 						match node {
