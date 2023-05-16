@@ -221,6 +221,7 @@ struct ReaderApp {
 	setting: Option<SettingsData>,
 	input_search: bool,
 	search_pattern: String,
+	dropdown: bool,
 	response_rect: Rect,
 
 	view_rect: Rect,
@@ -543,6 +544,8 @@ impl ReaderApp {
 			}
 		}
 
+		self.setup_history_button(frame, ui);
+
 		let setting_id = self.image(ui.ctx(), "setting.svg");
 		if ImageButton::new(setting_id, ICON_SIZE).ui(ui).clicked() {
 			self.setting = Some(SettingsData::new(
@@ -602,6 +605,38 @@ impl ReaderApp {
 		ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
 			ui.label(status_msg);
 		});
+	}
+
+	fn setup_history_button(&mut self, frame: &mut eframe::Frame, ui: &mut Ui)
+	{
+		let history_id = self.image(ui.ctx(), "history.svg");
+		let history_popup = ui.make_persistent_id("history_popup");
+		let history_button = ImageButton::new(history_id, ICON_SIZE).ui(ui);
+		if history_button.clicked() {
+			ui.memory_mut(|memory| memory.toggle_popup(history_popup));
+		}
+		self.dropdown = egui::popup::popup_below_widget(ui, history_popup, &history_button, |ui| {
+			ScrollArea::vertical().show(ui, |ui| {
+				ui.set_max_width(400.0);
+				let mut size = self.configuration.history.len();
+				if size > 20 {
+					size = 20;
+				}
+				for i in 1..=size {
+					let path_str = &self.configuration.history[i].filename;
+					let path = PathBuf::from(path_str);
+					if path.exists() {
+						if let Some(file_name) = path.file_name() {
+							if let Some(text) = file_name.to_str() {
+								if ui.button(text).clicked() {
+									self.open_file(path, frame, ui);
+								}
+							}
+						}
+					}
+				}
+			});
+		}).is_some();
 	}
 
 	fn approve_settings(&mut self, ui: &mut Ui)
@@ -858,7 +893,7 @@ impl eframe::App for ReaderApp {
 				self.update_context(ui);
 				self.controller.redraw(ui);
 			}
-			if !self.sidebar && !self.input_search && self.setting.is_none() && self.popup_menu.is_none() {
+			if !self.sidebar && !self.input_search && !self.dropdown && self.setting.is_none() && self.popup_menu.is_none() {
 				response.request_focus();
 			}
 			if let Some(mut pos) = self.popup_menu {
@@ -904,7 +939,7 @@ impl eframe::App for ReaderApp {
 						self.popup_menu = None;
 					}
 				}
-			} else if !self.input_search && self.setting.is_none() {
+			} else if !self.input_search && !self.dropdown && self.setting.is_none() {
 				match self.setup_input(&response, frame, ui) {
 					Ok(action) => if action {
 						self.update_status(self.controller.status_msg());
@@ -1018,6 +1053,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 				setting: None,
 				input_search: false,
 				search_pattern: String::new(),
+				dropdown: false,
 				response_rect: Rect::NOTHING,
 
 				view_rect: Rect::NOTHING,
