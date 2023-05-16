@@ -616,26 +616,24 @@ impl ReaderApp {
 			ui.memory_mut(|memory| memory.toggle_popup(history_popup));
 		}
 		self.dropdown = egui::popup::popup_below_widget(ui, history_popup, &history_button, |ui| {
-			ScrollArea::vertical().show(ui, |ui| {
-				ui.set_max_width(400.0);
-				let mut size = self.configuration.history.len();
-				if size > 20 {
-					size = 20;
-				}
-				for i in 1..=size {
-					let path_str = &self.configuration.history[i].filename;
-					let path = PathBuf::from(path_str);
-					if path.exists() {
-						if let Some(file_name) = path.file_name() {
-							if let Some(text) = file_name.to_str() {
-								if ui.button(text).clicked() {
-									self.open_file(path, frame, ui);
-								}
+			ui.set_max_width(400.0);
+			let mut size = self.configuration.history.len();
+			if size > 20 {
+				size = 20;
+			}
+			for i in 1..=size {
+				let path_str = &self.configuration.history[i].filename;
+				let path = PathBuf::from(path_str);
+				if path.exists() {
+					if let Some(file_name) = path.file_name() {
+						if let Some(text) = file_name.to_str() {
+							if ui.button(text).clicked() {
+								self.open_file(path, frame, ui);
 							}
 						}
 					}
 				}
-			});
+			}
 		}).is_some();
 	}
 
