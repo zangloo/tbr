@@ -627,7 +627,9 @@ impl ReaderApp {
 				if path.exists() {
 					if let Some(file_name) = path.file_name() {
 						if let Some(text) = file_name.to_str() {
-							if ui.button(text).clicked() {
+							if ui.button(text)
+								.on_hover_text_at_pointer(path.to_str().unwrap())
+								.clicked() {
 								self.open_file(path, frame, ui);
 							}
 						}
