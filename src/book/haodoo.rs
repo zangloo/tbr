@@ -1,7 +1,7 @@
 use std::borrow::BorrowMut;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use encoding_rs::Encoding;
 
 use crate::book::{Book, LoadingChapter, Line, Loader};
@@ -303,7 +303,11 @@ impl<R: Read + Seek> HaodooBook<R> {
 				};
 				let text = encode.decode(&mut encrypt_record[offset..]).0.to_string();
 				let lines = txt_lines(&text);
-				self.chapters[chapter_index].lines = Some(lines);
+				if let Some(chapter) = self.chapters.get_mut(chapter_index) {
+					chapter.lines = Some(lines);
+				} else {
+					bail!("Corrupted document.")
+				}
 			}
 			PDBType::UPDB { encode } => {
 				self.parse_toc(&record, encode, &UPDB_ESCAPE_SEPARATOR, &UPDB_TITLE_SEPARATOR, 0)?;

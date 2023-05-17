@@ -4,6 +4,7 @@ use std::io::{BufReader, Cursor, Read};
 use std::ops::Index;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
@@ -157,7 +158,7 @@ enum SidebarList {
 enum AppStatus {
 	Startup,
 	Normal(String),
-	Error(String),
+	Error(String, u64),
 }
 
 fn setup_fonts(ctx: &egui::Context, font_paths: &Vec<PathBuf>) -> Result<()> {
@@ -250,12 +251,17 @@ impl ReaderApp {
 	#[inline]
 	fn error(&mut self, error: String)
 	{
-		self.status = AppStatus::Error(error);
+		self.status = AppStatus::Error(error, ts());
 	}
 
 	#[inline]
 	fn update_status(&mut self, status: String)
 	{
+		if let AppStatus::Error(_, start) = &self.status {
+			if ts() - start < 5 {
+				return;
+			}
+		}
 		self.current_toc = self.controller.toc_index();
 		self.status = AppStatus::Normal(status);
 	}
@@ -676,7 +682,7 @@ impl ReaderApp {
 		let status_msg = match &self.status {
 			AppStatus::Startup => RichText::from("Starting...").color(Color32::GREEN),
 			AppStatus::Normal(status) => RichText::from(status).color(Color32::BLUE),
-			AppStatus::Error(error) => RichText::from(error).color(Color32::RED),
+			AppStatus::Error(error, _) => RichText::from(error).color(Color32::RED),
 		};
 		ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
 			ui.label(status_msg);
@@ -1199,4 +1205,12 @@ fn take_render_lines(ui: &mut Ui) -> Option<Vec<RenderLine>>
 		} else {
 			None
 		})
+}
+
+#[inline]
+fn ts() -> u64 {
+	SystemTime::now()
+		.duration_since(UNIX_EPOCH)
+		.expect("Time went backwards")
+		.as_secs()
 }
