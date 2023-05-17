@@ -16,6 +16,7 @@ no-custom-color = no book custom color
 tab-chapter = chapter
 tab-history = history
 tab-font = font
+dictionary-data-path = dictionary data path
 settings-dialog-title = settings
 ok-title = Ok
 cancel-title = Cancel

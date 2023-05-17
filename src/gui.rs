@@ -20,11 +20,13 @@ use crate::book::{Book, Colors, Line};
 use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::{Controller, HighlightInfo, HighlightMode};
+use crate::gui::dict::{DictDefinition, DictionaryManager};
 use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPosition, RenderContext, RenderLine};
 use crate::gui::settings::SettingsData;
 
 mod render;
 mod settings;
+mod dict;
 
 const ICON_SIZE: Vec2 = Vec2 { x: 32.0, y: 32.0 };
 const INLINE_ICON_SIZE: Vec2 = Vec2 { x: 16.0, y: 16.0 };
@@ -205,6 +207,11 @@ enum GuiCommand {
 	OpenDroppedFile(PathBuf),
 }
 
+enum DialogData {
+	Setting(SettingsData),
+	Dictionary(Vec<DictDefinition>),
+}
+
 struct ReaderApp {
 	configuration: Configuration,
 	theme_entries: Vec<ThemeEntry>,
@@ -218,11 +225,12 @@ struct ReaderApp {
 	selected_text: String,
 	sidebar: bool,
 	sidebar_list: SidebarList,
-	setting: Option<SettingsData>,
+	dialog: Option<DialogData>,
 	input_search: bool,
 	search_pattern: String,
 	dropdown: bool,
 	response_rect: Rect,
+	dictionary: DictionaryManager,
 
 	view_rect: Rect,
 	font_size: u8,
@@ -548,14 +556,34 @@ impl ReaderApp {
 
 		let setting_id = self.image(ui.ctx(), "setting.svg");
 		if ImageButton::new(setting_id, ICON_SIZE).ui(ui).clicked() {
-			self.setting = Some(SettingsData::new(
+			self.dialog = Some(DialogData::Setting(SettingsData::new(
 				&self.theme_entries,
 				&self.configuration.theme_name,
 				&self.i18n,
 				&self.configuration.gui.lang,
-			));
+				&self.configuration.gui.dictionary_data_path,
+			)));
 		}
-		settings::try_show(ui, self);
+
+		match &mut self.dialog {
+			Some(DialogData::Setting(settings_data)) =>
+				if settings::show(ui, settings_data, &self.i18n) {
+					let (update_context, redraw) = self.approve_settings();
+					if update_context {
+						self.update_context(ui);
+					}
+					if redraw {
+						self.controller.redraw(ui);
+					}
+					self.dialog = None;
+				}
+			Some(DialogData::Dictionary(definitions)) =>
+				if dict::show(ui, &frame.info().window_info.size,
+					&self.i18n, &self.selected_text, definitions) {
+					self.dialog = None;
+				}
+			None => {}
+		}
 
 		let mut redraw = false;
 		let mut update_context = false;
@@ -687,9 +715,9 @@ impl ReaderApp {
 		}).is_some();
 	}
 
-	fn approve_settings(&mut self, ui: &mut Ui)
+	fn approve_settings(&mut self) -> (bool, bool)
 	{
-		if let Some(settings) = &self.setting {
+		if let Some(DialogData::Setting(settings)) = &mut self.dialog {
 			let mut redraw = false;
 			let mut update_context = false;
 			if self.configuration.theme_name != settings.theme_name {
@@ -707,12 +735,24 @@ impl ReaderApp {
 					self.configuration.gui.lang = settings.locale.locale.clone();
 				}
 			}
-			if update_context {
-				self.update_context(ui);
+
+			if settings.dictionary_data_path.is_empty() {
+				if self.configuration.gui.dictionary_data_path.is_some() {
+					self.configuration.gui.dictionary_data_path = None;
+					self.dictionary.reload(&self.configuration.gui.dictionary_data_path);
+				}
+			} else {
+				if let Ok(dictionary_data_path) = PathBuf::from_str(&settings.dictionary_data_path) {
+					let dictionary_data_path = Some(dictionary_data_path);
+					if self.configuration.gui.dictionary_data_path != dictionary_data_path {
+						self.configuration.gui.dictionary_data_path = dictionary_data_path;
+						self.dictionary.reload(&self.configuration.gui.dictionary_data_path);
+					}
+				}
 			}
-			if redraw {
-				self.controller.redraw(ui);
-			}
+			(update_context, redraw)
+		} else {
+			(false, false)
 		}
 	}
 
@@ -930,7 +970,7 @@ impl eframe::App for ReaderApp {
 				self.update_context(ui);
 				self.controller.redraw(ui);
 			}
-			if !self.sidebar && !self.input_search && !self.dropdown && self.setting.is_none() && self.popup_menu.is_none() {
+			if !self.sidebar && !self.input_search && !self.dropdown && self.dialog.is_none() && self.popup_menu.is_none() {
 				response.request_focus();
 			}
 			if let Some(mut pos) = self.popup_menu {
@@ -947,12 +987,18 @@ impl eframe::App for ReaderApp {
 								.show(ui, |ui| {
 									let texture_id = self.image(ctx, "copy.svg");
 									let text = self.i18n.msg("copy-content");
-									if Button::image_and_text(texture_id, ICON_SIZE, text.as_ref()).ui(ui).clicked() {
+									if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
 										ui.output_mut(|output| output.copied_text = self.selected_text.clone());
 										self.popup_menu = None;
 									}
-									// let texture_id = self.image(ctx, "dict.svg");
-									// Button::image_and_text(texture_id, ICON_SIZE, "查阅字典").ui(ui);
+									let texture_id = self.image(ctx, "dict.svg");
+									let text = self.i18n.msg("lookup-dictionary");
+									if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
+										if let Some(result) = self.dictionary.lookup(&self.selected_text) {
+											self.dialog = Some(DialogData::Dictionary(result));
+										}
+										self.popup_menu = None;
+									}
 									// let texture_id = self.image(ctx, "bookmark.svg");
 									// Button::image_and_text(texture_id, ICON_SIZE, "增加书签").ui(ui);
 								}).inner
@@ -976,7 +1022,7 @@ impl eframe::App for ReaderApp {
 						self.popup_menu = None;
 					}
 				}
-			} else if !self.input_search && !self.dropdown && self.setting.is_none() {
+			} else if !self.input_search && !self.dropdown && self.dialog.is_none() {
 				match self.setup_input(&response, frame, ui) {
 					Ok(action) => if action {
 						self.update_status(self.controller.status_msg());
@@ -1043,6 +1089,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 	let colors = convert_colors(get_theme(&configuration.theme_name, &theme_entries)?);
 	let render = create_render(&configuration.render_type);
 	let images = load_icons()?;
+	let dictionary = DictionaryManager::from(&configuration.gui.dictionary_data_path);
 
 	let container_manager = Default::default();
 	let (container, book, reading, title) = if let Some(mut reading) = reading {
@@ -1080,6 +1127,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 				i18n,
 				images,
 				controller,
+				dictionary,
 
 				status: AppStatus::Startup,
 				current_toc: 0,
@@ -1087,7 +1135,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 				selected_text: String::new(),
 				sidebar: false,
 				sidebar_list: SidebarList::Chapter(true),
-				setting: None,
+				dialog: None,
 				input_search: false,
 				search_pattern: String::new(),
 				dropdown: false,

@@ -16,6 +16,7 @@ no-custom-color = 不使用书籍设定颜色
 tab-chapter = 章节
 tab-history = 历史
 tab-font = 字体
+dictionary-data-path = 字典目录
 settings-dialog-title = 设置
 ok-title = 确定
 cancel-title = 取消

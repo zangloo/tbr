@@ -141,13 +141,20 @@ pub struct GuiConfiguration {
 	font_size: u8,
 	#[serde(default = "default_locale")]
 	lang: String,
+	#[serde(default)]
+	dictionary_data_path: Option<PathBuf>,
 }
 
 #[cfg(feature = "gui")]
 impl Default for GuiConfiguration
 {
 	fn default() -> Self {
-		GuiConfiguration { fonts: vec![], font_size: 20, lang: default_locale() }
+		GuiConfiguration {
+			fonts: vec![],
+			font_size: 20,
+			lang: default_locale(),
+			dictionary_data_path: None,
+		}
 	}
 }
 
