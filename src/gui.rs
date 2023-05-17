@@ -701,9 +701,9 @@ impl ReaderApp {
 			ui.set_max_width(400.0);
 			let mut size = self.configuration.history.len();
 			if size > 20 {
-				size = 20;
+				size = 21;
 			}
-			for i in 1..=size {
+			for i in 1..size {
 				let path_str = &self.configuration.history[i].filename;
 				let path = PathBuf::from(path_str);
 				if path.exists() {
