@@ -1,12 +1,10 @@
-use egui::{Align, ComboBox, Key, Layout, Modifiers, RichText, Ui};
+use egui::{Align, ComboBox, Key, Layout, Modifiers, Ui};
 use egui_modal::Modal;
 use crate::{I18n, i18n, ThemeEntry};
 use crate::gui::ReaderApp;
 use crate::i18n::LocaleEntry;
 
 pub(super) struct SettingsData {
-	pub render_han: bool,
-	pub custom_color: bool,
 	pub theme_name: String,
 	pub locale: LocaleEntry,
 
@@ -14,8 +12,7 @@ pub(super) struct SettingsData {
 }
 
 impl SettingsData {
-	pub fn new(render_han: bool, custom_color: bool, themes: &Vec<ThemeEntry>,
-		theme_name: &str, i18n: &I18n, lang: &str) -> Self
+	pub fn new(themes: &Vec<ThemeEntry>, theme_name: &str, i18n: &I18n, lang: &str) -> Self
 	{
 		let mut theme_names = vec![];
 		for entry in themes {
@@ -34,8 +31,6 @@ impl SettingsData {
 		));
 
 		SettingsData {
-			render_han,
-			custom_color,
 			themes: theme_names,
 			theme_name: theme_name.to_owned(),
 			locale,
@@ -56,18 +51,6 @@ pub(super) fn try_show(ui: &mut Ui, app: &mut ReaderApp)
 			modal.title(ui, i18n.msg("settings-dialog-title"));
 			modal.frame(ui, |ui| {
 				ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
-					ui.label(RichText::from(i18n.msg("render-type")).strong());
-					ui.horizontal(|ui| {
-						if ui.radio(settings_data.render_han, i18n.msg("render-han")).clicked() {
-							settings_data.render_han = true;
-						}
-						if ui.radio(!settings_data.render_han, i18n.msg("render-xi")).clicked() {
-							settings_data.render_han = false;
-						}
-					});
-					ui.checkbox(&mut settings_data.custom_color,
-						RichText::from(i18n.msg("custom-color")).strong());
-
 					ComboBox::from_label(i18n.msg("theme"))
 						.selected_text(&settings_data.theme_name)
 						.show_ui(ui, |ui| {

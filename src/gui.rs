@@ -549,8 +549,6 @@ impl ReaderApp {
 		let setting_id = self.image(ui.ctx(), "setting.svg");
 		if ImageButton::new(setting_id, ICON_SIZE).ui(ui).clicked() {
 			self.setting = Some(SettingsData::new(
-				self.configuration.render_type == "han",
-				self.controller.reading.custom_color,
 				&self.theme_entries,
 				&self.configuration.theme_name,
 				&self.i18n,
@@ -558,6 +556,56 @@ impl ReaderApp {
 			));
 		}
 		settings::try_show(ui, self);
+
+		let mut redraw = false;
+		let mut update_context = false;
+		let (render_type_id, render_type_tooltip) = if self.configuration.render_type == "han" {
+			let id = self.image(ui.ctx(), "render_xi.svg");
+			let tooltip = self.i18n.msg("render-xi");
+			(id, tooltip)
+		} else {
+			let id = self.image(ui.ctx(), "render_han.svg");
+			let tooltip = self.i18n.msg("render-han");
+			(id, tooltip)
+		};
+		if ImageButton::new(render_type_id, ICON_SIZE)
+			.ui(ui)
+			.on_hover_text_at_pointer(render_type_tooltip)
+			.clicked() {
+			let render_type = if self.configuration.render_type == "han" {
+				"xi"
+			} else {
+				"han"
+			};
+			self.configuration.render_type = render_type.to_owned();
+			self.controller.render = create_render(render_type);
+			redraw = true;
+		}
+
+		let (custom_color_id, custom_color_tooltip) = if self.controller.reading.custom_color {
+			let id = self.image(ui.ctx(), "custom_color_off.svg");
+			let tooltip = self.i18n.msg("no-custom-color");
+			(id, tooltip)
+		} else {
+			let id = self.image(ui.ctx(), "custom_color_on.svg");
+			let tooltip = self.i18n.msg("with-custom-color");
+			(id, tooltip)
+		};
+		if ImageButton::new(custom_color_id, ICON_SIZE)
+			.ui(ui)
+			.on_hover_text_at_pointer(custom_color_tooltip)
+			.clicked() {
+			self.controller.reading.custom_color = !self.controller.reading.custom_color;
+			update_context = true;
+			redraw = true;
+		}
+		if update_context {
+			self.update_context(ui);
+		}
+		self.update_context(ui);
+		if redraw {
+			self.controller.redraw(ui);
+		}
 
 		let file_open_id = self.image(ui.ctx(), "file_open.svg");
 		if ImageButton::new(file_open_id, ICON_SIZE).ui(ui).clicked() {
@@ -644,17 +692,6 @@ impl ReaderApp {
 		if let Some(settings) = &self.setting {
 			let mut redraw = false;
 			let mut update_context = false;
-			let render_type = if settings.render_han { "han" } else { "xi" };
-			if render_type != self.configuration.render_type {
-				self.configuration.render_type = render_type.to_owned();
-				self.controller.render = create_render(render_type);
-				redraw = true;
-			}
-			if self.controller.reading.custom_color != settings.custom_color {
-				self.controller.reading.custom_color = settings.custom_color;
-				update_context = true;
-				redraw = true;
-			}
 			if self.configuration.theme_name != settings.theme_name {
 				for theme in &self.theme_entries {
 					if theme.0 == settings.theme_name {
