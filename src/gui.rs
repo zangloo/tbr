@@ -699,11 +699,13 @@ impl ReaderApp {
 		}
 		self.dropdown = egui::popup::popup_below_widget(ui, history_popup, &history_button, |ui| {
 			ui.set_max_width(400.0);
-			let mut size = self.configuration.history.len();
-			if size > 20 {
-				size = 21;
-			}
-			for i in 1..size {
+			let size = self.configuration.history.len();
+			let start = if size < 20 {
+				0
+			} else {
+				size - 20
+			};
+			for i in (start..size).rev() {
 				let path_str = &self.configuration.history[i].filename;
 				let path = PathBuf::from(path_str);
 				if path.exists() {
