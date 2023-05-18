@@ -2,7 +2,6 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Deref;
 use anyhow::{anyhow, Result};
-use cssparser::RGBA;
 use ego_tree::iter::Children;
 use ego_tree::{NodeId, NodeRef};
 use markup5ever::{LocalName, Namespace, Prefix, QualName};
@@ -516,15 +515,16 @@ fn length_value(value: &LengthValue, default_size: f32) -> (f32, bool)
 
 fn css_color(color: &CssColor) -> Option<Color32>
 {
-	#[inline]
-	fn convert(rgba: &RGBA) -> Color32 {
-		Color32::from_rgba_unmultiplied(rgba.red, rgba.green, rgba.blue, rgba.alpha)
-	}
 	match color {
 		CssColor::CurrentColor => None,
-		CssColor::RGBA(rgba) => Some(convert(rgba)),
+		CssColor::RGBA(rgba) => Some(Color32::from_rgba_unmultiplied(
+			rgba.red, rgba.green, rgba.blue, rgba.alpha)),
 		CssColor::LAB(_)
 		| CssColor::Predefined(_)
-		| CssColor::Float(_) => Some(convert(&color.into())),
+		| CssColor::Float(_) => match &color.to_rgb() {
+			CssColor::RGBA(rgba) => Some(Color32::from_rgba_unmultiplied(
+				rgba.red, rgba.green, rgba.blue, rgba.alpha)),
+			_ => panic!("should not happen")
+		}
 	}
 }
