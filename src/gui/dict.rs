@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use egui::{RichText, TextStyle, Ui};
-use stardict::StarDict;
+use stardict::{StarDict, WordDefinition};
 use crate::Color32;
 use crate::i18n::I18n;
 
@@ -14,13 +14,12 @@ const USER_DICT_PATH_SUFFIES: [&str; 2] = [
 
 pub(super) struct DictionaryManager {
 	dictionaries: Vec<StarDict>,
-	cache: HashMap<String, Vec<DictDefinition>>,
+	cache: HashMap<String, Vec<LookupResult>>,
 }
 
-pub(super) struct DictDefinition {
+pub(super) struct LookupResult {
 	dict_name: String,
-	word: String,
-	definition: String,
+	definitions: Vec<WordDefinition>,
 }
 
 impl DictionaryManager {
@@ -40,7 +39,7 @@ impl DictionaryManager {
 		load_dictionaries(data_path, &mut self.dictionaries);
 	}
 
-	pub fn lookup(&mut self, word: &str) -> Option<&Vec<DictDefinition>>
+	pub fn lookup(&mut self, word: &str) -> Option<&Vec<LookupResult>>
 	{
 		let result = self.cache
 			.entry(word.to_owned())
@@ -48,11 +47,10 @@ impl DictionaryManager {
 				let mut result = vec![];
 				for dict in &mut self.dictionaries {
 					let dict_name = dict.dict_name().to_owned();
-					if let Some(def) = dict.lookup(word) {
-						result.push(DictDefinition {
+					if let Some(definitions) = dict.lookup(word) {
+						result.push(LookupResult {
 							dict_name,
-							word: def.word.to_owned(),
-							definition: def.definition.to_string(),
+							definitions,
 						});
 					}
 				}
@@ -68,9 +66,9 @@ impl DictionaryManager {
 	pub fn lookup_and_render(&mut self, ui: &mut Ui, i18n: &I18n, font_size: f32,
 		word: &str)
 	{
-		if let Some(definitions) = self.lookup(word) {
-			for definition in definitions {
-				render_definition(ui, definition, font_size);
+		if let Some(results) = self.lookup(word) {
+			for single in results {
+				render_definition(ui, single, font_size);
 			}
 		} else {
 			let msg = i18n.msg("dictionary-no-definition");
@@ -124,21 +122,25 @@ fn load_dictionaries_dir(path: &PathBuf, dictionaries: &mut Vec<StarDict>)
 }
 
 #[inline]
-fn render_definition(ui: &mut Ui, definition: &DictDefinition, font_size: f32)
+fn render_definition(ui: &mut Ui, result: &LookupResult, font_size: f32)
 {
-	ui.label(RichText::from(&definition.dict_name)
+	ui.label(RichText::from(&result.dict_name)
 		.color(Color32::BLUE)
 		.text_style(TextStyle::Heading)
 		.strong()
 		.size(font_size)
 	);
 	ui.separator();
-	ui.label(RichText::from(&definition.word)
-		.text_style(TextStyle::Heading)
-		.strong()
-		.size(font_size)
-	);
-	ui.label(RichText::from(&definition.definition)
-		.size(font_size));
+	for definition in &result.definitions {
+		ui.label(RichText::from(&definition.word)
+			.text_style(TextStyle::Heading)
+			.strong()
+			.size(font_size)
+		);
+		for segment in &definition.segments {
+			ui.label(RichText::from(&segment.text)
+				.size(font_size));
+		}
+	}
 	ui.separator();
 }
