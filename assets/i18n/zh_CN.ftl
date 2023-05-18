@@ -14,9 +14,11 @@ font-fail = 字体加载失败：{ $error }
 with-custom-color = 使用书籍设定颜色
 no-custom-color = 不使用书籍设定颜色
 tab-chapter = 章节
-tab-history = 历史
+tab-dictionary = 字典
 tab-font = 字体
 dictionary-data-path = 字典目录
 settings-dialog-title = 设置
 ok-title = 确定
 cancel-title = 取消
+
+dictionary-no-definition = 无字典解释

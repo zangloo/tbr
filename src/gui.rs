@@ -21,7 +21,7 @@ use crate::book::{Book, Colors, Line};
 use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::{Controller, HighlightInfo, HighlightMode};
-use crate::gui::dict::{DictDefinition, DictionaryManager};
+use crate::gui::dict::DictionaryManager;
 use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPosition, RenderContext, RenderLine};
 use crate::gui::settings::SettingsData;
 
@@ -134,7 +134,8 @@ fn convert_colors(theme: &Theme) -> Colors
 	Colors { color, background, highlight, highlight_background, link }
 }
 
-fn insert_font(fonts: &mut FontDefinitions, name: &str, font_data: FontData) {
+fn insert_font(fonts: &mut FontDefinitions, name: &str, font_data: FontData)
+{
 	fonts.font_data.insert(name.to_string(), font_data);
 
 	fonts.families
@@ -151,7 +152,7 @@ fn insert_font(fonts: &mut FontDefinitions, name: &str, font_data: FontData) {
 #[derive(PartialEq)]
 enum SidebarList {
 	Chapter(bool),
-	History,
+	Dictionary,
 	Font,
 }
 
@@ -161,7 +162,8 @@ enum AppStatus {
 	Error(String, u64),
 }
 
-fn setup_fonts(ctx: &egui::Context, font_paths: &Vec<PathBuf>) -> Result<()> {
+fn setup_fonts(ctx: &egui::Context, font_paths: &Vec<PathBuf>) -> Result<()>
+{
 	let mut fonts = FontDefinitions::default();
 	if font_paths.is_empty() {
 		let content = Asset::get("font/wqy-zenhei.ttc")
@@ -210,7 +212,11 @@ enum GuiCommand {
 
 enum DialogData {
 	Setting(SettingsData),
-	Dictionary(Vec<DictDefinition>),
+}
+
+struct DictionaryLookupData {
+	words: Vec<String>,
+	current_word: usize,
 }
 
 struct ReaderApp {
@@ -232,6 +238,7 @@ struct ReaderApp {
 	dropdown: bool,
 	response_rect: Rect,
 	dictionary: DictionaryManager,
+	dictionary_lookup: DictionaryLookupData,
 
 	view_rect: Rect,
 	font_size: u8,
@@ -264,6 +271,143 @@ impl ReaderApp {
 		}
 		self.current_toc = self.controller.toc_index();
 		self.status = AppStatus::Normal(status);
+	}
+
+	fn setup_sidebar(&mut self, ui: &mut Ui, width: f32)
+	{
+		egui::menu::bar(ui, |ui| {
+			let chapter_text = self.i18n.msg("tab-chapter");
+			let text = RichText::new(chapter_text.as_ref())
+				.text_style(TextStyle::Heading);
+			ui.selectable_value(
+				&mut self.sidebar_list,
+				SidebarList::Chapter(true),
+				text);
+
+			let dictionary_text = self.i18n.msg("tab-dictionary");
+			let text = RichText::new(dictionary_text.as_ref())
+				.text_style(TextStyle::Heading);
+			ui.selectable_value(
+				&mut self.sidebar_list,
+				SidebarList::Dictionary,
+				text);
+
+			let font_text = self.i18n.msg("tab-font");
+			let text = RichText::new(font_text.as_ref())
+				.text_style(TextStyle::Heading);
+			ui.selectable_value(
+				&mut self.sidebar_list,
+				SidebarList::Font,
+				text);
+		});
+		ScrollArea::vertical().max_width(width).show(ui, |ui| {
+			match self.sidebar_list {
+				SidebarList::Chapter(init) => {
+					let mut selected_book = None;
+					let mut selected_toc = None;
+					for (index, bn) in self.controller.container.inner_book_names().iter().enumerate() {
+						let bookname = bn.name();
+						if bookname == README_TEXT_FILENAME {
+							break;
+						}
+						if index == self.controller.reading.inner_book {
+							ui.heading(RichText::from(bookname).color(Color32::LIGHT_RED));
+							if let Some(toc) = self.controller.book.toc_iterator() {
+								for (title, value) in toc {
+									let current = self.current_toc == value;
+									let label = ui.selectable_label(current, title);
+									if current && init {
+										self.sidebar_list = SidebarList::Chapter(false);
+										label.scroll_to_me(Some(Align::Center));
+									}
+									if label.clicked() {
+										selected_toc = Some(value);
+									}
+								}
+							}
+						} else if ui.button(RichText::from(bookname).heading()).clicked() {
+							selected_book = Some(index);
+						}
+					}
+					if let Some(index) = selected_book {
+						let new_reading = ReadingInfo::new(&self.controller.reading.filename)
+							.with_inner_book(index);
+						let msg = self.controller.switch_book(new_reading, ui);
+						self.update_status(msg);
+					} else if let Some(index) = selected_toc {
+						if let Some(msg) = self.controller.goto_toc(index, ui) {
+							self.update_status(msg);
+						}
+					}
+				}
+				SidebarList::Dictionary => {
+					let lookup = &mut self.dictionary_lookup;
+					let size = lookup.words.len();
+					if size > 0 {
+						if lookup.current_word >= size {
+							lookup.current_word = size - 1;
+						}
+						let word = lookup.words
+							.get(lookup.current_word).unwrap();
+						self.dictionary.lookup_and_render(ui, &self.i18n,
+							self.font_size as f32, word);
+					}
+				}
+				SidebarList::Font => {
+					let mut font_deleted = None;
+					let font_remove_id = self.image(ui.ctx(), "remove.svg");
+					ui.horizontal(|ui| {
+						let font_add_id = self.image(ui.ctx(), "add.svg");
+						if ImageButton::new(font_add_id, INLINE_ICON_SIZE).ui(ui).clicked() {
+							let dialog = rfd::FileDialog::new()
+								.add_filter(self.i18n.msg("font-file").as_ref(), &FONT_FILE_EXTENSIONS);
+							if let Some(paths) = dialog.pick_files() {
+								let mut new_fonts = self.configuration.gui.fonts.clone();
+								'outer:
+								for path in paths {
+									for font in &new_fonts {
+										if *font == path {
+											continue 'outer;
+										}
+									}
+									new_fonts.push(path)
+								}
+								if new_fonts.len() != self.configuration.gui.fonts.len() {
+									match setup_fonts(ui.ctx(), &new_fonts) {
+										Ok(_) => self.configuration.gui.fonts = new_fonts,
+										Err(e) => {
+											let error = self.i18n.args_msg("font-fail", vec![
+												("error", e.to_string())
+											]);
+											self.error(error);
+										}
+									}
+								}
+							}
+						}
+						ui.label(self.i18n.msg("font-demo").as_ref());
+					});
+					for i in (0..self.configuration.gui.fonts.len()).rev() {
+						let font = self.configuration.gui.fonts[i].to_str().unwrap();
+						ui.horizontal(|ui| {
+							if ImageButton::new(font_remove_id, INLINE_ICON_SIZE).ui(ui).clicked() {
+								font_deleted = Some(i);
+							}
+							ui.label(font);
+						});
+					}
+					if let Some(font_deleted) = font_deleted {
+						self.configuration.gui.fonts.remove(font_deleted);
+						if let Err(e) = setup_fonts(ui.ctx(), &self.configuration.gui.fonts) {
+							let error = self.i18n.args_msg("font-fail", vec![
+								("error", e.to_string())
+							]);
+							self.error(error);
+						}
+					}
+				}
+			}
+		});
 	}
 
 	fn select_text(&mut self, ui: &mut Ui, original_pos: Pos2, current_pos: Pos2) {
@@ -392,9 +536,9 @@ impl ReaderApp {
 				self.sidebar = true;
 				self.sidebar_list = SidebarList::Chapter(true);
 				None
-			} else if input.consume_key(Modifiers::NONE, Key::H) {
+			} else if input.consume_key(Modifiers::NONE, Key::D) {
 				self.sidebar = true;
-				self.sidebar_list = SidebarList::History;
+				self.sidebar_list = SidebarList::Dictionary;
 				None
 			} else if input.consume_key(Modifiers::NONE, Key::Enter) {
 				Some(GuiCommand::TryGotoLink)
@@ -479,6 +623,14 @@ impl ReaderApp {
 						} else {
 							None
 						}
+					} else if input.pointer.primary_released() {
+						if !self.selected_text.is_empty() {
+							let lookup = &mut self.dictionary_lookup;
+							lookup.words.clear();
+							lookup.words.push(self.selected_text.clone());
+							lookup.current_word = 0;
+						}
+						None
 					} else {
 						Some(GuiCommand::MouseMove(pointer_pos))
 					}
@@ -581,11 +733,6 @@ impl ReaderApp {
 					if redraw {
 						self.controller.redraw(ui);
 					}
-					self.dialog = None;
-				}
-			Some(DialogData::Dictionary(definitions)) =>
-				if dict::show(ui, &frame.info().window_info.size,
-					&self.i18n, &self.selected_text, definitions) {
 					self.dialog = None;
 				}
 			None => {}
@@ -826,134 +973,12 @@ impl eframe::App for ReaderApp {
 
 		if self.sidebar {
 			let width = ctx.available_rect().width() / 3.0;
-			egui::SidePanel::left("sidebar").default_width(width).width_range(width..=width).show(ctx, |ui| {
-				egui::menu::bar(ui, |ui| {
-					let chapter_text = self.i18n.msg("tab-chapter");
-					let text = RichText::new(chapter_text.as_ref()).text_style(TextStyle::Heading);
-					ui.selectable_value(&mut self.sidebar_list, SidebarList::Chapter(true), text);
-
-					let history_text = self.i18n.msg("tab-history");
-					let text = RichText::new(history_text.as_ref()).text_style(TextStyle::Heading);
-					ui.selectable_value(&mut self.sidebar_list, SidebarList::History, text);
-
-					let font_text = self.i18n.msg("tab-font");
-					let text = RichText::new(font_text.as_ref()).text_style(TextStyle::Heading);
-					ui.selectable_value(&mut self.sidebar_list, SidebarList::Font, text);
+			egui::SidePanel::left("sidebar")
+				.default_width(width)
+				.width_range(width..=width)
+				.show(ctx, |ui| {
+					self.setup_sidebar(ui, width);
 				});
-				ScrollArea::vertical().max_width(width).show(ui, |ui| {
-					match self.sidebar_list {
-						SidebarList::Chapter(init) => {
-							let mut selected_book = None;
-							let mut selected_toc = None;
-							for (index, bn) in self.controller.container.inner_book_names().iter().enumerate() {
-								let bookname = bn.name();
-								if bookname == README_TEXT_FILENAME {
-									break;
-								}
-								if index == self.controller.reading.inner_book {
-									ui.heading(RichText::from(bookname).color(Color32::LIGHT_RED));
-									if let Some(toc) = self.controller.book.toc_iterator() {
-										for (title, value) in toc {
-											let current = self.current_toc == value;
-											let label = ui.selectable_label(current, title);
-											if current && init {
-												self.sidebar_list = SidebarList::Chapter(false);
-												label.scroll_to_me(Some(Align::Center));
-											}
-											if label.clicked() {
-												selected_toc = Some(value);
-											}
-										}
-									}
-								} else if ui.button(RichText::from(bookname).heading()).clicked() {
-									selected_book = Some(index);
-								}
-							}
-							if let Some(index) = selected_book {
-								let new_reading = ReadingInfo::new(&self.controller.reading.filename)
-									.with_inner_book(index);
-								let msg = self.controller.switch_book(new_reading, ui);
-								self.update_status(msg);
-							} else if let Some(index) = selected_toc {
-								if let Some(msg) = self.controller.goto_toc(index, ui) {
-									self.update_status(msg);
-								}
-							}
-						}
-						SidebarList::History => {
-							if self.controller.reading.filename != README_TEXT_FILENAME {
-								let mut selected = None;
-								for i in (0..self.configuration.history.len()).rev() {
-									let reading = &self.configuration.history[i];
-									if ui.button(&reading.filename).clicked() {
-										selected = Some(i)
-									}
-								}
-								if let Some(selected) = selected {
-									if let Some(selected) = self.configuration.history.get(selected) {
-										if let Ok(path) = PathBuf::from_str(&selected.filename) {
-											self.open_file(path, frame, ui);
-										}
-									}
-								}
-							}
-						}
-						SidebarList::Font => {
-							let mut font_deleted = None;
-							let font_remove_id = self.image(ui.ctx(), "remove.svg");
-							ui.horizontal(|ui| {
-								let font_add_id = self.image(ui.ctx(), "add.svg");
-								if ImageButton::new(font_add_id, INLINE_ICON_SIZE).ui(ui).clicked() {
-									let dialog = rfd::FileDialog::new()
-										.add_filter(self.i18n.msg("font-file").as_ref(), &FONT_FILE_EXTENSIONS);
-									if let Some(paths) = dialog.pick_files() {
-										let mut new_fonts = self.configuration.gui.fonts.clone();
-										'outer:
-										for path in paths {
-											for font in &new_fonts {
-												if *font == path {
-													continue 'outer;
-												}
-											}
-											new_fonts.push(path)
-										}
-										if new_fonts.len() != self.configuration.gui.fonts.len() {
-											match setup_fonts(ui.ctx(), &new_fonts) {
-												Ok(_) => self.configuration.gui.fonts = new_fonts,
-												Err(e) => {
-													let error = self.i18n.args_msg("font-fail", vec![
-														("error", e.to_string())
-													]);
-													self.error(error);
-												}
-											}
-										}
-									}
-								}
-								ui.label(self.i18n.msg("font-demo").as_ref());
-							});
-							for i in (0..self.configuration.gui.fonts.len()).rev() {
-								let font = self.configuration.gui.fonts[i].to_str().unwrap();
-								ui.horizontal(|ui| {
-									if ImageButton::new(font_remove_id, INLINE_ICON_SIZE).ui(ui).clicked() {
-										font_deleted = Some(i);
-									}
-									ui.label(font);
-								});
-							}
-							if let Some(font_deleted) = font_deleted {
-								self.configuration.gui.fonts.remove(font_deleted);
-								if let Err(e) = setup_fonts(ui.ctx(), &self.configuration.gui.fonts) {
-									let error = self.i18n.args_msg("font-fail", vec![
-										("error", e.to_string())
-									]);
-									self.error(error);
-								}
-							}
-						}
-					}
-				})
-			});
 		}
 
 		egui::CentralPanel::default().frame(Frame::default().fill(self.colors.background)).show(ctx, |ui| {
@@ -1002,9 +1027,8 @@ impl eframe::App for ReaderApp {
 									let texture_id = self.image(ctx, "dict.svg");
 									let text = self.i18n.msg("lookup-dictionary");
 									if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
-										if let Some(result) = self.dictionary.lookup(&self.selected_text) {
-											self.dialog = Some(DialogData::Dictionary(result));
-										}
+										self.sidebar = true;
+										self.sidebar_list = SidebarList::Dictionary;
 										self.popup_menu = None;
 									}
 									// let texture_id = self.image(ctx, "bookmark.svg");
@@ -1098,6 +1122,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 	let render = create_render(&configuration.render_type);
 	let images = load_icons()?;
 	let dictionary = DictionaryManager::from(&configuration.gui.dictionary_data_path);
+	let dictionary_lookup = DictionaryLookupData { words: vec![], current_word: 0 };
 
 	let container_manager = Default::default();
 	let (container, book, reading, title) = if let Some(mut reading) = reading {
@@ -1136,6 +1161,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i
 				images,
 				controller,
 				dictionary,
+				dictionary_lookup,
 
 				status: AppStatus::Startup,
 				current_toc: 0,
@@ -1210,7 +1236,8 @@ fn take_render_lines(ui: &mut Ui) -> Option<Vec<RenderLine>>
 }
 
 #[inline]
-fn ts() -> u64 {
+fn ts() -> u64
+{
 	SystemTime::now()
 		.duration_since(UNIX_EPOCH)
 		.expect("Time went backwards")

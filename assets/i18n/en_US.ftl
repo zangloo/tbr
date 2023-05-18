@@ -14,9 +14,11 @@ font-fail = Font load failed：{ $error }
 with-custom-color = book custom color
 no-custom-color = no book custom color
 tab-chapter = chapter
-tab-history = history
+tab-dictionary = dictionary
 tab-font = font
 dictionary-data-path = dictionary data path
 settings-dialog-title = settings
 ok-title = Ok
 cancel-title = Cancel
+
+dictionary-no-definition = no definition in dictionary
