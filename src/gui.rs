@@ -37,6 +37,7 @@ const APP_ICON_SIZE: u32 = 48;
 const MIN_FONT_SIZE: u8 = 20;
 const MAX_FONT_SIZE: u8 = 50;
 const FONT_FILE_EXTENSIONS: [&str; 3] = ["ttf", "otf", "ttc"];
+const MIN_SIDEBAR_WIDTH: f32 = 300.0;
 
 const README_TEXT_FILENAME: &str = "readme";
 
@@ -871,12 +872,20 @@ impl eframe::App for ReaderApp {
 		});
 
 		if self.sidebar {
-			let width = ctx.available_rect().width() / 3.0;
+			let width = ctx.available_rect().width();
+			let mut max = width / 2.0;
+			if max < MIN_SIDEBAR_WIDTH {
+				max = MIN_SIDEBAR_WIDTH;
+			}
+			let mut min = width / 4.0;
+			if min < MIN_SIDEBAR_WIDTH {
+				min = MIN_SIDEBAR_WIDTH;
+			}
 			egui::SidePanel::left("sidebar")
-				.default_width(width)
-				.width_range(width..=width)
+				.default_width(min)
+				.width_range(min..=max)
 				.show(ctx, |ui| {
-					self.setup_sidebar(ui, width);
+					self.setup_sidebar(ui, ui.available_width());
 				});
 		}
 
