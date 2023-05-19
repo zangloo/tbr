@@ -7,9 +7,8 @@ use egui::{Stroke, Vec2};
 
 use crate::book::{Book, CharStyle, Line};
 use crate::common::{HAN_RENDER_CHARS_PAIRS, with_leading};
-use crate::controller::{HighlightInfo, Render};
+use crate::controller::HighlightInfo;
 use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration};
-use crate::Position;
 
 pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
@@ -32,44 +31,6 @@ impl GuiHanRender
 	fn map_char(&self, ch: char) -> char
 	{
 		*self.chars_map.get(&ch).unwrap_or(&ch)
-	}
-}
-
-impl Render<Ui> for GuiHanRender {
-	#[inline]
-	fn redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize,
-		offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui)
-		-> Option<Position>
-	{
-		self.gui_redraw(book, lines, line, offset, highlight, ui)
-	}
-
-	#[inline]
-	fn prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
-		line: usize, offset: usize, ui: &mut Ui) -> Position
-	{
-		self.gui_prev_page(book, lines, line, offset, ui)
-	}
-
-	#[inline]
-	fn next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
-		line: usize, offset: usize, ui: &mut Ui) -> Position
-	{
-		self.gui_next_line(book, lines, line, offset, ui)
-	}
-
-	#[inline]
-	fn prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
-		line: usize, offset: usize, ui: &mut Ui) -> Position
-	{
-		self.gui_prev_line(book, lines, line, offset, ui)
-	}
-
-	#[inline]
-	fn setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
-		line: usize, start: usize, ui: &mut Ui) -> Position
-	{
-		self.gui_setup_highlight(book, lines, line, start, ui)
 	}
 }
 

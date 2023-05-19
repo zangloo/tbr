@@ -16,18 +16,20 @@ use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
 use image::imageops::FilterType;
 
-use crate::{Asset, Color32, Configuration, I18n, Position, ReadingInfo, ThemeEntry};
+use crate::{Asset, Color32, Configuration, I18n, ReadingInfo, ThemeEntry};
 use crate::book::{Book, Colors, Line};
 use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::{Controller, HighlightInfo, HighlightMode};
 use crate::gui::dict::DictionaryManager;
-use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPosition, RenderContext, RenderLine};
+use crate::gui::render::{measure_char_size, RenderContext};
 use crate::gui::settings::SettingsData;
+use crate::gui::view::GuiView;
 
 mod render;
 mod settings;
 mod dict;
+mod view;
 
 const ICON_SIZE: Vec2 = Vec2 { x: 32.0, y: 32.0 };
 const INLINE_ICON_SIZE: Vec2 = Vec2 { x: 16.0, y: 16.0 };
@@ -35,7 +37,6 @@ const APP_ICON_SIZE: u32 = 48;
 const MIN_FONT_SIZE: u8 = 20;
 const MAX_FONT_SIZE: u8 = 50;
 const FONT_FILE_EXTENSIONS: [&str; 3] = ["ttf", "otf", "ttc"];
-const MIN_TEXT_SELECT_DISTANCE: f32 = 4.0;
 
 const README_TEXT_FILENAME: &str = "readme";
 
@@ -229,7 +230,7 @@ struct ReaderApp {
 	theme_entries: Vec<ThemeEntry>,
 	i18n: I18n,
 	images: HashMap<String, RetainedImage>,
-	controller: Controller<Ui, dyn GuiRender>,
+	controller: Controller<Ui, GuiView>,
 
 	status: AppStatus,
 	current_toc: usize,
@@ -249,7 +250,6 @@ struct ReaderApp {
 	font_size: u8,
 	default_font_measure: Vec2,
 	colors: Colors,
-	render_lines: Vec<RenderLine>,
 }
 
 impl ReaderApp {
@@ -415,103 +415,6 @@ impl ReaderApp {
 		});
 	}
 
-	fn select_text(&mut self, ui: &mut Ui, original_pos: Pos2, current_pos: Pos2)
-	{
-		#[inline]
-		fn offset_index(line: &RenderLine, offset: &PointerPosition) -> usize {
-			match offset {
-				PointerPosition::Head => line.chars.first().map_or(0, |dc| dc.offset),
-				PointerPosition::Exact(offset) => line.chars[*offset].offset,
-				PointerPosition::Tail => line.chars.last().map_or(0, |dc| dc.offset),
-			}
-		}
-		fn select_all(lines: &Vec<RenderLine>) -> (Position, Position)
-		{
-			let render_line = lines.first().unwrap();
-			let from = Position::new(
-				render_line.line,
-				render_line.chars.first().map_or(0, |dc| dc.offset),
-			);
-			let render_line = lines.last().unwrap();
-			let to = Position::new(
-				render_line.line,
-				render_line.chars.last().map_or(0, |dc| dc.offset),
-			);
-			(from, to)
-		}
-		fn head_to_exact(line: usize, offset: &PointerPosition, lines: &Vec<RenderLine>) -> (Position, Position) {
-			let render_line = lines.first().unwrap();
-			let from = Position::new(
-				render_line.line,
-				render_line.chars.first().map_or(0, |dc| dc.offset),
-			);
-			let render_line = &lines[line];
-			let to = Position::new(
-				render_line.line,
-				offset_index(render_line, offset),
-			);
-			(from, to)
-		}
-		fn exact_to_tail(line: usize, offset: &PointerPosition, lines: &Vec<RenderLine>) -> (Position, Position) {
-			let render_line = &lines[line];
-			let from = Position::new(
-				render_line.line,
-				offset_index(render_line, offset),
-			);
-			let render_line = lines.last().unwrap();
-			let to = Position::new(
-				render_line.line,
-				render_line.chars.last().map_or(0, |dc| dc.offset),
-			);
-			(from, to)
-		}
-
-		let lines = &self.render_lines;
-		let line_count = lines.len();
-		if line_count == 0 {
-			return;
-		}
-		if (original_pos.x - current_pos.x).abs() < MIN_TEXT_SELECT_DISTANCE
-			&& (original_pos.y - current_pos.y).abs() < MIN_TEXT_SELECT_DISTANCE {
-			self.selected_text = String::new();
-			self.controller.clear_highlight(ui);
-			return;
-		}
-		let (line1, offset1) = self.controller.render.pointer_pos(&original_pos, &self.render_lines, &self.view_rect);
-		let (line2, offset2) = self.controller.render.pointer_pos(&current_pos, &self.render_lines, &self.view_rect);
-
-		let (from, to) = match line1 {
-			PointerPosition::Head => match line2 {
-				PointerPosition::Head => return,
-				PointerPosition::Exact(line2) => head_to_exact(line2, &offset2, lines),
-				PointerPosition::Tail => select_all(lines),
-			}
-			PointerPosition::Exact(line1) => match line2 {
-				PointerPosition::Head => head_to_exact(line1, &offset1, lines),
-				PointerPosition::Exact(line2) => {
-					let render_line = &lines[line1];
-					let from = Position::new(
-						render_line.line,
-						offset_index(render_line, &offset1),
-					);
-					let render_line = &lines[line2];
-					let to = Position::new(
-						render_line.line,
-						offset_index(render_line, &offset2),
-					);
-					(from, to)
-				}
-				PointerPosition::Tail => exact_to_tail(line1, &offset1, lines),
-			}
-			PointerPosition::Tail => match line2 {
-				PointerPosition::Head => select_all(lines),
-				PointerPosition::Exact(line2) => exact_to_tail(line2, &offset2, lines),
-				PointerPosition::Tail => return
-			}
-		};
-		self.selected_text = self.controller.select_text(from, to, ui);
-	}
-
 	fn setup_input(&mut self, response: &Response, frame: &mut eframe::Frame,
 		ui: &mut Ui) -> Result<bool>
 	{
@@ -595,7 +498,7 @@ impl ReaderApp {
 			} else if let Some(pointer_pos) = input.pointer.interact_pos() {
 				if rect.contains(pointer_pos) {
 					if response.clicked() {
-						if let Some((line, link_index)) = self.link_resolve(pointer_pos) {
+						if let Some((line, link_index)) = self.controller.render.link_resolve(pointer_pos, &self.controller.book.lines()) {
 							Some(GuiCommand::GotoLink(line, link_index))
 						} else {
 							None
@@ -669,8 +572,14 @@ impl ReaderApp {
 				GuiCommand::ChapterEnd => { self.controller.goto_end(ui); }
 				GuiCommand::NextChapter => { self.controller.switch_chapter(true, ui)?; }
 				GuiCommand::PrevChapter => { self.controller.switch_chapter(false, ui)?; }
-				GuiCommand::MouseDrag(from_pos, pointer_pos) => self.select_text(ui, from_pos, pointer_pos),
-				GuiCommand::MouseMove(pointer_pos) => if let Some(_) = self.link_resolve(pointer_pos) {
+				GuiCommand::MouseDrag(from_pos, pointer_pos) =>
+					if let Some((from, to)) = self.controller.render.calc_selection(from_pos, pointer_pos, &self.view_rect) {
+						self.selected_text = self.controller.select_text(from, to, ui);
+					} else {
+						self.selected_text.clear();
+						self.controller.clear_highlight(ui);
+					}
+				GuiCommand::MouseMove(pointer_pos) => if let Some(_) = self.controller.render.link_resolve(pointer_pos, &self.controller.book.lines()) {
 					ui.output_mut(|output| output.cursor_icon = CursorIcon::PointingHand);
 				} else {
 					ui.output_mut(|output| output.cursor_icon = CursorIcon::Default);
@@ -686,24 +595,6 @@ impl ReaderApp {
 		} else {
 			Ok(false)
 		}
-	}
-
-	fn link_resolve(&self, mouse_position: Pos2) -> Option<(usize, usize)>
-	{
-		for line in &self.render_lines {
-			if let Some(dc) = line.char_at_pos(mouse_position) {
-				if let Some(link_index) = self.controller.book.lines()[line.line].link_iter(true, |link| {
-					if link.range.contains(&dc.offset) {
-						(true, Some(link.index))
-					} else {
-						(false, None)
-					}
-				}) {
-					return Some((line.line, link_index));
-				}
-			}
-		}
-		None
 	}
 
 	fn setup_toolbar(&mut self, frame: &mut eframe::Frame, ui: &mut Ui)
@@ -766,7 +657,7 @@ impl ReaderApp {
 				"han"
 			};
 			self.configuration.render_type = render_type.to_owned();
-			self.controller.render = create_render(render_type);
+			self.controller.render.reload_render(render_type);
 			redraw = true;
 		}
 
@@ -1071,11 +962,8 @@ impl eframe::App for ReaderApp {
 				}
 			}
 
-			if let Some(lines) = take_render_lines(ui) {
-				self.render_lines = lines;
-			}
 			ui.set_clip_rect(rect.clone());
-			self.controller.render.draw(&self.render_lines, ui);
+			self.controller.render.draw(ui);
 			response
 		});
 	}
@@ -1129,7 +1017,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 		None
 	};
 	let colors = convert_colors(get_theme(&configuration.theme_name, &theme_entries)?);
-	let render = create_render(&configuration.render_type);
+	let render = Box::new(GuiView::new(&configuration.render_type));
 	let images = load_icons()?;
 	let dictionary = DictionaryManager::from(&configuration.gui.dictionary_data_path);
 	let dictionary_lookup = DictionaryLookupData { words: vec![], current_word: 0 };
@@ -1189,7 +1077,6 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 				font_size: 0,
 				default_font_measure: Default::default(),
 				colors,
-				render_lines: vec![],
 			};
 			Box::new(app)
 		}),
@@ -1213,36 +1100,11 @@ pub(self) fn get_render_context(ui: &mut Ui) -> RenderContext
 }
 
 #[inline]
-fn render_lines_id() -> Id
-{
-	Id::new("render_lines")
-}
-
-#[inline]
-pub(self) fn put_render_lines(ui: &mut Ui, render_lines: Vec<RenderLine>)
-{
-	ui.data_mut(|data| data.insert_temp(render_lines_id(), render_lines));
-}
-
-#[inline]
 fn update_title(frame: &mut eframe::Frame, title: &str)
 {
 	if title != README_TEXT_FILENAME {
 		frame.set_window_title(title);
 	}
-}
-
-#[inline]
-fn take_render_lines(ui: &mut Ui) -> Option<Vec<RenderLine>>
-{
-	let id = render_lines_id();
-	ui.data_mut(|data|
-		if let Some(lines) = data.get_temp(id) {
-			data.remove::<Vec<RenderLine>>(id);
-			Some(lines)
-		} else {
-			None
-		})
 }
 
 #[inline]

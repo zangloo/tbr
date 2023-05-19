@@ -8,10 +8,10 @@ use image::imageops::FilterType;
 
 use crate::book::{Book, CharStyle, Colors, Line};
 use crate::common::Position;
-use crate::controller::{HighlightInfo, HighlightMode, Render};
+use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::render::han::GuiHanRender;
 use crate::gui::render::xi::GuiXiRender;
-use crate::gui::{put_render_lines, get_render_context, load_image};
+use crate::gui::{get_render_context, load_image};
 
 mod han;
 mod xi;
@@ -127,7 +127,7 @@ pub(super) enum PointerPosition {
 	Tail,
 }
 
-pub(super) trait GuiRender: Render<Ui> {
+pub(super) trait GuiRender {
 	fn reset_render_context(&mut self, render_context: &mut RenderContext);
 	fn create_render_line(&self, line: usize, render_context: &RenderContext)
 		-> RenderLine;
@@ -163,13 +163,13 @@ pub(super) trait GuiRender: Render<Ui> {
 
 	fn gui_redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
 		reading_line: usize, reading_offset: usize,
-		highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
+		highlight: &Option<HighlightInfo>, ui: &mut Ui,
+		render_lines: &mut Vec<RenderLine>) -> Option<Position>
 	{
 		ui.set_clip_rect(Rect::NOTHING);
 		// load context and init for rendering
 		let mut context = get_render_context(ui);
 		self.reset_render_context(&mut context);
-		let mut render_lines = vec![];
 
 		let mut drawn_size = 0.0;
 		let mut offset = reading_offset;
@@ -185,14 +185,12 @@ pub(super) trait GuiRender: Render<Ui> {
 					} else {
 						Some(Position::new(index, 0))
 					};
-					put_render_lines(ui, render_lines);
 					return next;
 				}
 				drawn_size += wrapped_line.line_space;
 				render_lines.push(wrapped_line);
 			}
 		}
-		put_render_lines(ui, render_lines);
 		None
 	}
 

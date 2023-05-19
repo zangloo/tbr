@@ -8,9 +8,8 @@ use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 
 use crate::book::{Book, CharStyle, Line};
 use crate::common::with_leading;
-use crate::controller::{HighlightInfo, Render};
+use crate::controller::HighlightInfo;
 use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, paint_char, RenderChar, update_for_highlight, ImageDrawingData, PointerPosition, TextDecoration, RenderCell, CharCell};
-use crate::Position;
 
 pub(super) struct GuiXiRender {
 	images: HashMap<String, ImageDrawingData>,
@@ -22,45 +21,6 @@ impl GuiXiRender
 	pub fn new() -> Self
 	{
 		GuiXiRender { images: HashMap::new(), baseline: 0.0 }
-	}
-}
-
-impl Render<Ui> for GuiXiRender
-{
-	#[inline]
-	fn redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize,
-		offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui)
-		-> Option<Position>
-	{
-		self.gui_redraw(book, lines, line, offset, highlight, ui)
-	}
-
-	#[inline]
-	fn prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
-		line: usize, offset: usize, ui: &mut Ui) -> Position
-	{
-		self.gui_prev_page(book, lines, line, offset, ui)
-	}
-
-	#[inline]
-	fn next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
-		line: usize, offset: usize, ui: &mut Ui) -> Position
-	{
-		self.gui_next_line(book, lines, line, offset, ui)
-	}
-
-	#[inline]
-	fn prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
-		line: usize, offset: usize, ui: &mut Ui) -> Position
-	{
-		self.gui_prev_line(book, lines, line, offset, ui)
-	}
-
-	#[inline]
-	fn setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
-		line: usize, start: usize, ui: &mut Ui) -> Position
-	{
-		self.gui_setup_highlight(book, lines, line, start, ui)
 	}
 }
 
