@@ -19,9 +19,20 @@ mod xi;
 #[derive(Clone)]
 pub(super) enum TextDecoration {
 	// rect, stroke width, is first, is last, color
-	Border { rect: Rect, stroke_width: f32, start: bool, end: bool, color: Color32 },
+	Border {
+		rect: Rect,
+		stroke_width: f32,
+		start: bool,
+		end: bool,
+		color: Color32,
+	},
 	// start(x,y), length,stroke width, is first, color
-	UnderLine { pos2: Pos2, length: f32, stroke_width: f32, color: Color32 },
+	UnderLine {
+		pos2: Pos2,
+		length: f32,
+		stroke_width: f32,
+		color: Color32,
+	},
 }
 
 #[derive(Clone)]
@@ -60,7 +71,13 @@ impl RenderLine
 {
 	fn new(line: usize, draw_size: f32, line_space: f32) -> Self
 	{
-		RenderLine { chars: vec![], line, draw_size, line_space, decorations: vec![] }
+		RenderLine {
+			chars: vec![],
+			line,
+			draw_size,
+			line_space,
+			decorations: vec![],
+		}
 	}
 
 	pub(super) fn char_at_pos(&self, pos: Pos2) -> Option<&RenderChar>
@@ -96,8 +113,6 @@ pub(super) struct RenderContext
 	pub leading_space: f32,
 	// for calculate chars in single line
 	pub max_page_size: f32,
-	// current line base
-	pub line_base: f32,
 }
 
 pub(super) struct ImageDrawingData {
@@ -113,17 +128,23 @@ pub(super) enum PointerPosition {
 }
 
 pub(super) trait GuiRender: Render<Ui> {
-	fn reset_render_context(&self, render_context: &mut RenderContext);
-	fn create_render_line(&self, line: usize, render_context: &RenderContext) -> RenderLine;
-	fn update_base_line_for_delta(&self, context: &mut RenderContext, delta: f32);
-	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
+	fn reset_render_context(&mut self, render_context: &mut RenderContext);
+	fn create_render_line(&self, line: usize, render_context: &RenderContext)
+		-> RenderLine;
+	fn update_baseline_for_delta(&mut self, delta: f32);
+	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize,
+		start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>,
+		ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
 	fn draw_decoration(&self, decoration: &TextDecoration, ui: &mut Ui);
 	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData>;
 	// return (line, offset) position
-	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, retc: &Rect) -> (PointerPosition, PointerPosition);
+	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>,
+		rect: &Rect) -> (PointerPosition, PointerPosition);
 
 	#[inline]
-	fn prepare_wrap(&self, text: &Line, line: usize, start_offset: usize, end_offset: usize, context: &mut RenderContext) -> (usize, Option<Vec<RenderLine>>)
+	fn prepare_wrap(&mut self, text: &Line, line: usize, start_offset: usize,
+		end_offset: usize, context: &mut RenderContext)
+		-> (usize, Option<Vec<RenderLine>>)
 	{
 		let end_offset = if end_offset > text.len() {
 			text.len()
@@ -133,14 +154,15 @@ pub(super) trait GuiRender: Render<Ui> {
 		if start_offset == end_offset {
 			let draw_line = self.create_render_line(line, context);
 			let line_delta = draw_line.draw_size + draw_line.line_space;
-			self.update_base_line_for_delta(context, line_delta);
+			self.update_baseline_for_delta(line_delta);
 			(end_offset, Some(vec![draw_line]))
 		} else {
 			(end_offset, None)
 		}
 	}
 
-	fn gui_redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, reading_line: usize, reading_offset: usize,
+	fn gui_redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		reading_line: usize, reading_offset: usize,
 		highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
 	{
 		ui.set_clip_rect(Rect::NOTHING);
@@ -200,7 +222,8 @@ pub(super) trait GuiRender: Render<Ui> {
 		}
 	}
 
-	fn gui_prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, reading_line: usize, offset: usize, ui: &mut Ui) -> Position
+	fn gui_prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		reading_line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		ui.set_clip_rect(Rect::NOTHING);
 		// load context and init for rendering

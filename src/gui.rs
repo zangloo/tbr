@@ -57,12 +57,14 @@ impl ReadmeContainer {
 
 impl Container for ReadmeContainer {
 	#[inline]
-	fn inner_book_names(&self) -> &Vec<BookName> {
+	fn inner_book_names(&self) -> &Vec<BookName>
+	{
 		&self.book_names
 	}
 
 	#[inline]
-	fn book_content(&mut self, _inner_index: usize) -> Result<BookContent> {
+	fn book_content(&mut self, _inner_index: usize) -> Result<BookContent>
+	{
 		Ok(BookContent::Buf(self.text.as_bytes().to_vec()))
 	}
 }
@@ -83,7 +85,8 @@ impl ReadmeBook
 impl Book for ReadmeBook
 {
 	#[inline]
-	fn lines(&self) -> &Vec<Line> {
+	fn lines(&self) -> &Vec<Line>
+	{
 		&self.lines
 	}
 }
@@ -105,7 +108,8 @@ fn load_icons() -> Result<HashMap<String, RetainedImage>>
 
 fn convert_colors(theme: &Theme) -> Colors
 {
-	fn convert_base(base_color: &BaseColor) -> Color32 {
+	fn convert_base(base_color: &BaseColor) -> Color32
+	{
 		match base_color {
 			BaseColor::Black => Color32::BLACK,
 			BaseColor::Red => Color32::RED,
@@ -117,7 +121,8 @@ fn convert_colors(theme: &Theme) -> Colors
 			BaseColor::White => Color32::WHITE,
 		}
 	}
-	fn convert(color: &Color) -> Color32 {
+	fn convert(color: &Color) -> Color32
+	{
 		match color {
 			Color::TerminalDefault => Color32::BLACK,
 			Color::Dark(base_color)
@@ -410,7 +415,8 @@ impl ReaderApp {
 		});
 	}
 
-	fn select_text(&mut self, ui: &mut Ui, original_pos: Pos2, current_pos: Pos2) {
+	fn select_text(&mut self, ui: &mut Ui, original_pos: Pos2, current_pos: Pos2)
+	{
 		#[inline]
 		fn offset_index(line: &RenderLine, offset: &PointerPosition) -> usize {
 			match offset {
@@ -506,7 +512,8 @@ impl ReaderApp {
 		self.selected_text = self.controller.select_text(from, to, ui);
 	}
 
-	fn setup_input(&mut self, response: &Response, frame: &mut eframe::Frame, ui: &mut Ui) -> Result<bool>
+	fn setup_input(&mut self, response: &Response, frame: &mut eframe::Frame,
+		ui: &mut Ui) -> Result<bool>
 	{
 		let rect = &response.rect;
 		if let Some(command) = response.ctx.input_mut(|input| {
@@ -932,12 +939,13 @@ impl ReaderApp {
 			rect: self.view_rect,
 			leading_space: 0.0,
 			max_page_size: 0.0,
-			line_base: 0.0,
 		};
 		ui.data_mut(|data| data.insert_temp(render_context_id(), context));
 	}
 
-	fn open_file(&mut self, path: PathBuf, frame: &mut eframe::Frame, ui: &mut Ui) {
+	fn open_file(&mut self, path: PathBuf, frame: &mut eframe::Frame,
+		ui: &mut Ui)
+	{
 		if let Ok(absolute_path) = path.canonicalize() {
 			if let Some(filepath) = absolute_path.to_str() {
 				if filepath != self.controller.reading.filename {
@@ -1072,7 +1080,8 @@ impl eframe::App for ReaderApp {
 		});
 	}
 
-	fn on_exit(&mut self, _gl: Option<&Context>) {
+	fn on_exit(&mut self, _gl: Option<&Context>)
+	{
 		if self.controller.reading.filename != README_TEXT_FILENAME {
 			self.configuration.current = Some(self.controller.reading.filename.clone());
 			self.configuration.history.push(self.controller.reading.clone());
@@ -1111,7 +1120,8 @@ pub(self) fn load_image(name: &str, bytes: &[u8]) -> Option<DynamicImage>
 	}
 }
 
-pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>, i18n: I18n) -> Result<()>
+pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
+	i18n: I18n) -> Result<()>
 {
 	let reading = if let Some(current) = &configuration.current {
 		Some(reading_info(&mut configuration.history, current).1)

@@ -14,44 +14,51 @@ use crate::Position;
 
 pub(super) struct GuiXiRender {
 	images: HashMap<String, ImageDrawingData>,
+	baseline: f32,
 }
 
 impl GuiXiRender
 {
 	pub fn new() -> Self
 	{
-		GuiXiRender { images: HashMap::new() }
+		GuiXiRender { images: HashMap::new(), baseline: 0.0 }
 	}
 }
 
 impl Render<Ui> for GuiXiRender
 {
 	#[inline]
-	fn redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position>
+	fn redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize,
+		offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui)
+		-> Option<Position>
 	{
 		self.gui_redraw(book, lines, line, offset, highlight, ui)
 	}
 
 	#[inline]
-	fn prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
+	fn prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		self.gui_prev_page(book, lines, line, offset, ui)
 	}
 
 	#[inline]
-	fn next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
+	fn next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		self.gui_next_line(book, lines, line, offset, ui)
 	}
 
 	#[inline]
-	fn prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
+	fn prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		self.gui_prev_line(book, lines, line, offset, ui)
 	}
 
 	#[inline]
-	fn setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position
+	fn setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		line: usize, start: usize, ui: &mut Ui) -> Position
 	{
 		self.gui_setup_highlight(book, lines, line, start, ui)
 	}
@@ -60,15 +67,16 @@ impl Render<Ui> for GuiXiRender
 impl GuiRender for GuiXiRender
 {
 	#[inline]
-	fn reset_render_context(&self, render_context: &mut RenderContext)
+	fn reset_render_context(&mut self, render_context: &mut RenderContext)
 	{
+		self.baseline = render_context.rect.min.y;
 		render_context.max_page_size = render_context.rect.height();
-		render_context.line_base = render_context.rect.min.y;
 		render_context.leading_space = render_context.default_font_measure.x * 2.0;
 	}
 
 	#[inline]
-	fn create_render_line(&self, line: usize, render_context: &RenderContext) -> RenderLine
+	fn create_render_line(&self, line: usize, render_context: &RenderContext)
+		-> RenderLine
 	{
 		let height = render_context.default_font_measure.y;
 		let space = height / 2.0;
@@ -76,16 +84,22 @@ impl GuiRender for GuiXiRender
 	}
 
 	#[inline]
-	fn update_base_line_for_delta(&self, context: &mut RenderContext, delta: f32)
+	fn update_baseline_for_delta(&mut self, delta: f32)
 	{
-		context.line_base += delta
+		self.baseline += delta
 	}
 
-	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>
+	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize,
+		start_offset: usize, end_offset: usize,
+		highlight: &Option<HighlightInfo>, ui: &mut Ui,
+		context: &mut RenderContext) -> Vec<RenderLine>
 	{
 		#[inline]
-		// align chars and calculate line size and space, and reset context.line_base
-		fn push_line(draw_lines: &mut Vec<RenderLine>, mut draw_chars: Vec<(RenderChar, CharStyle)>, line: usize, context: &mut RenderContext)
+		// align chars and calculate line size and space,
+		// and reset context.line_base
+		fn push_line(draw_lines: &mut Vec<RenderLine>,
+			mut draw_chars: Vec<(RenderChar, CharStyle)>,
+			line: usize, context: &mut RenderContext, mut baseline: f32) -> f32
 		{
 			let mut draw_size = 0.0;
 			let mut line_space = 0.0;
@@ -103,8 +117,8 @@ impl GuiRender for GuiXiRender
 					}
 				}
 			}
-			let bottom = context.line_base + draw_size;
-			context.line_base = context.line_base + draw_size + line_space;
+			let bottom = baseline + draw_size;
+			baseline = baseline + draw_size + line_space;
 			// align to bottom
 			for (dc, _) in &mut draw_chars {
 				let rect = &mut dc.rect;
@@ -118,6 +132,7 @@ impl GuiRender for GuiXiRender
 			let mut render_line = RenderLine::new(line, draw_size, line_space);
 			setup_decorations(draw_chars, &mut render_line, context);
 			draw_lines.push(render_line);
+			baseline
 		}
 		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, line, start_offset, end_offset, context);
 		if let Some(wrapped_empty_lines) = wrapped_empty_lines {
@@ -133,10 +148,10 @@ impl GuiRender for GuiXiRender
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, context.custom_color, &context.colors);
 			let (cell, mut rect, is_blank_char, can_break) = if let Some((path, size)) = self.with_image(&char_style, full_screen_if_image, book, &context.rect, ui) {
-				let bottom = context.line_base + size.y;
+				let bottom = self.baseline + size.y;
 				let right = left + size.x;
 				let rect = Rect::from_min_max(
-					Pos2::new(left, context.line_base),
+					Pos2::new(left, self.baseline),
 					Pos2::new(right, bottom),
 				);
 				(RenderCell::Image(path), rect, false, true)
@@ -150,7 +165,7 @@ impl GuiRender for GuiXiRender
 					ui,
 					char,
 					font_size,
-					&Pos2::new(left, context.line_base),
+					&Pos2::new(left, self.baseline),
 					Align2::LEFT_TOP,
 					Color32::BLACK);
 
@@ -195,7 +210,7 @@ impl GuiRender for GuiXiRender
 				if can_break || break_position.is_none()
 					|| draw_chars.len() > break_position.unwrap() + 20
 					|| break_position.unwrap() >= draw_chars.len() {
-					push_line(&mut draw_lines, draw_chars, line, context);
+					self.baseline = push_line(&mut draw_lines, draw_chars, line, context, self.baseline);
 					draw_chars = vec![];
 					break_position = None;
 					// for break char, will not print it any more
@@ -204,8 +219,8 @@ impl GuiRender for GuiXiRender
 						continue;
 					}
 					rect = Rect {
-						min: Pos2::new(left, context.line_base),
-						max: Pos2::new(left + draw_width, draw_height + context.line_base),
+						min: Pos2::new(left, self.baseline),
+						max: Pos2::new(left + draw_width, draw_height + self.baseline),
 					};
 				} else {
 					let break_draw_chars = if let Some(break_position) = break_position {
@@ -213,20 +228,20 @@ impl GuiRender for GuiXiRender
 					} else {
 						vec![]
 					};
-					push_line(&mut draw_lines, draw_chars, line, context);
+					self.baseline = push_line(&mut draw_lines, draw_chars, line, context, self.baseline);
 					draw_chars = break_draw_chars;
 					for (draw_char, _) in &mut draw_chars {
 						let w = draw_char.rect.width();
 						let h = draw_char.rect.height();
 						draw_char.rect = Rect {
-							min: Pos2::new(left, context.line_base),
-							max: Pos2::new(left + w, context.line_base + h),
+							min: Pos2::new(left, self.baseline),
+							max: Pos2::new(left + w, self.baseline + h),
 						};
 						left += w;
 					}
 					rect = Rect {
-						min: Pos2::new(left, context.line_base),
-						max: Pos2::new(left + draw_width, draw_height + context.line_base),
+						min: Pos2::new(left, self.baseline),
+						max: Pos2::new(left + draw_width, draw_height + self.baseline),
 					}
 				}
 			}
@@ -241,7 +256,8 @@ impl GuiRender for GuiXiRender
 			}
 		}
 		if draw_chars.len() > 0 {
-			push_line(&mut draw_lines, draw_chars, line, context);
+			self.baseline = push_line(&mut draw_lines, draw_chars, line,
+				context, self.baseline);
 		}
 		return draw_lines;
 	}
@@ -249,13 +265,18 @@ impl GuiRender for GuiXiRender
 	fn draw_decoration(&self, decoration: &TextDecoration, ui: &mut Ui)
 	{
 		#[inline]
-		pub(self) fn underline(ui: &mut Ui, bottom: f32, left: f32, right: f32, stroke_width: f32, color: Color32) {
+		pub(self) fn underline(ui: &mut Ui, bottom: f32, left: f32, right: f32,
+			stroke_width: f32, color: Color32)
+		{
 			let stroke = Stroke::new(stroke_width, color);
 			ui.painter().hline(left..=right, bottom, stroke);
 		}
 
 		#[inline]
-		pub(self) fn border(ui: &mut Ui, left: f32, right: f32, top: f32, bottom: f32, with_start: bool, with_end: bool, stroke_width: f32, color: Color32) {
+		pub(self) fn border(ui: &mut Ui, left: f32, right: f32, top: f32,
+			bottom: f32, with_start: bool, with_end: bool, stroke_width: f32,
+			color: Color32)
+		{
 			let stroke = Stroke::new(stroke_width, color);
 			ui.painter().hline(left..=right, top, stroke);
 			ui.painter().hline(left..=right, bottom, stroke);
@@ -280,7 +301,8 @@ impl GuiRender for GuiXiRender
 		&mut self.images
 	}
 
-	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, rect: &Rect) -> (PointerPosition, PointerPosition)
+	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>,
+		rect: &Rect) -> (PointerPosition, PointerPosition)
 	{
 		let y = pointer_pos.y;
 		let mut line_base = rect.top();
@@ -308,7 +330,8 @@ impl GuiRender for GuiXiRender
 	}
 }
 
-fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut RenderLine, context: &RenderContext)
+fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
+	render_line: &mut RenderLine, context: &RenderContext)
 {
 	#[inline]
 	fn setup_underline(mut draw_char: RenderChar, range: &Range<usize>, render_line: &mut RenderLine,

@@ -14,6 +14,7 @@ use crate::Position;
 pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
 	images: HashMap<String, ImageDrawingData>,
+	baseline: f32,
 }
 
 impl GuiHanRender
@@ -24,6 +25,7 @@ impl GuiHanRender
 		{
 			chars_map: HAN_RENDER_CHARS_PAIRS.into_iter().collect(),
 			images: HashMap::new(),
+			baseline: 0.0,
 		}
 	}
 
@@ -35,27 +37,38 @@ impl GuiHanRender
 
 impl Render<Ui> for GuiHanRender {
 	#[inline]
-	fn redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui) -> Option<Position> {
+	fn redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize,
+		offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui)
+		-> Option<Position>
+	{
 		self.gui_redraw(book, lines, line, offset, highlight, ui)
 	}
 
 	#[inline]
-	fn prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
+	fn prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		line: usize, offset: usize, ui: &mut Ui) -> Position
+	{
 		self.gui_prev_page(book, lines, line, offset, ui)
 	}
 
 	#[inline]
-	fn next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
+	fn next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		line: usize, offset: usize, ui: &mut Ui) -> Position
+	{
 		self.gui_next_line(book, lines, line, offset, ui)
 	}
 
 	#[inline]
-	fn prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position {
+	fn prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		line: usize, offset: usize, ui: &mut Ui) -> Position
+	{
 		self.gui_prev_line(book, lines, line, offset, ui)
 	}
 
 	#[inline]
-	fn setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position {
+	fn setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		line: usize, start: usize, ui: &mut Ui) -> Position
+	{
 		self.gui_setup_highlight(book, lines, line, start, ui)
 	}
 }
@@ -63,15 +76,16 @@ impl Render<Ui> for GuiHanRender {
 impl GuiRender for GuiHanRender
 {
 	#[inline]
-	fn reset_render_context(&self, render_context: &mut RenderContext)
+	fn reset_render_context(&mut self, render_context: &mut RenderContext)
 	{
+		self.baseline = render_context.rect.max.x;
 		render_context.max_page_size = render_context.rect.width();
-		render_context.line_base = render_context.rect.max.x;
 		render_context.leading_space = render_context.default_font_measure.y * 2.0;
 	}
 
 	#[inline]
-	fn create_render_line(&self, line: usize, render_context: &RenderContext) -> RenderLine
+	fn create_render_line(&self, line: usize, render_context: &RenderContext)
+		-> RenderLine
 	{
 		let width = render_context.default_font_measure.x;
 		let space = width / 2.0;
@@ -79,12 +93,15 @@ impl GuiRender for GuiHanRender
 	}
 
 	#[inline]
-	fn update_base_line_for_delta(&self, context: &mut RenderContext, delta: f32)
+	fn update_baseline_for_delta(&mut self, delta: f32)
 	{
-		context.line_base -= delta
+		self.baseline -= delta
 	}
 
-	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize, start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>
+	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize,
+		start_offset: usize, end_offset: usize,
+		highlight: &Option<HighlightInfo>, ui: &mut Ui,
+		context: &mut RenderContext) -> Vec<RenderLine>
 	{
 		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, line, start_offset, end_offset, context);
 		if let Some(wrapped_empty_lines) = wrapped_empty_lines {
@@ -101,11 +118,11 @@ impl GuiRender for GuiHanRender
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, context.custom_color, &context.colors);
 			let (cell, mut rect) = if let Some((path, size)) = self.with_image(&char_style, full_screen_if_image, book, &context.rect, ui) {
-				let left = context.line_base - size.x;
+				let left = self.baseline - size.x;
 				let bottom = top + size.y;
 				let rect = Rect::from_min_max(
 					Pos2::new(left, top),
-					Pos2::new(context.line_base, bottom),
+					Pos2::new(self.baseline, bottom),
 				);
 				(RenderCell::Image(path), rect)
 			} else {
@@ -119,7 +136,7 @@ impl GuiRender for GuiHanRender
 					ui,
 					char,
 					font_size,
-					&Pos2::new(context.line_base, top),
+					&Pos2::new(self.baseline, top),
 					Align2::RIGHT_TOP,
 					Color32::BLACK);
 				let color = char_style.color;
@@ -159,7 +176,7 @@ impl GuiRender for GuiHanRender
 				draw_size = 0.0;
 				line_space = 0.0;
 				setup_decorations(draw_chars, &mut render_line, context);
-				context.line_base -= render_line.draw_size + render_line.line_space;
+				self.baseline -= render_line.draw_size + render_line.line_space;
 				let line_delta = render_line.draw_size + render_line.line_space;
 				draw_lines.push(render_line);
 				draw_chars = vec![];
@@ -192,7 +209,7 @@ impl GuiRender for GuiHanRender
 		if draw_chars.len() > 0 {
 			let mut render_line = RenderLine::new(line, draw_size, line_space);
 			setup_decorations(draw_chars, &mut render_line, context);
-			context.line_base -= render_line.draw_size + render_line.line_space;
+			self.baseline -= render_line.draw_size + render_line.line_space;
 			draw_lines.push(render_line);
 		}
 		return draw_lines;
@@ -231,7 +248,8 @@ impl GuiRender for GuiHanRender
 		&mut self.images
 	}
 
-	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>, rect: &Rect) -> (PointerPosition, PointerPosition)
+	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>,
+		rect: &Rect) -> (PointerPosition, PointerPosition)
 	{
 		let x = pointer_pos.x;
 		let mut line_base = rect.right();
@@ -259,7 +277,8 @@ impl GuiRender for GuiHanRender
 	}
 }
 
-fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>, render_line: &mut RenderLine, context: &RenderContext)
+fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
+	render_line: &mut RenderLine, context: &RenderContext)
 {
 	#[inline]
 	fn setup_underline(mut draw_char: RenderChar, range: &Range<usize>, render_line: &mut RenderLine,
