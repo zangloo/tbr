@@ -444,12 +444,20 @@ impl ReaderApp {
 				// } else if input.consume_key(Modifiers::NONE, Key::Tab) {
 				// 	Some(GuiCommand::NextLink)
 			} else if input.consume_key(Modifiers::NONE, Key::C) {
-				self.sidebar = true;
-				self.sidebar_list = SidebarList::Chapter(true);
+				if self.sidebar && matches!(self.sidebar_list, SidebarList::Chapter(_)) {
+					self.sidebar = false;
+				} else {
+					self.sidebar = true;
+					self.sidebar_list = SidebarList::Chapter(true);
+				}
 				None
 			} else if input.consume_key(Modifiers::NONE, Key::D) {
-				self.sidebar = true;
-				self.sidebar_list = SidebarList::Dictionary;
+				if self.sidebar && matches!(self.sidebar_list, SidebarList::Dictionary) {
+					self.sidebar = false;
+				} else {
+					self.sidebar = true;
+					self.sidebar_list = SidebarList::Dictionary;
+				}
 				None
 			} else if input.consume_key(Modifiers::NONE, Key::Enter) {
 				Some(GuiCommand::TryGotoLink)
