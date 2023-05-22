@@ -926,6 +926,7 @@ impl eframe::App for ReaderApp {
 
 		egui::CentralPanel::default().frame(Frame::default().fill(self.colors.background)).show(ctx, |ui| {
 			if matches!(self.status, AppStatus::Startup) {
+				self.controller.book_loaded(ui);
 				self.update_status(self.controller.status_msg());
 			}
 			if self.font_size != self.configuration.gui.font_size {

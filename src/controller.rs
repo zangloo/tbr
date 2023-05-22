@@ -12,6 +12,8 @@ use crate::container::{Container, load_book, load_container};
 const TRACE_SIZE: usize = 100;
 
 pub trait Render<C> {
+	// init for book loaded
+	fn book_loaded(&mut self, book: &dyn Book, context: &mut C);
 	// return next
 	fn redraw(&mut self, book: &dyn Book, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, context: &mut C) -> Option<Position>;
 	// return new position
@@ -161,6 +163,12 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		self.search_next(self.reading.line, self.reading.position, context)
 	}
 
+	#[inline]
+	pub fn book_loaded(&mut self, context: &mut C)
+	{
+		self.render.book_loaded(self.book.as_ref(), context);
+	}
+
 	pub fn switch_container(&mut self, mut reading: ReadingInfo, context: &mut C) -> Result<String> {
 		let mut container = load_container(&self.container_manager, &reading)?;
 		let book = load_book(&self.container_manager, &mut container, &mut reading)?;
@@ -170,6 +178,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		self.trace.clear();
 		self.trace.push(TraceInfo { chapter: self.reading.chapter, line: self.reading.line, offset: self.reading.position });
 		self.current_trace = 0;
+		self.book_loaded(context);
 		self.redraw(context);
 		Ok(self.status_msg())
 	}
@@ -190,6 +199,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		self.trace.clear();
 		self.trace.push(TraceInfo { chapter: self.reading.chapter, line: self.reading.line, offset: self.reading.position });
 		self.current_trace = 0;
+		self.book_loaded(context);
 		self.redraw(context);
 		Ok(())
 	}
@@ -247,6 +257,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 					self.trace.clear();
 					self.trace.push(TraceInfo { chapter: self.reading.chapter, line: self.reading.line, offset: self.reading.position });
 					self.current_trace = 0;
+					self.book_loaded(context);
 					self.redraw(context);
 				}
 			}

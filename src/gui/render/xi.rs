@@ -36,7 +36,8 @@ impl GuiRender for GuiXiRender
 	fn reset_render_context(&mut self, render_context: &mut RenderContext)
 	{
 		render_context.max_page_size = render_context.rect.height();
-		render_context.leading_space = render_context.default_font_measure.x * 2.0;
+		render_context.leading_space = render_context.default_font_measure.x
+			* render_context.leading_chars as f32;
 	}
 
 	#[inline]

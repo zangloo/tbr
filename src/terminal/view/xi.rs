@@ -10,6 +10,11 @@ pub struct Xi {}
 impl TerminalRender for Xi {}
 
 impl Render<RenderContext> for Xi {
+	fn book_loaded(&mut self, book: &dyn Book, context: &mut RenderContext)
+	{
+		context.leading_space = book.leading_space();
+	}
+
 	fn redraw(&mut self, _book: &dyn Book, lines: &Vec<Line>, line: usize,
 		mut offset: usize, highlight: &Option<HighlightInfo>,
 		context: &mut RenderContext) -> Option<Position>

@@ -110,6 +110,7 @@ pub(super) struct RenderContext
 
 	// draw rect
 	pub rect: Rect,
+	pub leading_chars: usize,
 	pub leading_space: f32,
 	// for calculate chars in single line
 	pub max_page_size: f32,

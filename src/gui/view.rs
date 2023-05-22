@@ -14,6 +14,12 @@ pub(super) struct GuiView {
 }
 
 impl Render<Ui> for GuiView {
+	fn book_loaded(&mut self, book: &dyn Book, _ui: &mut Ui)
+	{
+		self.render_context.leading_chars = book.leading_space();
+		self.render.reset_render_context(&mut self.render_context);
+	}
+
 	#[inline]
 	fn redraw(&mut self, book: &dyn Book, lines: &Vec<Line>, line: usize,
 		offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui)
@@ -62,6 +68,7 @@ impl GuiView {
 			default_font_measure: Default::default(),
 			custom_color: false,
 			rect: Rect::NOTHING,
+			leading_chars: 0,
 			leading_space: 0.0,
 			max_page_size: 0.0,
 		};

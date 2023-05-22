@@ -100,6 +100,11 @@ impl TerminalRender for Han
 }
 
 impl Render<RenderContext> for Han {
+	fn book_loaded(&mut self, book: &dyn Book, context: &mut RenderContext)
+	{
+		context.leading_space = book.leading_space();
+	}
+
 	fn redraw(&mut self, _book: &dyn Book, lines: &Vec<Line>, new_line: usize,
 		new_offset: usize, highlight: &Option<HighlightInfo>,
 		context: &mut RenderContext) -> Option<Position>
