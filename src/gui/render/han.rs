@@ -37,9 +37,14 @@ impl GuiHanRender
 impl GuiRender for GuiHanRender
 {
 	#[inline]
-	fn reset_render_context(&mut self, render_context: &mut RenderContext)
+	fn reset_baseline(&mut self, render_context: &RenderContext)
 	{
 		self.baseline = render_context.rect.max.x;
+	}
+
+	#[inline]
+	fn reset_render_context(&mut self, render_context: &mut RenderContext)
+	{
 		render_context.max_page_size = render_context.rect.width();
 		render_context.leading_space = render_context.default_font_measure.y * 2.0;
 	}
@@ -62,7 +67,7 @@ impl GuiRender for GuiHanRender
 	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize,
 		start_offset: usize, end_offset: usize,
 		highlight: &Option<HighlightInfo>, ui: &mut Ui,
-		context: &mut RenderContext) -> Vec<RenderLine>
+		context: &RenderContext) -> Vec<RenderLine>
 	{
 		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, line, start_offset, end_offset, context);
 		if let Some(wrapped_empty_lines) = wrapped_empty_lines {

@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::{egui, IconData};
-use eframe::egui::{Button, FontData, FontDefinitions, Frame, Id, ImageButton, Pos2, Rect, Response, Sense, TextureId, Ui, Vec2, Widget};
+use eframe::egui::{Button, FontData, FontDefinitions, Frame, ImageButton, Pos2, Rect, Response, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
 use egui::{Align, Area, CursorIcon, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit, TextStyle};
 use egui_extras::RetainedImage;
@@ -22,7 +22,7 @@ use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::{Controller, HighlightInfo, HighlightMode};
 use crate::gui::dict::DictionaryManager;
-use crate::gui::render::{measure_char_size, RenderContext};
+use crate::gui::render::measure_char_size;
 use crate::gui::settings::SettingsData;
 use crate::gui::view::GuiView;
 
@@ -243,13 +243,10 @@ struct ReaderApp {
 	input_search: bool,
 	search_pattern: String,
 	dropdown: bool,
-	response_rect: Rect,
 	dictionary: DictionaryManager,
 	dictionary_lookup: DictionaryLookupData,
 
-	view_rect: Rect,
 	font_size: u8,
-	default_font_measure: Vec2,
 	colors: Colors,
 }
 
@@ -582,7 +579,7 @@ impl ReaderApp {
 				GuiCommand::NextChapter => { self.controller.switch_chapter(true, ui)?; }
 				GuiCommand::PrevChapter => { self.controller.switch_chapter(false, ui)?; }
 				GuiCommand::MouseDrag(from_pos, pointer_pos) =>
-					if let Some((from, to)) = self.controller.render.calc_selection(from_pos, pointer_pos, &self.view_rect) {
+					if let Some((from, to)) = self.controller.render.calc_selection(from_pos, pointer_pos) {
 						self.selected_text = self.controller.select_text(from, to, ui);
 					} else {
 						self.selected_text.clear();
@@ -633,11 +630,7 @@ impl ReaderApp {
 		match &mut self.dialog {
 			Some(DialogData::Setting(settings_data)) =>
 				if settings::show(ui, settings_data, &self.i18n) {
-					let (update_context, redraw) = self.approve_settings();
-					if update_context {
-						self.update_context(ui);
-					}
-					if redraw {
+					if self.approve_settings() {
 						self.controller.redraw(ui);
 					}
 					self.dialog = None;
@@ -646,7 +639,6 @@ impl ReaderApp {
 		}
 
 		let mut redraw = false;
-		let mut update_context = false;
 		let (render_type_id, render_type_tooltip) = if self.configuration.render_type == "han" {
 			let id = self.image(ui.ctx(), "render_xi.svg");
 			let tooltip = self.i18n.msg("render-xi");
@@ -684,13 +676,9 @@ impl ReaderApp {
 			.on_hover_text_at_pointer(custom_color_tooltip)
 			.clicked() {
 			self.controller.reading.custom_color = !self.controller.reading.custom_color;
-			update_context = true;
+			self.controller.render.set_custom_color(self.controller.reading.custom_color);
 			redraw = true;
 		}
-		if update_context {
-			self.update_context(ui);
-		}
-		self.update_context(ui);
 		if redraw {
 			self.controller.redraw(ui);
 		}
@@ -777,17 +765,70 @@ impl ReaderApp {
 		}).is_some();
 	}
 
-	fn approve_settings(&mut self) -> (bool, bool)
+	fn setup_popup(&mut self, response: &Response, ctx: &egui::Context, ui: &mut Ui)
+	{
+		let rect = &response.rect;
+		if let Some(mut pos) = self.popup_menu {
+			if ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape)) {
+				self.popup_menu = None;
+			} else {
+				let text_view_popup = ui.make_persistent_id("text_view_popup");
+				let popup_response = Area::new(text_view_popup)
+					.order(Order::Foreground)
+					.fixed_pos(pos)
+					.drag_bounds(Rect::EVERYTHING)
+					.show(ctx, |ui| {
+						Frame::popup(&ctx.style())
+							.show(ui, |ui| {
+								let texture_id = self.image(ctx, "copy.svg");
+								let text = self.i18n.msg("copy-content");
+								if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
+									ui.output_mut(|output| output.copied_text = self.selected_text.clone());
+									self.popup_menu = None;
+								}
+								let texture_id = self.image(ctx, "dict.svg");
+								let text = self.i18n.msg("lookup-dictionary");
+								if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
+									self.sidebar = true;
+									self.sidebar_list = SidebarList::Dictionary;
+									self.popup_menu = None;
+								}
+								// let texture_id = self.image(ctx, "bookmark.svg");
+								// Button::image_and_text(texture_id, ICON_SIZE, "增加书签").ui(ui);
+							}).inner
+					}).response;
+				let repos = if popup_response.rect.max.x > rect.max.x {
+					pos.x -= popup_response.rect.max.x - rect.max.x;
+					if popup_response.rect.max.y > rect.max.y {
+						pos.y -= popup_response.rect.max.y - rect.max.y;
+					}
+					true
+				} else if popup_response.rect.max.y > rect.max.y {
+					pos.y -= popup_response.rect.max.y - rect.max.y;
+					true
+				} else {
+					false
+				};
+				if repos {
+					self.popup_menu = Some(pos);
+				}
+				if response.clicked() || response.clicked_elsewhere() {
+					self.popup_menu = None;
+				}
+			}
+		}
+	}
+
+	fn approve_settings(&mut self) -> bool
 	{
 		if let Some(DialogData::Setting(settings)) = &mut self.dialog {
 			let mut redraw = false;
-			let mut update_context = false;
 			if self.configuration.theme_name != settings.theme_name {
 				for theme in &self.theme_entries {
 					if theme.0 == settings.theme_name {
 						self.configuration.theme_name = settings.theme_name.clone();
 						self.colors = convert_colors(&theme.1);
-						update_context = true;
+						self.controller.render.set_colors(self.colors.clone());
 						redraw = true;
 					}
 				}
@@ -812,9 +853,9 @@ impl ReaderApp {
 					}
 				}
 			}
-			(update_context, redraw)
+			redraw
 		} else {
-			(false, false)
+			false
 		}
 	}
 
@@ -826,21 +867,6 @@ impl ReaderApp {
 			self.update_status(self.controller.status_msg());
 		}
 		self.input_search = false;
-	}
-
-	#[inline]
-	fn update_context(&self, ui: &mut Ui)
-	{
-		let context = RenderContext {
-			colors: self.colors.clone(),
-			font_size: self.font_size,
-			default_font_measure: self.default_font_measure,
-			custom_color: self.controller.reading.custom_color,
-			rect: self.view_rect,
-			leading_space: 0.0,
-			max_page_size: 0.0,
-		};
-		ui.data_mut(|data| data.insert_temp(render_context_id(), context));
 	}
 
 	fn open_file(&mut self, path: PathBuf, frame: &mut eframe::Frame,
@@ -902,75 +928,15 @@ impl eframe::App for ReaderApp {
 				self.update_status(self.controller.status_msg());
 			}
 			if self.font_size != self.configuration.gui.font_size {
-				self.default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
+				let default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
 				self.font_size = self.configuration.gui.font_size;
-				self.update_context(ui);
-				self.controller.redraw(ui);
+				self.controller.render.set_font_size(
+					self.font_size,
+					default_font_measure,
+				);
 			}
-			let size = ui.available_size();
-			let response = ui.allocate_response(size, Sense::click_and_drag());
-			let rect = &response.rect;
-			if rect.min != self.response_rect.min || rect.max != self.response_rect.max {
-				self.response_rect = rect.clone();
-				let margin = self.default_font_measure.y / 2.0;
-				self.view_rect = Rect::from_min_max(
-					Pos2::new(rect.min.x + margin, rect.min.y + margin),
-					Pos2::new(rect.max.x - margin, rect.max.y - margin));
-				self.update_context(ui);
-				self.controller.redraw(ui);
-			}
-			if !self.sidebar && !self.input_search && !self.dropdown && self.dialog.is_none() && self.popup_menu.is_none() {
-				response.request_focus();
-			}
-			if let Some(mut pos) = self.popup_menu {
-				if ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape)) {
-					self.popup_menu = None;
-				} else {
-					let text_view_popup = ui.make_persistent_id("text_view_popup");
-					let popup_response = Area::new(text_view_popup)
-						.order(Order::Foreground)
-						.fixed_pos(pos)
-						.drag_bounds(Rect::EVERYTHING)
-						.show(ctx, |ui| {
-							Frame::popup(&ctx.style())
-								.show(ui, |ui| {
-									let texture_id = self.image(ctx, "copy.svg");
-									let text = self.i18n.msg("copy-content");
-									if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
-										ui.output_mut(|output| output.copied_text = self.selected_text.clone());
-										self.popup_menu = None;
-									}
-									let texture_id = self.image(ctx, "dict.svg");
-									let text = self.i18n.msg("lookup-dictionary");
-									if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
-										self.sidebar = true;
-										self.sidebar_list = SidebarList::Dictionary;
-										self.popup_menu = None;
-									}
-									// let texture_id = self.image(ctx, "bookmark.svg");
-									// Button::image_and_text(texture_id, ICON_SIZE, "增加书签").ui(ui);
-								}).inner
-						}).response;
-					let repos = if popup_response.rect.max.x > rect.max.x {
-						pos.x -= popup_response.rect.max.x - rect.max.x;
-						if popup_response.rect.max.y > rect.max.y {
-							pos.y -= popup_response.rect.max.y - rect.max.y;
-						}
-						true
-					} else if popup_response.rect.max.y > rect.max.y {
-						pos.y -= popup_response.rect.max.y - rect.max.y;
-						true
-					} else {
-						false
-					};
-					if repos {
-						self.popup_menu = Some(pos);
-					}
-					if response.clicked() || response.clicked_elsewhere() {
-						self.popup_menu = None;
-					}
-				}
-			} else if !self.input_search && !self.dropdown && self.dialog.is_none() {
+			let (response, redraw) = self.controller.render.show(ui);
+			if !self.input_search && !self.dropdown && self.dialog.is_none() {
 				match self.setup_input(&response, frame, ui) {
 					Ok(action) => if action {
 						self.update_status(self.controller.status_msg());
@@ -978,8 +944,11 @@ impl eframe::App for ReaderApp {
 					Err(e) => self.error(e.to_string()),
 				}
 			}
+			self.setup_popup(&response, ctx, ui);
 
-			ui.set_clip_rect(rect.clone());
+			if redraw {
+				self.controller.redraw(ui);
+			}
 			self.controller.render.draw(ui);
 			response
 		});
@@ -1034,7 +1003,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 		None
 	};
 	let colors = convert_colors(get_theme(&configuration.theme_name, &theme_entries)?);
-	let render = Box::new(GuiView::new(&configuration.render_type));
+	let render = Box::new(GuiView::new(&configuration.render_type, colors.clone()));
 	let images = load_icons()?;
 	let dictionary = DictionaryManager::from(&configuration.gui.dictionary_data_path);
 	let dictionary_lookup = DictionaryLookupData { words: vec![], current_word: 0 };
@@ -1088,11 +1057,8 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 				input_search: false,
 				search_pattern: String::new(),
 				dropdown: false,
-				response_rect: Rect::NOTHING,
 
-				view_rect: Rect::NOTHING,
 				font_size: 0,
-				default_font_measure: Default::default(),
 				colors,
 			};
 			Box::new(app)
@@ -1102,18 +1068,6 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 	} else {
 		Ok(())
 	}
-}
-
-#[inline]
-fn render_context_id() -> Id
-{
-	Id::new("render_context")
-}
-
-#[inline]
-pub(self) fn get_render_context(ui: &mut Ui) -> RenderContext
-{
-	ui.data_mut(|data| data.get_temp(render_context_id()).expect("context not set"))
 }
 
 #[inline]

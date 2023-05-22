@@ -1,14 +1,16 @@
-use egui::{Pos2, Rect, Ui};
-use crate::book::{Book, Line};
+use egui::{Pos2, Rect, Response, Sense, Ui, Vec2};
+use crate::book::{Book, Colors, Line};
 use crate::common::Position;
 use crate::controller::{HighlightInfo, Render};
-use crate::gui::render::{create_render, GuiRender, PointerPosition, RenderLine};
+use crate::gui::render::{create_render, GuiRender, PointerPosition, RenderContext, RenderLine};
 
 const MIN_TEXT_SELECT_DISTANCE: f32 = 4.0;
 
 pub(super) struct GuiView {
 	pub render: Box<dyn GuiRender>,
 	pub render_lines: Vec<RenderLine>,
+
+	pub render_context: RenderContext,
 }
 
 impl Render<Ui> for GuiView {
@@ -17,47 +19,56 @@ impl Render<Ui> for GuiView {
 		offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui)
 		-> Option<Position>
 	{
-		self.render_lines.clear();
-		self.render.gui_redraw(book, lines, line, offset, highlight, ui, &mut self.render_lines)
+		self.render.gui_redraw(book, lines, line, offset, highlight, ui, &mut self.render_lines, &self.render_context)
 	}
 
 	#[inline]
 	fn prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
 		line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
-		self.render.gui_prev_page(book, lines, line, offset, ui)
+		self.render.gui_prev_page(book, lines, line, offset, ui, &self.render_context)
 	}
 
 	#[inline]
 	fn next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
 		line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
-		self.render.gui_next_line(book, lines, line, offset, ui)
+		self.render.gui_next_line(book, lines, line, offset, ui, &self.render_context)
 	}
 
 	#[inline]
 	fn prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
 		line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
-		self.render.gui_prev_line(book, lines, line, offset, ui)
+		self.render.gui_prev_line(book, lines, line, offset, ui, &self.render_context)
 	}
 
 	#[inline]
 	fn setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
 		line: usize, start: usize, ui: &mut Ui) -> Position
 	{
-		self.render.gui_setup_highlight(book, lines, line, start, ui)
+		self.render.gui_setup_highlight(book, lines, line, start, ui, &self.render_context)
 	}
 }
 
 impl GuiView {
 	#[inline]
-	pub fn new(render_type: &str) -> Self
+	pub fn new(render_type: &str, colors: Colors) -> Self
 	{
 		let render = create_render(render_type);
+		let render_context = RenderContext {
+			colors,
+			font_size: 0,
+			default_font_measure: Default::default(),
+			custom_color: false,
+			rect: Rect::NOTHING,
+			leading_space: 0.0,
+			max_page_size: 0.0,
+		};
 		GuiView {
 			render,
 			render_lines: vec![],
+			render_context,
 		}
 	}
 
@@ -70,10 +81,59 @@ impl GuiView {
 	#[inline]
 	pub fn draw(&mut self, ui: &mut Ui)
 	{
+		ui.set_clip_rect(self.render_context.rect.clone());
 		self.render.draw(&self.render_lines, ui);
 	}
 
-	pub fn calc_selection(&self, original_pos: Pos2, current_pos: Pos2, rect: &Rect)
+	pub fn show(&mut self, ui: &mut Ui) -> (Response, bool)
+	{
+		let font_measure = self.render_context.default_font_measure;
+		let margin = Vec2::new(font_measure.x / 2.0, font_measure.y / 2.0);
+		let max_rect = ui.available_rect_before_wrap().shrink2(margin);
+		let mut content_ui = ui.child_ui(max_rect, *ui.layout());
+		let response = self.show_content(
+			&mut content_ui,
+			max_rect,
+		);
+		let frame_rect = response.rect.expand2(margin);
+		ui.allocate_space(frame_rect.size());
+		let rect = &response.rect;
+		let redraw = if rect.min != self.render_context.rect.min
+			|| rect.max != self.render_context.rect.max {
+			self.render_context.rect = rect.clone();
+			self.render.reset_render_context(&mut self.render_context);
+			true
+		} else {
+			false
+		};
+		(response, redraw)
+	}
+
+	fn show_content(&mut self, ui: &mut Ui, max_rect: Rect) -> Response
+	{
+		let (id, rect) = ui.allocate_space(max_rect.size());
+		let response = ui.interact(rect, id, Sense::click_and_drag());
+		response
+	}
+
+	pub fn set_colors(&mut self, colors: Colors)
+	{
+		self.render_context.colors = colors;
+	}
+
+	pub fn set_font_size(&mut self, font_size: u8, default_font_measure: Vec2)
+	{
+		self.render_context.font_size = font_size;
+		self.render_context.default_font_measure = default_font_measure;
+		self.render.reset_render_context(&mut self.render_context);
+	}
+
+	pub fn set_custom_color(&mut self, custom_color: bool)
+	{
+		self.render_context.custom_color = custom_color;
+	}
+
+	pub fn calc_selection(&self, original_pos: Pos2, current_pos: Pos2)
 		-> Option<(Position, Position)>
 	{
 		#[inline]
@@ -135,8 +195,8 @@ impl GuiView {
 			&& (original_pos.y - current_pos.y).abs() < MIN_TEXT_SELECT_DISTANCE {
 			return None;
 		}
-		let (line1, offset1) = self.render.pointer_pos(&original_pos, &self.render_lines, rect);
-		let (line2, offset2) = self.render.pointer_pos(&current_pos, &self.render_lines, rect);
+		let (line1, offset1) = self.render.pointer_pos(&original_pos, &self.render_lines, &self.render_context.rect);
+		let (line2, offset2) = self.render.pointer_pos(&current_pos, &self.render_lines, &self.render_context.rect);
 
 		let (from, to) = match line1 {
 			PointerPosition::Head => match line2 {

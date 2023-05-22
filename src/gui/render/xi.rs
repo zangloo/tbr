@@ -27,9 +27,14 @@ impl GuiXiRender
 impl GuiRender for GuiXiRender
 {
 	#[inline]
-	fn reset_render_context(&mut self, render_context: &mut RenderContext)
+	fn reset_baseline(&mut self, render_context: &RenderContext)
 	{
 		self.baseline = render_context.rect.min.y;
+	}
+
+	#[inline]
+	fn reset_render_context(&mut self, render_context: &mut RenderContext)
+	{
 		render_context.max_page_size = render_context.rect.height();
 		render_context.leading_space = render_context.default_font_measure.x * 2.0;
 	}
@@ -52,14 +57,14 @@ impl GuiRender for GuiXiRender
 	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize,
 		start_offset: usize, end_offset: usize,
 		highlight: &Option<HighlightInfo>, ui: &mut Ui,
-		context: &mut RenderContext) -> Vec<RenderLine>
+		context: &RenderContext) -> Vec<RenderLine>
 	{
 		#[inline]
 		// align chars and calculate line size and space,
 		// and reset context.line_base
 		fn push_line(draw_lines: &mut Vec<RenderLine>,
 			mut draw_chars: Vec<(RenderChar, CharStyle)>,
-			line: usize, context: &mut RenderContext, mut baseline: f32) -> f32
+			line: usize, context: &RenderContext, mut baseline: f32) -> f32
 		{
 			let mut draw_size = 0.0;
 			let mut line_space = 0.0;

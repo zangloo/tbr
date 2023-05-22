@@ -11,7 +11,7 @@ use crate::common::Position;
 use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::render::han::GuiHanRender;
 use crate::gui::render::xi::GuiXiRender;
-use crate::gui::{get_render_context, load_image};
+use crate::gui::load_image;
 
 mod han;
 mod xi;
@@ -128,13 +128,14 @@ pub(super) enum PointerPosition {
 }
 
 pub(super) trait GuiRender {
+	fn reset_baseline(&mut self, render_context: &RenderContext);
 	fn reset_render_context(&mut self, render_context: &mut RenderContext);
 	fn create_render_line(&self, line: usize, render_context: &RenderContext)
 		-> RenderLine;
 	fn update_baseline_for_delta(&mut self, delta: f32);
 	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize,
 		start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>,
-		ui: &mut Ui, context: &mut RenderContext) -> Vec<RenderLine>;
+		ui: &mut Ui, context: &RenderContext) -> Vec<RenderLine>;
 	fn draw_decoration(&self, decoration: &TextDecoration, ui: &mut Ui);
 	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData>;
 	// return (line, offset) position
@@ -143,7 +144,7 @@ pub(super) trait GuiRender {
 
 	#[inline]
 	fn prepare_wrap(&mut self, text: &Line, line: usize, start_offset: usize,
-		end_offset: usize, context: &mut RenderContext)
+		end_offset: usize, context: &RenderContext)
 		-> (usize, Option<Vec<RenderLine>>)
 	{
 		let end_offset = if end_offset > text.len() {
@@ -164,18 +165,18 @@ pub(super) trait GuiRender {
 	fn gui_redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
 		reading_line: usize, reading_offset: usize,
 		highlight: &Option<HighlightInfo>, ui: &mut Ui,
-		render_lines: &mut Vec<RenderLine>) -> Option<Position>
+		render_lines: &mut Vec<RenderLine>, context: &RenderContext)
+		-> Option<Position>
 	{
+		render_lines.clear();
+		self.reset_baseline(context);
 		ui.set_clip_rect(Rect::NOTHING);
-		// load context and init for rendering
-		let mut context = get_render_context(ui);
-		self.reset_render_context(&mut context);
 
 		let mut drawn_size = 0.0;
 		let mut offset = reading_offset;
 		for index in reading_line..lines.len() {
 			let line = &lines[index];
-			let wrapped_lines = self.wrap_line(book, &line, index, offset, line.len(), highlight, ui, &mut context);
+			let wrapped_lines = self.wrap_line(book, &line, index, offset, line.len(), highlight, ui, context);
 			offset = 0;
 			for wrapped_line in wrapped_lines {
 				drawn_size += wrapped_line.draw_size;
@@ -221,12 +222,9 @@ pub(super) trait GuiRender {
 	}
 
 	fn gui_prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
-		reading_line: usize, offset: usize, ui: &mut Ui) -> Position
+		reading_line: usize, offset: usize, ui: &mut Ui, context: &RenderContext) -> Position
 	{
 		ui.set_clip_rect(Rect::NOTHING);
-		// load context and init for rendering
-		let mut context = get_render_context(ui);
-		self.reset_render_context(&mut context);
 
 		let (reading_line, mut offset) = if offset == 0 {
 			(reading_line - 1, usize::MAX)
@@ -237,7 +235,7 @@ pub(super) trait GuiRender {
 		let mut drawn_size = 0.0;
 		for index in (0..=reading_line).rev() {
 			let line = &lines[index];
-			let wrapped_lines = self.wrap_line(book, &line, index, 0, offset, &None, ui, &mut context);
+			let wrapped_lines = self.wrap_line(book, &line, index, 0, offset, &None, ui, context);
 			offset = usize::MAX;
 			for wrapped_line in wrapped_lines.iter().rev() {
 				drawn_size += wrapped_line.draw_size;
@@ -259,14 +257,13 @@ pub(super) trait GuiRender {
 		Position::new(0, 0)
 	}
 
-	fn gui_next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
+	fn gui_next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		line: usize, offset: usize, ui: &mut Ui, context: &RenderContext)
+		-> Position
 	{
 		ui.set_clip_rect(Rect::NOTHING);
-		// load context and init for rendering
-		let mut context = get_render_context(ui);
-		self.reset_render_context(&mut context);
 
-		let wrapped_lines = self.wrap_line(book, &lines[line], line, offset, usize::MAX, &None, ui, &mut context);
+		let wrapped_lines = self.wrap_line(book, &lines[line], line, offset, usize::MAX, &None, ui, context);
 		if wrapped_lines.len() > 1 {
 			if let Some(next_line_char) = wrapped_lines[1].chars.first() {
 				Position::new(line, next_line_char.offset)
@@ -278,12 +275,11 @@ pub(super) trait GuiRender {
 		}
 	}
 
-	fn gui_prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, ui: &mut Ui) -> Position
+	fn gui_prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		line: usize, offset: usize, ui: &mut Ui, context: &RenderContext)
+		-> Position
 	{
 		ui.set_clip_rect(Rect::NOTHING);
-		// load context and init for rendering
-		let mut context = get_render_context(ui);
-		self.reset_render_context(&mut context);
 
 		let (line, offset) = if offset == 0 {
 			if line == 0 {
@@ -294,7 +290,7 @@ pub(super) trait GuiRender {
 			(line, offset)
 		};
 		let text = &lines[line];
-		let wrapped_lines = self.wrap_line(book, text, line, 0, offset, &None, ui, &mut context);
+		let wrapped_lines = self.wrap_line(book, text, line, 0, offset, &None, ui, context);
 		if let Some(last_line) = wrapped_lines.last() {
 			if let Some(first_char) = last_line.chars.first() {
 				Position::new(line, first_char.offset)
@@ -306,15 +302,14 @@ pub(super) trait GuiRender {
 		}
 	}
 
-	fn gui_setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, start: usize, ui: &mut Ui) -> Position
+	fn gui_setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+		line: usize, start: usize, ui: &mut Ui, context: &RenderContext)
+		-> Position
 	{
 		ui.set_clip_rect(Rect::NOTHING);
-		// load context and init for rendering
-		let mut context = get_render_context(ui);
-		self.reset_render_context(&mut context);
 
 		let text = &lines[line];
-		let wrapped_lines = self.wrap_line(book, text, line, 0, start + 1, &None, ui, &mut context);
+		let wrapped_lines = self.wrap_line(book, text, line, 0, start + 1, &None, ui, context);
 		if let Some(last_line) = wrapped_lines.last() {
 			if let Some(first_char) = last_line.chars.first() {
 				Position::new(line, first_char.offset)
