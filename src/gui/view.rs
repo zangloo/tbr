@@ -15,7 +15,7 @@ pub(super) struct GuiView {
 
 impl Render<Ui> for GuiView {
 	#[inline]
-	fn redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize,
+	fn redraw(&mut self, book: &dyn Book, lines: &Vec<Line>, line: usize,
 		offset: usize, highlight: &Option<HighlightInfo>, ui: &mut Ui)
 		-> Option<Position>
 	{
@@ -23,28 +23,28 @@ impl Render<Ui> for GuiView {
 	}
 
 	#[inline]
-	fn prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+	fn prev_page(&mut self, book: &dyn Book, lines: &Vec<Line>,
 		line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		self.render.gui_prev_page(book, lines, line, offset, ui, &self.render_context)
 	}
 
 	#[inline]
-	fn next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+	fn next_line(&mut self, book: &dyn Book, lines: &Vec<Line>,
 		line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		self.render.gui_next_line(book, lines, line, offset, ui, &self.render_context)
 	}
 
 	#[inline]
-	fn prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+	fn prev_line(&mut self, book: &dyn Book, lines: &Vec<Line>,
 		line: usize, offset: usize, ui: &mut Ui) -> Position
 	{
 		self.render.gui_prev_line(book, lines, line, offset, ui, &self.render_context)
 	}
 
 	#[inline]
-	fn setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+	fn setup_highlight(&mut self, book: &dyn Book, lines: &Vec<Line>,
 		line: usize, start: usize, ui: &mut Ui) -> Position
 	{
 		self.render.gui_setup_highlight(book, lines, line, start, ui, &self.render_context)

@@ -247,6 +247,7 @@ struct ReaderApp {
 	dictionary_lookup: DictionaryLookupData,
 
 	font_size: u8,
+	default_font_measure: Vec2,
 	colors: Colors,
 }
 
@@ -928,11 +929,11 @@ impl eframe::App for ReaderApp {
 				self.update_status(self.controller.status_msg());
 			}
 			if self.font_size != self.configuration.gui.font_size {
-				let default_font_measure = measure_char_size(ui, '漢', self.configuration.gui.font_size as f32);
 				self.font_size = self.configuration.gui.font_size;
+				self.default_font_measure = measure_char_size(ui, '漢', self.font_size as f32);
 				self.controller.render.set_font_size(
 					self.font_size,
-					default_font_measure,
+					self.default_font_measure,
 				);
 			}
 			let (response, redraw) = self.controller.render.show(ui);
@@ -1059,6 +1060,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 				dropdown: false,
 
 				font_size: 0,
+				default_font_measure: Default::default(),
 				colors,
 			};
 			Box::new(app)

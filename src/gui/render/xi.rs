@@ -54,7 +54,7 @@ impl GuiRender for GuiXiRender
 		self.baseline += delta
 	}
 
-	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize,
+	fn wrap_line(&mut self, book: &dyn Book, text: &Line, line: usize,
 		start_offset: usize, end_offset: usize,
 		highlight: &Option<HighlightInfo>, ui: &mut Ui,
 		context: &RenderContext) -> Vec<RenderLine>

@@ -133,7 +133,7 @@ pub(super) trait GuiRender {
 	fn create_render_line(&self, line: usize, render_context: &RenderContext)
 		-> RenderLine;
 	fn update_baseline_for_delta(&mut self, delta: f32);
-	fn wrap_line(&mut self, book: &Box<dyn Book>, text: &Line, line: usize,
+	fn wrap_line(&mut self, book: &dyn Book, text: &Line, line: usize,
 		start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>,
 		ui: &mut Ui, context: &RenderContext) -> Vec<RenderLine>;
 	fn draw_decoration(&self, decoration: &TextDecoration, ui: &mut Ui);
@@ -162,7 +162,7 @@ pub(super) trait GuiRender {
 		}
 	}
 
-	fn gui_redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+	fn gui_redraw(&mut self, book: &dyn Book, lines: &Vec<Line>,
 		reading_line: usize, reading_offset: usize,
 		highlight: &Option<HighlightInfo>, ui: &mut Ui,
 		render_lines: &mut Vec<RenderLine>, context: &RenderContext)
@@ -221,7 +221,7 @@ pub(super) trait GuiRender {
 		}
 	}
 
-	fn gui_prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+	fn gui_prev_page(&mut self, book: &dyn Book, lines: &Vec<Line>,
 		reading_line: usize, offset: usize, ui: &mut Ui, context: &RenderContext) -> Position
 	{
 		ui.set_clip_rect(Rect::NOTHING);
@@ -257,7 +257,7 @@ pub(super) trait GuiRender {
 		Position::new(0, 0)
 	}
 
-	fn gui_next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+	fn gui_next_line(&mut self, book: &dyn Book, lines: &Vec<Line>,
 		line: usize, offset: usize, ui: &mut Ui, context: &RenderContext)
 		-> Position
 	{
@@ -275,7 +275,7 @@ pub(super) trait GuiRender {
 		}
 	}
 
-	fn gui_prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+	fn gui_prev_line(&mut self, book: &dyn Book, lines: &Vec<Line>,
 		line: usize, offset: usize, ui: &mut Ui, context: &RenderContext)
 		-> Position
 	{
@@ -302,7 +302,7 @@ pub(super) trait GuiRender {
 		}
 	}
 
-	fn gui_setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>,
+	fn gui_setup_highlight(&mut self, book: &dyn Book, lines: &Vec<Line>,
 		line: usize, start: usize, ui: &mut Ui, context: &RenderContext)
 		-> Position
 	{
@@ -321,7 +321,8 @@ pub(super) trait GuiRender {
 		}
 	}
 
-	fn with_image(&mut self, char_style: &CharStyle, full_screen_if_image: bool, book: &Box<dyn Book>, view_rect: &Rect, ui: &mut Ui) -> Option<(String, Pos2)>
+	fn with_image(&mut self, char_style: &CharStyle, full_screen_if_image: bool,
+		book: &dyn Book, view_rect: &Rect, ui: &mut Ui) -> Option<(String, Pos2)>
 	{
 		if let Some(href) = &char_style.image {
 			if let Some((path, bytes)) = book.image(href) {

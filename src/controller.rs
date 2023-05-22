@@ -13,15 +13,15 @@ const TRACE_SIZE: usize = 100;
 
 pub trait Render<C> {
 	// return next
-	fn redraw(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, context: &mut C) -> Option<Position>;
+	fn redraw(&mut self, book: &dyn Book, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, context: &mut C) -> Option<Position>;
 	// return new position
-	fn prev_page(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, context: &mut C) -> Position;
+	fn prev_page(&mut self, book: &dyn Book, lines: &Vec<Line>, line: usize, offset: usize, context: &mut C) -> Position;
 	// return new position
-	fn next_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, context: &mut C) -> Position;
+	fn next_line(&mut self, book: &dyn Book, lines: &Vec<Line>, line: usize, offset: usize, context: &mut C) -> Position;
 	// return new position
-	fn prev_line(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, offset: usize, context: &mut C) -> Position;
+	fn prev_line(&mut self, book: &dyn Book, lines: &Vec<Line>, line: usize, offset: usize, context: &mut C) -> Position;
 	// move to highlight line if not displayed in current view
-	fn setup_highlight(&mut self, book: &Box<dyn Book>, lines: &Vec<Line>, line: usize, start: usize, context: &mut C) -> Position;
+	fn setup_highlight(&mut self, book: &dyn Book, lines: &Vec<Line>, line: usize, start: usize, context: &mut C) -> Position;
 }
 
 #[derive(Clone)]
@@ -86,15 +86,15 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		})
 	}
 	#[inline]
-	pub fn reading_container(&self) -> &Box<dyn Container>
+	pub fn reading_container(&self) -> &dyn Container
 	{
-		&self.container
+		self.container.as_ref()
 	}
 
 	#[inline]
-	pub fn reading_book(&self) -> &Box<dyn Book>
+	pub fn reading_book(&self) -> &dyn Book
 	{
-		&self.book
+		self.book.as_ref()
 	}
 
 	#[inline]
@@ -107,7 +107,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	pub fn redraw(&mut self, context: &mut C)
 	{
 		let next = self.render.redraw(
-			&self.book,
+			self.book.as_ref(),
 			self.book.lines(),
 			self.reading.line,
 			self.reading.position,
@@ -120,7 +120,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	pub fn redraw_at(&mut self, line: usize, offset: usize, context: &mut C)
 	{
 		let next = self.render.redraw(
-			&self.book,
+			self.book.as_ref(),
 			self.book.lines(),
 			line,
 			offset,
@@ -229,7 +229,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				reading.chapter = current_chapter;
 				let lines = self.book.lines();
 				// prev need decrease this invalid reading.line
-				let position = self.render.prev_page(&self.book, lines, lines.len(), 0, context);
+				let position = self.render.prev_page(self.book.as_ref(), lines, lines.len(), 0, context);
 				self.redraw_at(position.line, position.offset, context);
 			} else {
 				if reading.inner_book > 0 {
@@ -239,7 +239,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 					self.book = load_book(&self.container_manager, &mut self.container, &mut new_reading)?;
 					let lines = self.book.lines();
 					let line_index = lines.len() - 1;
-					let position = self.render.prev_page(&self.book, lines, line_index, lines[line_index].len(), context);
+					let position = self.render.prev_page(self.book.as_ref(), lines, line_index, lines[line_index].len(), context);
 					new_reading.chapter = self.book.current_chapter();
 					new_reading.line = position.line;
 					new_reading.position = position.offset;
@@ -251,7 +251,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				}
 			}
 		} else {
-			let position = self.render.prev_page(&self.book, self.book.lines(), self.reading.line, self.reading.position, context);
+			let position = self.render.prev_page(self.book.as_ref(), self.book.lines(), self.reading.line, self.reading.position, context);
 			self.redraw_at(position.line, position.offset, context);
 		}
 		Ok(())
@@ -260,7 +260,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	pub fn goto_end(&mut self, context: &mut C)
 	{
 		let lines = self.book.lines();
-		let position = self.render.prev_page(&self.book, lines, lines.len(), 0, context);
+		let position = self.render.prev_page(self.book.as_ref(), lines, lines.len(), 0, context);
 		self.redraw_at(position.line, position.offset, context);
 	}
 
@@ -282,7 +282,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				}
 			}
 		}
-		let position = self.render.prev_line(&self.book, lines, line, offset, context);
+		let position = self.render.prev_line(self.book.as_ref(), lines, line, offset, context);
 		self.redraw_at(position.line, position.offset, context);
 	}
 
@@ -302,7 +302,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				}
 			}
 
-			let position = self.render.next_line(&self.book, lines, line, reading.position, context);
+			let position = self.render.next_line(self.book.as_ref(), lines, line, reading.position, context);
 			self.redraw_at(position.line, position.offset, context);
 		}
 	}
@@ -370,7 +370,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	}
 
 	fn search_next(&mut self, start_line: usize, start_position: usize, context: &mut C) -> Result<()> {
-		let book = &self.book;
+		let book = self.book.as_ref();
 		let lines = book.lines();
 		let regex = Regex::new(&self.search_pattern)?;
 		let mut position = start_position;
@@ -652,7 +652,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				false
 			};
 			if !in_current_screen {
-				let position = self.render.setup_highlight(&self.book, self.book.lines(), highlight_line, highlight_start, context);
+				let position = self.render.setup_highlight(self.book.as_ref(), self.book.lines(), highlight_line, highlight_start, context);
 				self.reading.line = position.line;
 				self.reading.position = position.offset;
 				self.push_trace(false);

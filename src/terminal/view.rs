@@ -211,13 +211,13 @@ impl ReadingView {
 	}
 
 	#[inline]
-	pub fn reading_container(&self) -> &Box<dyn Container>
+	pub fn reading_container(&self) -> &dyn Container
 	{
 		self.controller.reading_container()
 	}
 
 	#[inline]
-	pub fn reading_book(&self) -> &Box<dyn Book>
+	pub fn reading_book(&self) -> &dyn Book
 	{
 		self.controller.reading_book()
 	}
