@@ -298,8 +298,22 @@ fn load_styles<'a, F>(document: &Html, file_resolver: Option<F>) -> HashMap<Node
 	where F: Fn(String) -> Option<&'a String>
 {
 	let mut element_styles = HashMap::new();
-	let stylesheets = if let Some(file_resolver) = file_resolver {
-		let mut stylesheets: Vec<StyleSheet> = vec![];
+
+	// load embedded styles
+	let mut stylesheets = vec![];
+	if let Ok(style_selector) = Selector::parse("style") {
+		let mut style_iterator = document.select(&style_selector);
+		while let Some(style) = style_iterator.next() {
+			let mut text_iterator = style.text();
+			while let Some(text) = text_iterator.next() {
+				if let Ok(style_sheet) = StyleSheet::parse(&text, ParserOptions::default()) {
+					stylesheets.push(style_sheet);
+				}
+			}
+		}
+	}
+
+	if let Some(file_resolver) = file_resolver {
 		if let Ok(link_selector) = Selector::parse("link") {
 			let selection = document.select(&link_selector);
 			for element in selection.into_iter() {
@@ -317,7 +331,6 @@ fn load_styles<'a, F>(document: &Html, file_resolver: Option<F>) -> HashMap<Node
 		if stylesheets.len() == 0 {
 			return element_styles;
 		}
-		stylesheets
 	} else {
 		return element_styles;
 	};
