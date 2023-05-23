@@ -939,6 +939,7 @@ impl eframe::App for ReaderApp {
 			}
 			let (response, redraw) = self.controller.render.show(ui);
 			if !self.input_search && !self.dropdown && self.dialog.is_none() {
+				response.request_focus();
 				match self.setup_input(&response, frame, ui) {
 					Ok(action) => if action {
 						self.update_status(self.controller.status_msg());
