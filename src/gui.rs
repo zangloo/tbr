@@ -868,11 +868,14 @@ impl eframe::App for ReaderApp {
 				self.controller.book_loaded(ui);
 				self.update_status(self.controller.status_msg());
 			}
+			let detect_actions = self.popup_menu.is_none()
+				&& !self.dropdown
+				&& self.dialog.is_none();
 			let (response, redraw, action) = self.controller.render.show(
 				ui,
 				self.configuration.gui.font_size,
 				self.controller.book.as_ref(),
-				self.popup_menu.is_none());
+				detect_actions);
 			match action {
 				ViewAction::Goto(line, link_index) => if let Err(e) = self.controller.goto_link(line, link_index, ui) {
 					self.error(e.to_string());
