@@ -11,7 +11,7 @@ use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::{egui, IconData};
 use eframe::egui::{Button, FontData, FontDefinitions, Frame, ImageButton, Pos2, Rect, Response, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
-use egui::{Align, Area, CursorIcon, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit, TextStyle};
+use egui::{Align, Area, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit, TextStyle};
 use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
 use image::imageops::FilterType;
@@ -23,7 +23,7 @@ use crate::container::{BookContent, BookName, Container, load_book, load_contain
 use crate::controller::{Controller, HighlightInfo, HighlightMode};
 use crate::gui::dict::DictionaryManager;
 use crate::gui::settings::SettingsData;
-use crate::gui::view::GuiView;
+use crate::gui::view::{GuiView, ViewAction};
 
 mod render;
 mod settings;
@@ -203,7 +203,6 @@ enum GuiCommand {
 	// can not disable tab for navigate between view and search box
 	// NextLink, PrevLink,
 	TryGotoLink,
-	GotoLink(usize, usize),
 	ChapterBegin,
 	ChapterEnd,
 	NextChapter,
@@ -211,8 +210,6 @@ enum GuiCommand {
 	ClearHeightLight,
 	CopyHeightLight,
 
-	MouseDrag(Pos2, Pos2),
-	MouseMove(Pos2),
 	OpenDroppedFile(PathBuf),
 }
 
@@ -419,22 +416,22 @@ impl ReaderApp {
 		if let Some(command) = response.ctx.input_mut(|input| {
 			if input.consume_key(Modifiers::NONE, Key::Space)
 				|| input.consume_key(Modifiers::NONE, Key::PageDown) {
-				Some(GuiCommand::PageDown)
+				return Some(GuiCommand::PageDown);
 			} else if input.consume_key(Modifiers::SHIFT, Key::Space)
 				|| input.consume_key(Modifiers::NONE, Key::PageUp) {
-				Some(GuiCommand::PageUp)
+				return Some(GuiCommand::PageUp);
 			} else if input.consume_key(Modifiers::NONE, Key::ArrowDown) {
-				Some(GuiCommand::StepForward)
+				return Some(GuiCommand::StepForward);
 			} else if input.consume_key(Modifiers::NONE, Key::ArrowUp) {
-				Some(GuiCommand::StepBackward)
+				return Some(GuiCommand::StepBackward);
 			} else if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
-				Some(GuiCommand::TraceBackward)
+				return Some(GuiCommand::TraceBackward);
 			} else if input.consume_key(Modifiers::NONE, Key::ArrowRight) {
-				Some(GuiCommand::TraceForward)
+				return Some(GuiCommand::TraceForward);
 			} else if input.consume_key(Modifiers::NONE, Key::N) {
-				Some(GuiCommand::SearchForward)
+				return Some(GuiCommand::SearchForward);
 			} else if input.consume_key(Modifiers::SHIFT, Key::N) {
-				Some(GuiCommand::SearchBackward)
+				return Some(GuiCommand::SearchBackward);
 				// } else if input.consume_key(Modifiers::SHIFT, Key::Tab) {
 				// 	Some(GuiCommand::PrevLink)
 				// } else if input.consume_key(Modifiers::NONE, Key::Tab) {
@@ -446,7 +443,6 @@ impl ReaderApp {
 					self.sidebar = true;
 					self.sidebar_list = SidebarList::Chapter(true);
 				}
-				None
 			} else if input.consume_key(Modifiers::NONE, Key::D) {
 				if self.sidebar && matches!(self.sidebar_list, SidebarList::Dictionary) {
 					self.sidebar = false;
@@ -454,67 +450,50 @@ impl ReaderApp {
 					self.sidebar = true;
 					self.sidebar_list = SidebarList::Dictionary;
 				}
-				None
 			} else if input.consume_key(Modifiers::NONE, Key::Enter) {
-				Some(GuiCommand::TryGotoLink)
+				return Some(GuiCommand::TryGotoLink);
 			} else if input.consume_key(Modifiers::NONE, Key::Home) {
 				if self.controller.reading.line != 0 || self.controller.reading.position != 0 {
-					Some(GuiCommand::ChapterBegin)
-				} else {
-					None
+					return Some(GuiCommand::ChapterBegin);
 				}
 			} else if input.consume_key(Modifiers::NONE, Key::End) {
-				Some(GuiCommand::ChapterEnd)
+				return Some(GuiCommand::ChapterEnd);
 			} else if input.consume_key(Modifiers::CTRL, Key::D) {
-				Some(GuiCommand::NextChapter)
+				return Some(GuiCommand::NextChapter);
 			} else if input.consume_key(Modifiers::CTRL, Key::B) {
-				Some(GuiCommand::PrevChapter)
+				return Some(GuiCommand::PrevChapter);
 			} else if input.consume_key(Modifiers::CTRL, Key::ArrowUp) {
 				if self.configuration.gui.font_size < MAX_FONT_SIZE {
 					self.configuration.gui.font_size += 2;
 				}
-				None
 			} else if input.consume_key(Modifiers::CTRL, Key::ArrowDown) {
 				if self.configuration.gui.font_size > MIN_FONT_SIZE {
 					self.configuration.gui.font_size -= 2;
 				}
-				None
 			} else if input.consume_key(Modifiers::NONE, Key::Escape) {
 				if self.sidebar {
 					self.sidebar = false;
-					None
 				} else if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = self.controller.highlight {
-					Some(GuiCommand::ClearHeightLight)
-				} else {
-					None
+					return Some(GuiCommand::ClearHeightLight);
 				}
 			} else if input.consume_key(Modifiers::CTRL, Key::C) {
 				if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = self.controller.highlight {
-					Some(GuiCommand::CopyHeightLight)
-				} else {
-					None
+					return Some(GuiCommand::CopyHeightLight);
 				}
 			} else if input.consume_key(Modifiers::CTRL, Key::F) {
 				self.input_search = true;
-				None
 			} else if let Some(DroppedFile { path: Some(path), .. }) = input.raw.dropped_files.first() {
 				let path = path.clone();
-				Some(GuiCommand::OpenDroppedFile(path))
+				return Some(GuiCommand::OpenDroppedFile(path));
 			} else if let Some(pointer_pos) = input.pointer.interact_pos() {
 				if rect.contains(pointer_pos) {
-					if response.clicked() {
-						if let Some((line, link_index)) = self.controller.render.link_resolve(pointer_pos, &self.controller.book.lines()) {
-							Some(GuiCommand::GotoLink(line, link_index))
-						} else {
-							None
-						}
-					} else if input.scroll_delta.y != 0.0 {
+					if input.scroll_delta.y != 0.0 {
 						let delta = input.scroll_delta.y;
 						// delta > 0.0 for scroll up
 						if delta > 0.0 {
-							Some(GuiCommand::StepBackward)
+							return Some(GuiCommand::StepBackward);
 						} else {
-							Some(GuiCommand::StepForward)
+							return Some(GuiCommand::StepForward);
 						}
 					} else if input.zoom_delta() != 1.0 {
 						if input.zoom_delta() > 1.0 {
@@ -526,35 +505,14 @@ impl ReaderApp {
 								self.configuration.gui.font_size -= 2;
 							}
 						}
-						None
 					} else if response.secondary_clicked() {
 						if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = &self.controller.highlight {
 							self.popup_menu = Some(pointer_pos);
 						}
-						None
-					} else if input.pointer.primary_down() {
-						if let Some(from_pos) = input.pointer.press_origin() {
-							Some(GuiCommand::MouseDrag(from_pos, pointer_pos))
-						} else {
-							None
-						}
-					} else if input.pointer.primary_released() {
-						if !self.selected_text.is_empty() {
-							let lookup = &mut self.dictionary_lookup;
-							lookup.words.clear();
-							lookup.words.push(self.selected_text.clone());
-							lookup.current_word = 0;
-						}
-						None
-					} else {
-						Some(GuiCommand::MouseMove(pointer_pos))
 					}
-				} else {
-					None
 				}
-			} else {
-				None
 			}
+			None
 		}) {
 			match command {
 				GuiCommand::PageDown => self.controller.next_page(ui)?,
@@ -568,27 +526,10 @@ impl ReaderApp {
 				// GuiCommand::NextLink => self.controller.switch_link_next(ui),
 				// GuiCommand::PrevLink => self.controller.switch_link_prev(ui),
 				GuiCommand::TryGotoLink => self.controller.try_goto_link(ui)?,
-				GuiCommand::GotoLink(line, link_index) => if let Err(e) = self.controller.goto_link(line, link_index, ui) {
-					self.error(e.to_string());
-				} else {
-					self.update_status(self.controller.status_msg());
-				}
 				GuiCommand::ChapterBegin => self.controller.redraw_at(0, 0, ui),
 				GuiCommand::ChapterEnd => { self.controller.goto_end(ui); }
 				GuiCommand::NextChapter => { self.controller.switch_chapter(true, ui)?; }
 				GuiCommand::PrevChapter => { self.controller.switch_chapter(false, ui)?; }
-				GuiCommand::MouseDrag(from_pos, pointer_pos) =>
-					if let Some((from, to)) = self.controller.render.calc_selection(from_pos, pointer_pos) {
-						self.selected_text = self.controller.select_text(from, to, ui);
-					} else {
-						self.selected_text.clear();
-						self.controller.clear_highlight(ui);
-					}
-				GuiCommand::MouseMove(pointer_pos) => if let Some(_) = self.controller.render.link_resolve(pointer_pos, &self.controller.book.lines()) {
-					ui.output_mut(|output| output.cursor_icon = CursorIcon::PointingHand);
-				} else {
-					ui.output_mut(|output| output.cursor_icon = CursorIcon::Default);
-				},
 				GuiCommand::ClearHeightLight => {
 					self.selected_text.clear();
 					self.controller.clear_highlight(ui);
@@ -927,8 +868,32 @@ impl eframe::App for ReaderApp {
 				self.controller.book_loaded(ui);
 				self.update_status(self.controller.status_msg());
 			}
-			let (response, redraw) = self.controller.render.show(
-				ui, self.configuration.gui.font_size);
+			let (response, redraw, action) = self.controller.render.show(
+				ui,
+				self.configuration.gui.font_size,
+				self.controller.book.as_ref(),
+				self.popup_menu.is_none());
+			match action {
+				ViewAction::Goto(line, link_index) => if let Err(e) = self.controller.goto_link(line, link_index, ui) {
+					self.error(e.to_string());
+				} else {
+					self.update_status(self.controller.status_msg());
+				}
+				ViewAction::SelectText(from, to) => if let Some((from, to)) = self.controller.render.calc_selection(from, to) {
+					self.selected_text = self.controller.select_text(from, to, ui);
+				} else {
+					self.controller.clear_highlight(ui);
+					self.selected_text.clear();
+				}
+				ViewAction::TextSelectedDone => if !self.selected_text.is_empty() {
+					let lookup = &mut self.dictionary_lookup;
+					lookup.words.clear();
+					lookup.words.push(self.selected_text.clone());
+					lookup.current_word = 0;
+				}
+				ViewAction::None => {}
+			}
+
 			if !self.input_search && !self.dropdown && self.dialog.is_none() {
 				response.request_focus();
 				match self.setup_input(&response, frame, ui) {

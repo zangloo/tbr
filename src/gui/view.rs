@@ -1,4 +1,4 @@
-use egui::{Pos2, Rect, Response, Sense, Ui, Vec2};
+use egui::{CursorIcon, Pos2, Rect, Response, Sense, Ui, Vec2};
 use crate::book::{Book, Colors, Line};
 use crate::common::Position;
 use crate::controller::{HighlightInfo, Render};
@@ -6,10 +6,22 @@ use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPos
 
 const MIN_TEXT_SELECT_DISTANCE: f32 = 4.0;
 
+pub enum ViewAction {
+	Goto(usize, usize),
+	SelectText(Pos2, Pos2),
+	TextSelectedDone,
+	None,
+}
+
+enum InternalAction {
+	Action(ViewAction),
+	Cursor(bool),
+}
+
 pub(super) struct GuiView {
 	pub render: Box<dyn GuiRender>,
 	pub render_lines: Vec<RenderLine>,
-
+	pub dragging: bool,
 	pub render_context: RenderContext,
 }
 
@@ -75,6 +87,7 @@ impl GuiView {
 		GuiView {
 			render,
 			render_lines: vec![],
+			dragging: false,
 			render_context,
 		}
 	}
@@ -92,7 +105,8 @@ impl GuiView {
 		self.render.draw(&self.render_lines, ui);
 	}
 
-	pub fn show(&mut self, ui: &mut Ui, font_size: u8) -> (Response, bool)
+	pub fn show(&mut self, ui: &mut Ui, font_size: u8, book: &dyn Book,
+		detect_actions: bool) -> (Response, bool, ViewAction)
 	{
 		let font_redraw = if self.render_context.font_size != font_size {
 			self.render_context.font_size = font_size;
@@ -101,16 +115,55 @@ impl GuiView {
 		} else {
 			false
 		};
+
 		let font_measure = self.render_context.default_font_measure;
 		let margin = Vec2::new(font_measure.x / 2.0, font_measure.y / 2.0);
 		let max_rect = ui.available_rect_before_wrap().shrink2(margin);
 		let mut content_ui = ui.child_ui(max_rect, *ui.layout());
-		let response = self.show_content(
-			&mut content_ui,
-			max_rect,
-		);
-		let frame_rect = response.rect.expand2(margin);
-		ui.allocate_space(frame_rect.size());
+
+		let size = content_ui.available_size();
+		let response = content_ui.allocate_response(size, Sense::click_and_drag());
+		let action = if detect_actions {
+			let action = response.ctx.input(|input| {
+				if let Some(pointer_pos) = input.pointer.interact_pos() {
+					if response.clicked() {
+						if let Some((line, link_index)) = self.link_resolve(pointer_pos, &book.lines()) {
+							return InternalAction::Action(ViewAction::Goto(line, link_index));
+						}
+					} else if input.pointer.primary_down() {
+						if let Some(from_pos) = input.pointer.press_origin() {
+							if response.rect.contains(from_pos) {
+								self.dragging = true;
+								return InternalAction::Action(ViewAction::SelectText(from_pos, pointer_pos));
+							}
+						}
+					} else if input.pointer.primary_released() {
+						if self.dragging {
+							self.dragging = false;
+							return InternalAction::Action(ViewAction::TextSelectedDone);
+						}
+					} else {
+						let link = self.link_resolve(pointer_pos, &book.lines());
+						return InternalAction::Cursor(link.is_some());
+					}
+				}
+				InternalAction::Action(ViewAction::None)
+			});
+			match action {
+				InternalAction::Action(action) => action,
+				InternalAction::Cursor(hand) => {
+					if hand {
+						ui.output_mut(|output| output.cursor_icon = CursorIcon::PointingHand);
+					} else {
+						ui.output_mut(|output| output.cursor_icon = CursorIcon::Default);
+					}
+					ViewAction::None
+				}
+			}
+		} else {
+			ViewAction::None
+		};
+
 		let rect = &response.rect;
 		let rect_redraw = if rect.min != self.render_context.rect.min
 			|| rect.max != self.render_context.rect.max {
@@ -119,18 +172,13 @@ impl GuiView {
 		} else {
 			false
 		};
+
 		let redraw = font_redraw | rect_redraw;
 		if redraw {
 			self.render.reset_render_context(&mut self.render_context)
 		}
-		(response, redraw)
-	}
 
-	fn show_content(&mut self, ui: &mut Ui, max_rect: Rect) -> Response
-	{
-		let (id, rect) = ui.allocate_space(max_rect.size());
-		let response = ui.interact(rect, id, Sense::click_and_drag());
-		response
+		(response, redraw, action)
 	}
 
 	pub fn set_colors(&mut self, colors: Colors)
