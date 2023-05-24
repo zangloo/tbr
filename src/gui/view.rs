@@ -2,7 +2,7 @@ use egui::{Pos2, Rect, Response, Sense, Ui, Vec2};
 use crate::book::{Book, Colors, Line};
 use crate::common::Position;
 use crate::controller::{HighlightInfo, Render};
-use crate::gui::render::{create_render, GuiRender, PointerPosition, RenderContext, RenderLine};
+use crate::gui::render::{create_render, GuiRender, measure_char_size, PointerPosition, RenderContext, RenderLine};
 
 const MIN_TEXT_SELECT_DISTANCE: f32 = 4.0;
 
@@ -92,8 +92,15 @@ impl GuiView {
 		self.render.draw(&self.render_lines, ui);
 	}
 
-	pub fn show(&mut self, ui: &mut Ui) -> (Response, bool)
+	pub fn show(&mut self, ui: &mut Ui, font_size: u8) -> (Response, bool)
 	{
+		let font_redraw = if self.render_context.font_size != font_size {
+			self.render_context.font_size = font_size;
+			self.render_context.default_font_measure = measure_char_size(ui, '漢', font_size as f32);
+			true
+		} else {
+			false
+		};
 		let font_measure = self.render_context.default_font_measure;
 		let margin = Vec2::new(font_measure.x / 2.0, font_measure.y / 2.0);
 		let max_rect = ui.available_rect_before_wrap().shrink2(margin);
@@ -105,14 +112,17 @@ impl GuiView {
 		let frame_rect = response.rect.expand2(margin);
 		ui.allocate_space(frame_rect.size());
 		let rect = &response.rect;
-		let redraw = if rect.min != self.render_context.rect.min
+		let rect_redraw = if rect.min != self.render_context.rect.min
 			|| rect.max != self.render_context.rect.max {
 			self.render_context.rect = rect.clone();
-			self.render.reset_render_context(&mut self.render_context);
 			true
 		} else {
 			false
 		};
+		let redraw = font_redraw | rect_redraw;
+		if redraw {
+			self.render.reset_render_context(&mut self.render_context)
+		}
 		(response, redraw)
 	}
 
@@ -126,13 +136,6 @@ impl GuiView {
 	pub fn set_colors(&mut self, colors: Colors)
 	{
 		self.render_context.colors = colors;
-	}
-
-	pub fn set_font_size(&mut self, font_size: u8, default_font_measure: Vec2)
-	{
-		self.render_context.font_size = font_size;
-		self.render_context.default_font_measure = default_font_measure;
-		self.render.reset_render_context(&mut self.render_context);
 	}
 
 	pub fn set_custom_color(&mut self, custom_color: bool)

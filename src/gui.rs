@@ -22,7 +22,6 @@ use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::{Controller, HighlightInfo, HighlightMode};
 use crate::gui::dict::DictionaryManager;
-use crate::gui::render::measure_char_size;
 use crate::gui::settings::SettingsData;
 use crate::gui::view::GuiView;
 
@@ -246,8 +245,6 @@ struct ReaderApp {
 	dictionary: DictionaryManager,
 	dictionary_lookup: DictionaryLookupData,
 
-	font_size: u8,
-	default_font_measure: Vec2,
 	colors: Colors,
 }
 
@@ -354,7 +351,8 @@ impl ReaderApp {
 						let word = lookup.words
 							.get(lookup.current_word).unwrap();
 						self.dictionary.lookup_and_render(ui, &self.i18n,
-							self.font_size as f32, word);
+							self.configuration.gui.font_size as f32,
+							word);
 					}
 				}
 				SidebarList::Font => {
@@ -929,15 +927,8 @@ impl eframe::App for ReaderApp {
 				self.controller.book_loaded(ui);
 				self.update_status(self.controller.status_msg());
 			}
-			if self.font_size != self.configuration.gui.font_size {
-				self.font_size = self.configuration.gui.font_size;
-				self.default_font_measure = measure_char_size(ui, '漢', self.font_size as f32);
-				self.controller.render.set_font_size(
-					self.font_size,
-					self.default_font_measure,
-				);
-			}
-			let (response, redraw) = self.controller.render.show(ui);
+			let (response, redraw) = self.controller.render.show(
+				ui, self.configuration.gui.font_size);
 			if !self.input_search && !self.dropdown && self.dialog.is_none() {
 				match self.setup_input(&response, frame, ui) {
 					Ok(action) => if action {
@@ -1060,8 +1051,6 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 				search_pattern: String::new(),
 				dropdown: false,
 
-				font_size: 0,
-				default_font_measure: Default::default(),
 				colors,
 			};
 			Box::new(app)
