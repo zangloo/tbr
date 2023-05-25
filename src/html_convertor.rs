@@ -328,12 +328,10 @@ fn load_styles<'a, F>(document: &Html, file_resolver: Option<F>) -> HashMap<Node
 				}
 			}
 		}
-		if stylesheets.len() == 0 {
-			return element_styles;
-		}
-	} else {
+	}
+	if stylesheets.len() == 0 {
 		return element_styles;
-	};
+	}
 
 	for style_sheet in stylesheets {
 		for rule in &style_sheet.rules.0 {
