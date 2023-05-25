@@ -11,7 +11,7 @@ use crate::html_convertor::{html_str_content, HtmlContent};
 use crate::i18n::I18n;
 
 const SYS_DICT_PATH: &str = "/usr/share/stardict/dic";
-const USER_DICT_PATH_SUFFIES: [&str; 2] = [
+const USER_DICT_PATH_SUFFIXES: [&str; 2] = [
 	".stardict",
 	"dic",
 ];
@@ -59,7 +59,7 @@ impl Book for DictionaryBook
 }
 
 impl DictionaryManager {
-	pub fn from(data_path: &Option<PathBuf>) -> Self
+	pub fn from(data_path: &Option<PathBuf>, render_type: &str) -> Self
 	{
 		let mut dictionaries = vec![];
 		load_dictionaries(data_path, &mut dictionaries);
@@ -71,7 +71,7 @@ impl DictionaryManager {
 				id_map: Default::default(),
 			}
 		};
-		let mut view = GuiView::new("xi", create_colors());
+		let mut view = GuiView::new(render_type, create_colors());
 		view.set_custom_color(true);
 		DictionaryManager {
 			dictionaries,
@@ -87,6 +87,12 @@ impl DictionaryManager {
 		self.dictionaries.clear();
 		self.cache.clear();
 		load_dictionaries(data_path, &mut self.dictionaries);
+	}
+
+	#[inline]
+	pub fn reload_render(&mut self, render_type: &str)
+	{
+		self.view.reload_render(render_type);
 	}
 
 	pub fn lookup(&mut self, word: &str) -> Option<&Vec<LookupResult>>
@@ -113,8 +119,8 @@ impl DictionaryManager {
 		}
 	}
 
-	pub fn lookup_and_render<'a, F>(&mut self, ui: &mut Ui, i18n: &I18n, word: &str,
-		font_size: u8, view_port: Rect, file_resolver: Option<F>)
+	pub fn lookup_and_render<'a, F>(&mut self, ui: &mut Ui, i18n: &I18n,
+		word: &str, font_size: u8, view_port: Rect, file_resolver: Option<F>)
 		where F: Fn(String) -> Option<&'a String>
 	{
 		if let Some(orig_word) = &self.book.content.title {
@@ -171,7 +177,7 @@ fn load_dictionaries(
 	let user_home = dirs::home_dir();
 	if let Some(user_home) = user_home {
 		let mut user_data_path = user_home;
-		for suffix in USER_DICT_PATH_SUFFIES {
+		for suffix in USER_DICT_PATH_SUFFIXES {
 			user_data_path = user_data_path.join(suffix);
 		}
 		if user_data_path.is_dir() {

@@ -1,4 +1,4 @@
-use egui::{CursorIcon, Pos2, Rect, Response, Sense, Ui, Vec2};
+use egui::{CursorIcon, InputState, Pos2, Rect, Response, Sense, Ui, Vec2};
 use crate::book::{Book, Colors, Line};
 use crate::common::Position;
 use crate::controller::{HighlightInfo, Render};
@@ -10,6 +10,8 @@ pub enum ViewAction {
 	Goto(usize, usize),
 	SelectText(Pos2, Pos2),
 	TextSelectedDone,
+	StepBackward,
+	StepForward,
 	None,
 }
 
@@ -100,14 +102,19 @@ impl GuiView {
 	}
 
 	#[inline]
-	pub fn draw(&mut self, ui: &mut Ui)
+	fn absolute_view_port(&self) -> Rect
 	{
 		let origin = Pos2::new(
 			self.render_context.view_port.min.x + self.render_context.render_rect.min.x,
 			self.render_context.view_port.min.y + self.render_context.render_rect.min.y,
 		);
-		let view_port = Rect::from_min_size(origin, self.render_context.view_port.size());
-		ui.set_clip_rect(view_port);
+		Rect::from_min_size(origin, self.render_context.view_port.size())
+	}
+
+	#[inline]
+	pub fn draw(&mut self, ui: &mut Ui)
+	{
+		ui.set_clip_rect(self.absolute_view_port());
 		self.render.draw(&self.render_lines, ui);
 	}
 
@@ -156,25 +163,13 @@ impl GuiView {
 		let action = if detect_actions {
 			let action = response.ctx.input(|input| {
 				if let Some(pointer_pos) = input.pointer.interact_pos() {
-					if response.clicked() {
-						if let Some((line, link_index)) = self.link_resolve(pointer_pos, &book.lines()) {
-							return InternalAction::Action(ViewAction::Goto(line, link_index));
-						}
-					} else if input.pointer.primary_down() {
-						if let Some(from_pos) = input.pointer.press_origin() {
-							if response.rect.contains(from_pos) {
-								self.dragging = true;
-								return InternalAction::Action(ViewAction::SelectText(from_pos, pointer_pos));
-							}
-						}
-					} else if input.pointer.primary_released() {
-						if self.dragging {
-							self.dragging = false;
-							return InternalAction::Action(ViewAction::TextSelectedDone);
-						}
-					} else {
-						let link = self.link_resolve(pointer_pos, &book.lines());
-						return InternalAction::Cursor(link.is_some());
+					let view_port = self.absolute_view_port();
+					if view_port.contains(pointer_pos) {
+						return self.detect_action(
+							&response,
+							input,
+							pointer_pos,
+							book);
 					}
 				}
 				InternalAction::Action(ViewAction::None)
@@ -210,6 +205,40 @@ impl GuiView {
 		}
 
 		(response, redraw, action)
+	}
+
+	fn detect_action(&mut self, response: &Response, input: &InputState,
+		pointer_pos: Pos2, book: &dyn Book) -> InternalAction
+	{
+		if response.clicked() {
+			if let Some((line, link_index)) = self.link_resolve(pointer_pos, &book.lines()) {
+				return InternalAction::Action(ViewAction::Goto(line, link_index));
+			}
+		} else if input.pointer.primary_down() {
+			if let Some(from_pos) = input.pointer.press_origin() {
+				if response.rect.contains(from_pos) {
+					self.dragging = true;
+					return InternalAction::Action(ViewAction::SelectText(from_pos, pointer_pos));
+				}
+			}
+		} else if input.pointer.primary_released() {
+			if self.dragging {
+				self.dragging = false;
+				return InternalAction::Action(ViewAction::TextSelectedDone);
+			}
+		} else if input.scroll_delta.y != 0.0 {
+			let delta = input.scroll_delta.y;
+			// delta > 0.0 for scroll up
+			if delta > 0.0 {
+				return InternalAction::Action(ViewAction::StepBackward);
+			} else {
+				return InternalAction::Action(ViewAction::StepForward);
+			}
+		} else {
+			let link = self.link_resolve(pointer_pos, &book.lines());
+			return InternalAction::Cursor(link.is_some());
+		}
+		InternalAction::Action(ViewAction::None)
 	}
 
 	pub fn set_colors(&mut self, colors: Colors)

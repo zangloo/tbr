@@ -298,7 +298,12 @@ impl ReaderApp {
 				SidebarList::Font,
 				text);
 		});
-		ScrollArea::vertical().max_width(width).show_viewport(ui, |ui, view_rect| {
+		let scroll_area = if self.configuration.render_type == "han" {
+			ScrollArea::horizontal().stick_to_right(true)
+		} else {
+			ScrollArea::vertical()
+		};
+		scroll_area.max_width(width).show_viewport(ui, |ui, view_rect| {
 			match self.sidebar_list {
 				SidebarList::Chapter(init) => {
 					let mut selected_book = None;
@@ -492,15 +497,7 @@ impl ReaderApp {
 				return Some(GuiCommand::OpenDroppedFile(path));
 			} else if let Some(pointer_pos) = input.pointer.interact_pos() {
 				if rect.contains(pointer_pos) {
-					if input.scroll_delta.y != 0.0 {
-						let delta = input.scroll_delta.y;
-						// delta > 0.0 for scroll up
-						if delta > 0.0 {
-							return Some(GuiCommand::StepBackward);
-						} else {
-							return Some(GuiCommand::StepForward);
-						}
-					} else if input.zoom_delta() != 1.0 {
+					if input.zoom_delta() != 1.0 {
 						if input.zoom_delta() > 1.0 {
 							if self.configuration.gui.font_size < MAX_FONT_SIZE {
 								self.configuration.gui.font_size += 2;
@@ -604,6 +601,7 @@ impl ReaderApp {
 			};
 			self.configuration.render_type = render_type.to_owned();
 			self.controller.render.reload_render(render_type);
+			self.dictionary.reload_render(render_type);
 			redraw = true;
 		}
 
@@ -900,6 +898,8 @@ impl eframe::App for ReaderApp {
 					lookup.words.push(self.selected_text.clone());
 					lookup.current_word = 0;
 				}
+				ViewAction::StepBackward => self.controller.step_prev(ui),
+				ViewAction::StepForward => self.controller.step_next(ui),
 				ViewAction::None => {}
 			}
 
@@ -973,7 +973,9 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 	let colors = convert_colors(get_theme(&configuration.theme_name, &theme_entries)?);
 	let render = Box::new(GuiView::new(&configuration.render_type, colors.clone()));
 	let images = load_icons()?;
-	let dictionary = DictionaryManager::from(&configuration.gui.dictionary_data_path);
+	let dictionary = DictionaryManager::from(
+		&configuration.gui.dictionary_data_path,
+		&configuration.render_type);
 	let dictionary_lookup = DictionaryLookupData { words: vec![], current_word: 0 };
 
 	let container_manager = Default::default();
