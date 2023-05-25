@@ -298,7 +298,7 @@ impl ReaderApp {
 				SidebarList::Font,
 				text);
 		});
-		ScrollArea::vertical().max_width(width).show(ui, |ui| {
+		ScrollArea::vertical().max_width(width).show_viewport(ui, |ui, view_rect| {
 			match self.sidebar_list {
 				SidebarList::Chapter(init) => {
 					let mut selected_book = None;
@@ -348,8 +348,13 @@ impl ReaderApp {
 						let word = lookup.words
 							.get(lookup.current_word).unwrap();
 						self.dictionary.lookup_and_render(ui, &self.i18n,
-							self.configuration.gui.font_size as f32,
-							word);
+							word,
+							self.configuration.gui.font_size,
+							view_rect,
+							Some(|_path| {
+								// todo resolve images
+								None
+							}));
 					}
 				}
 				SidebarList::Font => {
@@ -875,7 +880,8 @@ impl eframe::App for ReaderApp {
 				ui,
 				self.configuration.gui.font_size,
 				self.controller.book.as_ref(),
-				detect_actions);
+				detect_actions,
+				None);
 			match action {
 				ViewAction::Goto(line, link_index) => if let Err(e) = self.controller.goto_link(line, link_index, ui) {
 					self.error(e.to_string());

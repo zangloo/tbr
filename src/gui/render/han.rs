@@ -39,13 +39,13 @@ impl GuiRender for GuiHanRender
 	#[inline]
 	fn reset_baseline(&mut self, render_context: &RenderContext)
 	{
-		self.baseline = render_context.rect.max.x;
+		self.baseline = render_context.render_rect.max.x;
 	}
 
 	#[inline]
 	fn reset_render_context(&mut self, render_context: &mut RenderContext)
 	{
-		render_context.max_page_size = render_context.rect.width();
+		render_context.max_page_size = render_context.render_rect.width();
 		render_context.leading_space = render_context.default_font_measure.y
 			* render_context.leading_chars as f32;
 	}
@@ -76,15 +76,15 @@ impl GuiRender for GuiHanRender
 		}
 		let mut draw_lines = vec![];
 		let mut draw_chars = vec![];
-		let mut top = context.rect.min.y;
-		let max_top = context.rect.max.y;
+		let mut top = context.render_rect.min.y;
+		let max_top = context.render_rect.max.y;
 		let mut draw_size = 0.0;
 		let mut line_space = 0.0;
 		let full_screen_if_image = start_offset == 0 && end_offset == 1;
 
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, context.custom_color, &context.colors);
-			let (cell, mut rect) = if let Some((path, size)) = self.with_image(&char_style, full_screen_if_image, book, &context.rect, ui) {
+			let (cell, mut rect) = if let Some((path, size)) = self.with_image(&char_style, full_screen_if_image, book, &context.render_rect, ui) {
 				let left = self.baseline - size.x;
 				let bottom = top + size.y;
 				let rect = Rect::from_min_max(
@@ -94,7 +94,7 @@ impl GuiRender for GuiHanRender
 				(RenderCell::Image(path), rect)
 			} else {
 				if i == 0 && with_leading(text) {
-					top = context.rect.min.y + context.leading_space;
+					top = context.render_rect.min.y + context.leading_space;
 				}
 				let char = text.char_at(i).unwrap();
 				let char = self.map_char(char);
@@ -148,7 +148,7 @@ impl GuiRender for GuiHanRender
 				draw_lines.push(render_line);
 				draw_chars = vec![];
 				// the char wrapped to new line, so update positions
-				let y_delta = top - context.rect.min.y;
+				let y_delta = top - context.render_rect.min.y;
 				rect = Rect {
 					min: Pos2::new(rect.min.x - line_delta, rect.min.y - y_delta),
 					max: Pos2::new(rect.max.x - line_delta, rect.max.y - y_delta),
@@ -241,6 +241,27 @@ impl GuiRender for GuiHanRender
 			line_base = left;
 		}
 		(PointerPosition::Tail, PointerPosition::Tail)
+	}
+
+	fn measure_lines_size(&mut self, book: &dyn Book, ui: &mut Ui,
+		context: &mut RenderContext) -> Rect
+	{
+		let left = context.render_rect.min.x;
+		context.render_rect.min.x = f32::INFINITY;
+		self.reset_baseline(context);
+		self.reset_render_context(context);
+		for (idx, line) in book.lines().iter().enumerate() {
+			self.wrap_line(book, line, idx, 0, line.len(), &None, ui, context);
+		}
+		let mut rect = context.render_rect;
+
+		if self.baseline >= 0.0 {
+			rect.min.x = self.baseline;
+		} else {
+			rect.max.x += left - self.baseline;
+			rect.min.x = left
+		}
+		rect
 	}
 }
 

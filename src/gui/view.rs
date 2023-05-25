@@ -79,7 +79,8 @@ impl GuiView {
 			font_size: 0,
 			default_font_measure: Default::default(),
 			custom_color: false,
-			rect: Rect::NOTHING,
+			view_port: Rect::NOTHING,
+			render_rect: Rect::NOTHING,
 			leading_chars: 0,
 			leading_space: 0.0,
 			max_page_size: 0.0,
@@ -101,12 +102,17 @@ impl GuiView {
 	#[inline]
 	pub fn draw(&mut self, ui: &mut Ui)
 	{
-		ui.set_clip_rect(self.render_context.rect.clone());
+		let origin = Pos2::new(
+			self.render_context.view_port.min.x + self.render_context.render_rect.min.x,
+			self.render_context.view_port.min.y + self.render_context.render_rect.min.y,
+		);
+		let view_port = Rect::from_min_size(origin, self.render_context.view_port.size());
+		ui.set_clip_rect(view_port);
 		self.render.draw(&self.render_lines, ui);
 	}
 
 	pub fn show(&mut self, ui: &mut Ui, font_size: u8, book: &dyn Book,
-		detect_actions: bool) -> (Response, bool, ViewAction)
+		detect_actions: bool, view_port: Option<Rect>) -> (Response, bool, ViewAction)
 	{
 		let font_redraw = if self.render_context.font_size != font_size {
 			self.render_context.font_size = font_size;
@@ -116,13 +122,37 @@ impl GuiView {
 			false
 		};
 
-		let font_measure = self.render_context.default_font_measure;
-		let margin = Vec2::new(font_measure.x / 2.0, font_measure.y / 2.0);
-		let max_rect = ui.available_rect_before_wrap().shrink2(margin);
-		let mut content_ui = ui.child_ui(max_rect, *ui.layout());
+		let margin = create_margin(&self.render_context.default_font_measure);
+		let mut render_rect = ui.available_rect_before_wrap().shrink2(margin);
+		self.render_context.view_port = if let Some(view_port) = view_port {
+			ui.set_clip_rect(Rect::NOTHING);
+			let mut dummy_context = RenderContext {
+				colors: self.render_context.colors.clone(),
+				font_size: self.render_context.font_size,
+				default_font_measure: self.render_context.default_font_measure,
+				custom_color: false,
+				view_port: Rect::NOTHING,
+				render_rect,
 
-		let size = content_ui.available_size();
-		let response = content_ui.allocate_response(size, Sense::click_and_drag());
+				leading_chars: book.leading_space(),
+				leading_space: 0.0,
+				max_page_size: 0.0,
+			};
+			render_rect = self.render.measure_lines_size(
+				book,
+				ui,
+				&mut dummy_context);
+			let min = view_port.min;
+			let view_port = view_port.shrink2(margin);
+			Rect::from_min_size(min, view_port.size())
+		} else {
+			Rect::from_min_size(Pos2::ZERO, render_rect.size())
+		};
+
+		let max_rect = render_rect.expand2(margin);
+
+		let size = max_rect.size();
+		let response = ui.allocate_response(size, Sense::click_and_drag());
 		let action = if detect_actions {
 			let action = response.ctx.input(|input| {
 				if let Some(pointer_pos) = input.pointer.interact_pos() {
@@ -164,10 +194,11 @@ impl GuiView {
 			ViewAction::None
 		};
 
-		let rect = &response.rect;
-		let rect_redraw = if rect.min != self.render_context.rect.min
-			|| rect.max != self.render_context.rect.max {
-			self.render_context.rect = rect.clone();
+		let rect_redraw = if render_rect.min != self.render_context.render_rect.min
+			|| render_rect.max != self.render_context.render_rect.max {
+			self.render_context.render_rect = render_rect;
+			self.render.reset_baseline(&mut self.render_context);
+			self.render.reset_render_context(&mut self.render_context);
 			true
 		} else {
 			false
@@ -253,8 +284,8 @@ impl GuiView {
 			&& (original_pos.y - current_pos.y).abs() < MIN_TEXT_SELECT_DISTANCE {
 			return None;
 		}
-		let (line1, offset1) = self.render.pointer_pos(&original_pos, &self.render_lines, &self.render_context.rect);
-		let (line2, offset2) = self.render.pointer_pos(&current_pos, &self.render_lines, &self.render_context.rect);
+		let (line1, offset1) = self.render.pointer_pos(&original_pos, &self.render_lines, &self.render_context.render_rect);
+		let (line2, offset2) = self.render.pointer_pos(&current_pos, &self.render_lines, &self.render_context.render_rect);
 
 		let (from, to) = match line1 {
 			PointerPosition::Head => match line2 {
@@ -305,4 +336,10 @@ impl GuiView {
 		}
 		None
 	}
+}
+
+#[inline]
+fn create_margin(font_measure: &Vec2) -> Vec2
+{
+	Vec2::new(font_measure.x / 2.0, font_measure.y / 2.0)
 }

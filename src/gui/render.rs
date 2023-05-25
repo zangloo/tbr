@@ -108,8 +108,8 @@ pub(super) struct RenderContext
 	// use book custom color
 	pub custom_color: bool,
 
-	// draw rect
-	pub rect: Rect,
+	pub view_port: Rect,
+	pub render_rect: Rect,
 	pub leading_chars: usize,
 	pub leading_space: f32,
 	// for calculate chars in single line
@@ -142,6 +142,8 @@ pub(super) trait GuiRender {
 	// return (line, offset) position
 	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>,
 		rect: &Rect) -> (PointerPosition, PointerPosition);
+	fn measure_lines_size(&mut self, book: &dyn Book, ui: &mut Ui,
+		context: &mut RenderContext) -> Rect;
 
 	#[inline]
 	fn prepare_wrap(&mut self, text: &Line, line: usize, start_offset: usize,

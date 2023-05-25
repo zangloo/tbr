@@ -29,13 +29,13 @@ impl GuiRender for GuiXiRender
 	#[inline]
 	fn reset_baseline(&mut self, render_context: &RenderContext)
 	{
-		self.baseline = render_context.rect.min.y;
+		self.baseline = render_context.render_rect.min.y;
 	}
 
 	#[inline]
 	fn reset_render_context(&mut self, render_context: &mut RenderContext)
 	{
-		render_context.max_page_size = render_context.rect.height();
+		render_context.max_page_size = render_context.render_rect.height();
 		render_context.leading_space = render_context.default_font_measure.x
 			* render_context.leading_chars as f32;
 	}
@@ -108,12 +108,12 @@ impl GuiRender for GuiXiRender
 		let mut draw_chars = vec![];
 		let mut break_position = None;
 
-		let mut left = context.rect.min.x;
-		let max_left = context.rect.max.x;
+		let mut left = context.render_rect.min.x;
+		let max_left = context.render_rect.max.x;
 		let full_screen_if_image = start_offset == 0 && end_offset == 1;
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, context.custom_color, &context.colors);
-			let (cell, mut rect, is_blank_char, can_break) = if let Some((path, size)) = self.with_image(&char_style, full_screen_if_image, book, &context.rect, ui) {
+			let (cell, mut rect, is_blank_char, can_break) = if let Some((path, size)) = self.with_image(&char_style, full_screen_if_image, book, &context.render_rect, ui) {
 				let bottom = self.baseline + size.y;
 				let right = left + size.x;
 				let rect = Rect::from_min_max(
@@ -171,7 +171,7 @@ impl GuiRender for GuiXiRender
 			let draw_width = rect.width();
 
 			if left + draw_width > max_left {
-				left = context.rect.min.x;
+				left = context.render_rect.min.x;
 				// for unicode, can_break, or prev break not exists, or breaking conent too long
 				if can_break || break_position.is_none()
 					|| draw_chars.len() > break_position.unwrap() + 20
@@ -293,6 +293,20 @@ impl GuiRender for GuiXiRender
 			line_base = bottom;
 		}
 		(PointerPosition::Tail, PointerPosition::Tail)
+	}
+
+	fn measure_lines_size(&mut self, book: &dyn Book, ui: &mut Ui,
+		context: &mut RenderContext) -> Rect
+	{
+		context.render_rect.max.y = f32::INFINITY;
+		self.reset_baseline(context);
+		self.reset_render_context(context);
+		for (idx, line) in book.lines().iter().enumerate() {
+			self.wrap_line(book, line, idx, 0, line.len(), &None, ui, context);
+		}
+		let mut rect = context.render_rect;
+		rect.max.y = self.baseline;
+		rect
 	}
 }
 
