@@ -166,6 +166,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	#[inline]
 	pub fn book_loaded(&mut self, context: &mut C)
 	{
+		self.highlight = None;
 		self.render.book_loaded(self.book.as_ref(), context);
 	}
 
