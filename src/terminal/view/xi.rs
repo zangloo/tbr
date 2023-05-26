@@ -322,7 +322,7 @@ mod tests {
 		let book: Box<dyn Book> = Box::new(DummyBook { lines });
 		let mut xi = Xi {};
 		// first page draw resul verify
-		let next = xi.redraw(&book, &book.lines(), 0, 0, &None, &mut context);
+		let next = xi.redraw(book.as_ref(), &book.lines(), 0, 0, &None, &mut context);
 
 		assert!(next.is_some());
 		let next = next.unwrap();
@@ -361,7 +361,7 @@ mod tests {
 		}
 
 		// 2nd page draw resul verify
-		let next = xi.redraw(&book, &book.lines(), next.line, next.offset, &None, &mut context);
+		let next = xi.redraw(book.as_ref(), &book.lines(), next.line, next.offset, &None, &mut context);
 
 		assert!(next.is_some());
 		let next = next.unwrap();
@@ -400,7 +400,7 @@ mod tests {
 		}
 
 		// 3rd page draw resul verify
-		let next = xi.redraw(&book, &book.lines(), next.line, next.offset, &None, &mut context);
+		let next = xi.redraw(book.as_ref(), &book.lines(), next.line, next.offset, &None, &mut context);
 
 		assert!(next.is_none());
 		let mut result_lines = vec![];
