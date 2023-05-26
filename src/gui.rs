@@ -298,12 +298,7 @@ impl ReaderApp {
 				SidebarList::Font,
 				text);
 		});
-		let scroll_area = if self.configuration.render_type == "han" {
-			ScrollArea::horizontal().stick_to_right(true)
-		} else {
-			ScrollArea::vertical()
-		};
-		scroll_area.max_width(width).show_viewport(ui, |ui, view_rect| {
+		ScrollArea::vertical().max_width(width).show_viewport(ui, |ui, view_rect| {
 			match self.sidebar_list {
 				SidebarList::Chapter(init) => {
 					let mut selected_book = None;
@@ -355,11 +350,7 @@ impl ReaderApp {
 						self.dictionary.lookup_and_render(ui, &self.i18n,
 							word,
 							self.configuration.gui.font_size,
-							view_rect,
-							Some(|_path| {
-								// todo resolve images
-								None
-							}));
+							view_rect);
 					}
 				}
 				SidebarList::Font => {
@@ -601,7 +592,6 @@ impl ReaderApp {
 			};
 			self.configuration.render_type = render_type.to_owned();
 			self.controller.render.reload_render(render_type);
-			self.dictionary.reload_render(render_type);
 			redraw = true;
 		}
 
@@ -975,7 +965,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 	let images = load_icons()?;
 	let dictionary = DictionaryManager::from(
 		&configuration.gui.dictionary_data_path,
-		&configuration.render_type);
+		"xi");
 	let dictionary_lookup = DictionaryLookupData { words: vec![], current_word: 0 };
 
 	let container_manager = Default::default();

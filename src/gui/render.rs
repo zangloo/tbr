@@ -368,7 +368,7 @@ pub(super) trait GuiRender {
 	}
 }
 
-fn load_image_and_resize(view_rect: &Rect, full_screen: bool, bytes: &Vec<u8>, name: &str, ui: &mut Ui) -> Option<ImageDrawingData>
+fn load_image_and_resize(view_rect: &Rect, full_screen: bool, bytes: &[u8], name: &str, ui: &mut Ui) -> Option<ImageDrawingData>
 {
 	let image = load_image(name, bytes)?;
 	let width = view_rect.width() as u32;

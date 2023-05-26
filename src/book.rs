@@ -299,7 +299,7 @@ pub trait Book {
 	fn leading_space(&self) -> usize { 2 }
 	fn link_position(&mut self, _line: usize, _link_index: usize) -> Option<TraceInfo> { None }
 	// (absolute path, content)
-	fn image(&self, _href: &str) -> Option<(String, &Vec<u8>)> { None }
+	fn image(&self, _href: &str) -> Option<(String, &[u8])> { None }
 }
 
 pub struct BookLoader {

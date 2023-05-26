@@ -221,10 +221,11 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 		}
 	}
 
-	fn image(&self, href: &str) -> Option<(String, &Vec<u8>)> {
+	fn image(&self, href: &str) -> Option<(String, &[u8])> {
 		if let Ok(path) = chapter_path(self.current_chapter(), &self.content_opf) {
 			let cwd = path_cwd(path);
-			resolve(&cwd, href, &self.images)
+			let (path, bytes) = resolve(&cwd, href, &self.images)?;
+			Some((path, bytes.as_slice()))
 		} else {
 			None
 		}

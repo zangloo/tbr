@@ -1,7 +1,10 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use egui::{Rect, RichText, TextStyle, Ui};
+use elsa::FrozenMap;
+use regex::{Regex, Captures};
 use stardict::{StarDict, WordDefinition};
 use crate::book::{Book, Colors, Line};
 use crate::Color32;
@@ -28,10 +31,9 @@ const HTML_DEFINITION_HEAD: &str = "
 const HTML_DEFINITION_TAIL: &str = "</body>";
 
 pub(super) struct DictionaryManager {
-	dictionaries: Vec<StarDict>,
-	cache: HashMap<String, Vec<LookupResult>>,
 	book: DictionaryBook,
 	view: GuiView,
+	replacer: Regex,
 }
 
 pub(super) struct LookupResult {
@@ -40,6 +42,10 @@ pub(super) struct LookupResult {
 }
 
 struct DictionaryBook {
+	dictionaries: Vec<StarDict>,
+	cache: HashMap<String, Vec<LookupResult>>,
+	resources: FrozenMap<String, Vec<u8>>,
+
 	content: HtmlContent,
 }
 
@@ -56,45 +62,31 @@ impl Book for DictionaryBook
 	{
 		0
 	}
+
+	fn image(&self, href: &str) -> Option<(String, &[u8])>
+	{
+		if let Some(bytes) = self.resources.get(href) {
+			return if bytes.is_empty() {
+				None
+			} else {
+				Some((href.to_owned(), bytes))
+			};
+		}
+
+		let (dict_name, href) = href.split_once(":")?;
+		for dict in &self.dictionaries {
+			if dict.dict_name() == dict_name {
+				let bytes = dict.get_resource(href)?;
+				let bytes = self.resources.insert(href.to_owned(), bytes);
+				return Some((href.to_owned(), bytes));
+			}
+		}
+		self.resources.insert(href.to_owned(), vec![]);
+		None
+	}
 }
 
-impl DictionaryManager {
-	pub fn from(data_path: &Option<PathBuf>, render_type: &str) -> Self
-	{
-		let mut dictionaries = vec![];
-		load_dictionaries(data_path, &mut dictionaries);
-		let cache = HashMap::new();
-		let book = DictionaryBook {
-			content: HtmlContent {
-				title: None,
-				lines: vec![],
-				id_map: Default::default(),
-			}
-		};
-		let mut view = GuiView::new(render_type, create_colors());
-		view.set_custom_color(true);
-		DictionaryManager {
-			dictionaries,
-			cache,
-			book,
-			view,
-		}
-	}
-
-	#[inline]
-	pub fn reload(&mut self, data_path: &Option<PathBuf>)
-	{
-		self.dictionaries.clear();
-		self.cache.clear();
-		load_dictionaries(data_path, &mut self.dictionaries);
-	}
-
-	#[inline]
-	pub fn reload_render(&mut self, render_type: &str)
-	{
-		self.view.reload_render(render_type);
-	}
-
+impl DictionaryBook {
 	pub fn lookup(&mut self, word: &str) -> Option<&Vec<LookupResult>>
 	{
 		let result = self.cache
@@ -118,10 +110,50 @@ impl DictionaryManager {
 			Some(result)
 		}
 	}
+}
 
-	pub fn lookup_and_render<'a, F>(&mut self, ui: &mut Ui, i18n: &I18n,
-		word: &str, font_size: u8, view_port: Rect, file_resolver: Option<F>)
-		where F: Fn(String) -> Option<&'a String>
+impl DictionaryManager {
+	pub fn from(data_path: &Option<PathBuf>, render_type: &str) -> Self
+	{
+		let mut dictionaries = vec![];
+		load_dictionaries(data_path, &mut dictionaries);
+		let cache = HashMap::new();
+		let book = DictionaryBook {
+			dictionaries,
+			cache,
+			resources: FrozenMap::new(),
+			content: HtmlContent {
+				title: None,
+				lines: vec![],
+				id_map: Default::default(),
+			},
+		};
+		let mut view = GuiView::new(render_type, create_colors());
+		view.set_custom_color(true);
+		DictionaryManager {
+			book,
+			view,
+			replacer: Regex::new("(<[\\\\b]*img[^>]+src[\\\\b]*=[\\\\b]*\")([^\"]+)(\"[^>]*>)").unwrap(),
+		}
+	}
+
+	#[inline]
+	pub fn reload(&mut self, data_path: &Option<PathBuf>)
+	{
+		self.book.dictionaries.clear();
+		self.book.cache.clear();
+		load_dictionaries(data_path, &mut self.book.dictionaries);
+	}
+
+	#[inline]
+	#[allow(unused)]
+	pub fn reload_render(&mut self, render_type: &str)
+	{
+		self.view.reload_render(render_type);
+	}
+
+	pub fn lookup_and_render(&mut self, ui: &mut Ui, i18n: &I18n, word: &str,
+		font_size: u8, view_port: Rect)
 	{
 		if let Some(orig_word) = &self.book.content.title {
 			if orig_word == word {
@@ -129,15 +161,15 @@ impl DictionaryManager {
 				return;
 			}
 		}
-		if let Some(results) = self.lookup(word) {
+		if let Some(results) = self.book.lookup(word) {
 			let mut text = String::from(HTML_DEFINITION_HEAD);
 			for single in results {
-				render_definition(single, &mut text);
+				render_definition(single, &mut text, &self.replacer);
 			}
 			text.push_str(HTML_DEFINITION_TAIL);
-			if let Ok(mut content) = html_str_content(&text, file_resolver) {
+			if let Ok(mut content) = html_str_content(&text, None::<fn(String) -> Option<&'static String>>) {
 				content.title = Some(String::from(word));
-				self.book = DictionaryBook { content };
+				self.book.content = content;
 				self.render_view(font_size, view_port, ui);
 			} else {
 				for single in results {
@@ -206,21 +238,30 @@ fn load_dictionaries_dir(path: &PathBuf, dictionaries: &mut Vec<StarDict>)
 }
 
 #[inline]
-fn render_definition(result: &LookupResult, text: &mut String)
+fn render_definition(result: &LookupResult, text: &mut String, replacer: &Regex)
 {
 	text.push_str(&format!("<h3 class=\"dict-name\">{}</h3>", result.dict_name));
 	for definition in &result.definitions {
 		text.push_str(&format!("<h3 class=\"dict-word\">{}</h3>", definition.word));
 		for segment in &definition.segments {
 			let html = str::replace(&segment.text, "\n", "<br/>");
-			if segment.types.contains('m') {
-				text.push_str(&html);
+			if segment.types.contains('h') || segment.types.contains('g') {
+				let inject_html = inject_image(&html, &result.dict_name, replacer);
+				text.push_str(&inject_html);
 			} else {
-				// todo escape html
-				text.push_str(&html);
+				let escaped = html_escape::encode_text(&html);
+				text.push_str(&escaped);
 			}
 		}
 	}
+}
+
+#[inline]
+fn inject_image<'a>(html: &'a str, dict_name: &str, replacer: &Regex) -> Cow<'a, str>
+{
+	replacer.replace_all(html, |caps: &Captures| {
+		format!("{}{}:{}{}", &caps[1], dict_name, &caps[2], &caps[3])
+	})
 }
 
 #[inline]
