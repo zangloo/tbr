@@ -5,7 +5,7 @@ use std::io::Read;
 use std::ops::Range;
 use std::slice::Iter;
 use anyhow::{anyhow, Result};
-use regex::Regex;
+use fancy_regex::Regex;
 
 use crate::book::epub::EpubLoader;
 use crate::book::haodoo::HaodooLoader;
@@ -150,10 +150,10 @@ impl Line {
 			line.push(self.chars[index])
 		}
 		let m = if rev {
-			regex.find_iter(&line).last()
+			regex.find_iter(&line).last()?.ok()?
 		} else {
-			regex.find_at(&line, 0)
-		}?;
+			regex.find_from_pos(&line, 0).ok()??
+		};
 		let match_start = char_index_for_byte(&line, m.start()).unwrap();
 		let match_end = char_index_for_byte(&line, m.end()).unwrap();
 		Some(Range { start: match_start + start, end: match_end + start })

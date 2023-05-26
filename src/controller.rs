@@ -2,7 +2,7 @@
 use std::cmp;
 use std::marker::PhantomData;
 use anyhow::{anyhow, Result};
-use regex::Regex;
+use fancy_regex::Regex;
 
 use crate::{ContainerManager, Position, ReadingInfo};
 use crate::book::{Book, Line};

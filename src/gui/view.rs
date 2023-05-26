@@ -210,7 +210,7 @@ impl GuiView {
 	fn detect_action(&mut self, response: &Response, input: &InputState,
 		pointer_pos: Pos2, book: &dyn Book) -> InternalAction
 	{
-		if response.clicked() {
+		if input.pointer.primary_clicked() {
 			if let Some((line, link_index)) = self.link_resolve(pointer_pos, &book.lines()) {
 				return InternalAction::Action(ViewAction::Goto(line, link_index));
 			}

@@ -220,6 +220,7 @@ enum DialogData {
 struct DictionaryLookupData {
 	words: Vec<String>,
 	current_word: usize,
+	changed: bool,
 }
 
 struct ReaderApp {
@@ -298,7 +299,12 @@ impl ReaderApp {
 				SidebarList::Font,
 				text);
 		});
-		ScrollArea::vertical().max_width(width).show_viewport(ui, |ui, view_rect| {
+		let mut scroll_area = ScrollArea::vertical().max_width(width);
+		if matches!(self.sidebar_list, SidebarList::Dictionary) && self.dictionary_lookup.changed {
+			self.dictionary_lookup.changed = false;
+			scroll_area = scroll_area.scroll_offset(Vec2::ZERO);
+		}
+		scroll_area.show_viewport(ui, |ui, view_rect| {
 			match self.sidebar_list {
 				SidebarList::Chapter(init) => {
 					let mut selected_book = None;
@@ -347,10 +353,15 @@ impl ReaderApp {
 						}
 						let word = lookup.words
 							.get(lookup.current_word).unwrap();
-						self.dictionary.lookup_and_render(ui, &self.i18n,
+						if let Some(new_word) = self.dictionary.lookup_and_render(ui, &self.i18n,
 							word,
 							self.configuration.gui.font_size,
-							view_rect);
+							view_rect) {
+							lookup.current_word += 1;
+							lookup.changed = true;
+							lookup.words.drain(lookup.current_word..);
+							lookup.words.push(new_word);
+						}
 					}
 				}
 				SidebarList::Font => {
@@ -887,6 +898,7 @@ impl eframe::App for ReaderApp {
 					lookup.words.clear();
 					lookup.words.push(self.selected_text.clone());
 					lookup.current_word = 0;
+					lookup.changed = true;
 				}
 				ViewAction::StepBackward => self.controller.step_prev(ui),
 				ViewAction::StepForward => self.controller.step_next(ui),
@@ -966,7 +978,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 	let dictionary = DictionaryManager::from(
 		&configuration.gui.dictionary_data_path,
 		"xi");
-	let dictionary_lookup = DictionaryLookupData { words: vec![], current_word: 0 };
+	let dictionary_lookup = DictionaryLookupData { words: vec![], current_word: 0, changed: false };
 
 	let container_manager = Default::default();
 	let (container, book, reading, title) = if let Some(mut reading) = reading {
