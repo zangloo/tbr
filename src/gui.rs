@@ -11,7 +11,7 @@ use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::{egui, IconData};
 use eframe::egui::{Button, FontData, FontDefinitions, Frame, ImageButton, Pos2, Rect, Response, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
-use egui::{Align, Area, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit, TextStyle};
+use egui::{Align, Area, DroppedFile, FontSelection, Key, Modifiers, Order, RichText, ScrollArea, TextEdit, TextStyle};
 use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
 use image::imageops::FilterType;
@@ -219,8 +219,10 @@ enum DialogData {
 
 struct DictionaryLookupData {
 	words: Vec<String>,
-	current_word: usize,
+	current_index: Option<usize>,
+	current_word: String,
 	changed: bool,
+	inputting: bool,
 }
 
 struct ReaderApp {
@@ -300,9 +302,76 @@ impl ReaderApp {
 				text);
 		});
 		let mut scroll_area = ScrollArea::vertical().max_width(width);
-		if matches!(self.sidebar_list, SidebarList::Dictionary) && self.dictionary_lookup.changed {
-			self.dictionary_lookup.changed = false;
-			scroll_area = scroll_area.scroll_offset(Vec2::ZERO);
+		if matches!(self.sidebar_list, SidebarList::Dictionary) {
+			let left_id = self.image(ui.ctx(), "backward.svg");
+			let left_disabled_id = self.image(ui.ctx(), "backward_disabled.svg");
+			let right_id = self.image(ui.ctx(), "forward.svg");
+			let right_disabled_id = self.image(ui.ctx(), "forward_disabled.svg");
+			egui::menu::bar(ui, |ui| {
+				let lookup = &mut self.dictionary_lookup;
+				match lookup.current_index {
+					Some(current_index) if current_index > 0 => {
+						let word = RichText::from(
+							&lookup.words[current_index - 1])
+							.size(self.configuration.gui.font_size as f32);
+						if ImageButton::new(left_id, ICON_SIZE)
+							.ui(ui)
+							.on_hover_text_at_pointer(word
+							)
+							.clicked() {
+							let current_index = current_index - 1;
+							lookup.current_index = Some(current_index);
+							lookup.current_word = lookup.words[current_index].clone();
+						}
+					}
+					_ => {
+						let button = ImageButton::new(left_disabled_id, ICON_SIZE);
+						ui.add_enabled(false, button);
+					}
+				}
+				match lookup.current_index {
+					Some(mut current_index) if current_index < lookup.words.len() - 1 => {
+						let word = RichText::from(
+							&lookup.words[current_index + 1])
+							.size(self.configuration.gui.font_size as f32);
+						if ImageButton::new(right_id, ICON_SIZE)
+							.ui(ui)
+							.on_hover_text_at_pointer(word)
+							.clicked() {
+							current_index += 1;
+							lookup.current_index = Some(current_index);
+							lookup.current_word = lookup.words[current_index]
+								.clone();
+						}
+					}
+					_ => {
+						let button = ImageButton::new(right_disabled_id, ICON_SIZE);
+						ui.add_enabled(false, button);
+					}
+				}
+
+				let dict_input = TextEdit::singleline(&mut lookup.current_word)
+					.hint_text(self.i18n.msg("lookup-dictionary"))
+					.font(FontSelection::Style(TextStyle::Heading));
+				let response = ui.add(dict_input);
+				if response.gained_focus() {
+					lookup.inputting = true;
+				}
+				if lookup.inputting && response.ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Enter)) {
+					push_dict_word(lookup);
+					lookup.inputting = false;
+				}
+				if response.lost_focus() {
+					lookup.inputting = false;
+				}
+				if response.clicked_elsewhere() {
+					lookup.inputting = false;
+				}
+			});
+			if self.dictionary_lookup.changed {
+				self.dictionary_lookup.changed = false;
+				scroll_area = scroll_area.scroll_offset(Vec2::ZERO);
+			}
 		}
 		scroll_area.show_viewport(ui, |ui, view_rect| {
 			match self.sidebar_list {
@@ -346,21 +415,14 @@ impl ReaderApp {
 				}
 				SidebarList::Dictionary => {
 					let lookup = &mut self.dictionary_lookup;
-					let size = lookup.words.len();
-					if size > 0 {
-						if lookup.current_word >= size {
-							lookup.current_word = size - 1;
-						}
-						let word = lookup.words
-							.get(lookup.current_word).unwrap();
-						if let Some(new_word) = self.dictionary.lookup_and_render(ui, &self.i18n,
-							word,
-							self.configuration.gui.font_size,
-							view_rect) {
-							lookup.current_word += 1;
-							lookup.changed = true;
-							lookup.words.drain(lookup.current_word..);
-							lookup.words.push(new_word);
+					if let Some(current_index) = lookup.current_index {
+						if let Some(new_word) = self.dictionary
+							.lookup_and_render(ui, &self.i18n,
+								&lookup.words[current_index],
+								self.configuration.gui.font_size,
+								view_rect) {
+							lookup.current_word = new_word;
+							push_dict_word(lookup);
 						}
 					}
 				}
@@ -894,18 +956,21 @@ impl eframe::App for ReaderApp {
 					self.selected_text.clear();
 				}
 				ViewAction::TextSelectedDone => if !self.selected_text.is_empty() {
-					let lookup = &mut self.dictionary_lookup;
-					lookup.words.clear();
-					lookup.words.push(self.selected_text.clone());
-					lookup.current_word = 0;
-					lookup.changed = true;
+					if self.sidebar && matches!(self.sidebar_list, SidebarList::Dictionary) {
+						let lookup = &mut self.dictionary_lookup;
+						lookup.current_word = self.selected_text.clone();
+						push_dict_word(lookup)
+					}
 				}
 				ViewAction::StepBackward => self.controller.step_prev(ui),
 				ViewAction::StepForward => self.controller.step_next(ui),
 				ViewAction::None => {}
 			}
 
-			if !self.input_search && !self.dropdown && self.dialog.is_none() {
+			if !self.input_search
+				&& !self.dictionary_lookup.inputting
+				&& !self.dropdown
+				&& self.dialog.is_none() {
 				response.request_focus();
 				match self.setup_input(&response, frame, ui) {
 					Ok(action) => if action {
@@ -978,7 +1043,13 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 	let dictionary = DictionaryManager::from(
 		&configuration.gui.dictionary_data_path,
 		"xi");
-	let dictionary_lookup = DictionaryLookupData { words: vec![], current_word: 0, changed: false };
+	let dictionary_lookup = DictionaryLookupData {
+		words: vec![],
+		current_index: None,
+		current_word: "".to_string(),
+		changed: false,
+		inputting: false,
+	};
 
 	let container_manager = Default::default();
 	let (container, book, reading, title) = if let Some(mut reading) = reading {
@@ -1056,4 +1127,25 @@ fn ts() -> u64
 		.duration_since(UNIX_EPOCH)
 		.expect("Time went backwards")
 		.as_secs()
+}
+
+fn push_dict_word(lookup: &mut DictionaryLookupData)
+{
+	if lookup.current_word.is_empty() {
+		return;
+	}
+
+	let current_index = if let Some(mut current_index) = lookup.current_index {
+		if lookup.current_word == lookup.words[current_index] {
+			return;
+		}
+		current_index += 1;
+		lookup.words.drain(current_index..);
+		current_index
+	} else {
+		0
+	};
+	lookup.words.push(lookup.current_word.clone());
+	lookup.current_index = Some(current_index);
+	lookup.changed = true;
 }
