@@ -795,6 +795,9 @@ impl ReaderApp {
 								let texture_id = self.image(ctx, "dict.svg");
 								let text = self.i18n.msg("lookup-dictionary");
 								if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
+									let lookup = &mut self.dictionary_lookup;
+									lookup.current_word = self.selected_text.clone();
+									push_dict_word(lookup);
 									self.sidebar = true;
 									self.sidebar_list = SidebarList::Dictionary;
 									self.popup_menu = None;
