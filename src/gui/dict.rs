@@ -10,7 +10,7 @@ use fancy_regex::{Regex, Captures};
 use stardict::{StarDict, WordDefinition};
 use crate::book::{Book, Colors, Line};
 use crate::Color32;
-use crate::controller::Render;
+use crate::controller::{highlight_selection, HighlightInfo, Render};
 use crate::gui::{ICON_SIZE, image};
 use crate::gui::view::{GuiView, ViewAction};
 use crate::html_convertor::{html_str_content, HtmlContent};
@@ -45,6 +45,8 @@ pub(super) struct DictionaryManager {
 	current_index: Option<usize>,
 	current_word: String,
 	changed: bool,
+	highlight: Option<HighlightInfo>,
+
 	pub inputting: bool,
 }
 
@@ -153,6 +155,8 @@ impl DictionaryManager {
 			current_index: None,
 			current_word: "".to_string(),
 			changed: false,
+			highlight: None,
+
 			inputting: false,
 		}
 	}
@@ -181,6 +185,7 @@ impl DictionaryManager {
 					let current_index = current_index - 1;
 					self.current_index = Some(current_index);
 					self.current_word = self.words[current_index].clone();
+					self.highlight = None;
 				}
 			}
 			_ => {
@@ -201,8 +206,8 @@ impl DictionaryManager {
 					.clicked() {
 					current_index += 1;
 					self.current_index = Some(current_index);
-					self.current_word = self.words[current_index]
-						.clone();
+					self.current_word = self.words[current_index].clone();
+					self.highlight = None;
 				}
 			}
 			_ => {
@@ -250,6 +255,7 @@ impl DictionaryManager {
 		self.words.push(self.current_word.clone());
 		self.current_index = Some(current_index);
 		self.changed = true;
+		self.highlight = None;
 	}
 
 	#[inline]
@@ -329,7 +335,7 @@ impl DictionaryManager {
 
 	fn render_view(&mut self, font_size: u8, view_port: &Rect, ui: &mut Ui)
 	{
-		let (_, redraw, action) = self.view.show(
+		let (_, mut redraw, action) = self.view.show(
 			ui,
 			font_size,
 			&self.book,
@@ -343,10 +349,22 @@ impl DictionaryManager {
 					}
 				}
 			}
+			ViewAction::SelectText(from, to) => {
+				if let Some((from, to)) = self.view.calc_selection(from, to) {
+					self.highlight = self.book.range_highlight(from, to);
+				} else {
+					self.highlight = None;
+				}
+				redraw = true;
+			}
+			ViewAction::TextSelectedDone => if let Some(selected_text) = highlight_selection(&self.highlight) {
+				ui.output_mut(|output| output.copied_text = selected_text.to_owned());
+			}
 			_ => {}
 		}
 		if redraw {
-			self.view.redraw(&self.book, &self.book.lines(), 0, 0, &None, ui);
+			self.view.redraw(&self.book, &self.book.lines(), 0, 0,
+				&self.highlight, ui);
 		}
 		self.view.draw(ui);
 	}
@@ -459,7 +477,7 @@ fn create_colors() -> Colors
 		color: Color32::BLACK,
 		background: Color32::LIGHT_GRAY,
 		highlight: Color32::BLUE,
-		highlight_background: Color32::LIGHT_GRAY,
+		highlight_background: Color32::YELLOW,
 		link: Color32::BLUE,
 	}
 }

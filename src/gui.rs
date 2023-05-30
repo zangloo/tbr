@@ -307,6 +307,7 @@ impl ReaderApp {
 				self.dictionary.render_toolbar(
 					self.configuration.gui.font_size as f32,
 					&self.i18n, ui));
+			scroll_area = scroll_area.drag_to_scroll(false);
 			if self.dictionary.reset_if_changed() {
 				scroll_area = scroll_area.scroll_offset(Vec2::ZERO);
 			}

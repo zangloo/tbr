@@ -638,10 +638,16 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	#[inline]
 	pub fn selected(&self) -> Option<&str>
 	{
-		if let Some(HighlightInfo { mode: HighlightMode::Selection(selected_text, ..), .. }) = &self.highlight {
-			Some(selected_text)
-		} else {
-			None
-		}
+		highlight_selection(&self.highlight)
+	}
+}
+
+#[inline]
+pub fn highlight_selection(highlight: &Option<HighlightInfo>) -> Option<&str>
+{
+	if let Some(HighlightInfo { mode: HighlightMode::Selection(selected_text, ..), .. }) = highlight {
+		Some(selected_text)
+	} else {
+		None
 	}
 }
