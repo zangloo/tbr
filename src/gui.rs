@@ -270,7 +270,7 @@ impl ReaderApp {
 	fn dictionary_lookup(&mut self)
 	{
 		if let Some(selected_text) = self.controller.selected() {
-			self.dictionary.set_word(selected_text.to_owned());
+			self.dictionary.set_word(selected_text.trim().to_owned());
 		}
 	}
 

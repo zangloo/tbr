@@ -359,7 +359,7 @@ impl DictionaryManager {
 			ViewAction::Goto(line, link_index) => {
 				if let Some(line) = self.book.lines().get(line) {
 					if let Some(link) = line.link_at(link_index) {
-						self.set_word(link.target.to_owned());
+						self.set_word(link.target.trim().to_owned());
 					}
 				}
 			}
