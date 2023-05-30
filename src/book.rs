@@ -135,7 +135,7 @@ impl Line {
 
 	pub fn char_at(&self, index: usize) -> Option<char> {
 		match self.chars.get(index) {
-			Some(ch) => Some(ch.clone()),
+			Some(ch) => Some(*ch),
 			None => None,
 		}
 	}
@@ -305,6 +305,17 @@ pub trait Book {
 	fn range_highlight(&self, from: Position, to: Position)
 		-> Option<HighlightInfo>
 	{
+		#[inline]
+		fn push_chars(line: &Line, range: Range<usize>, text: &mut String)
+		{
+			if !text.is_empty() {
+				text.push('\n');
+			}
+			for offset in range {
+				text.push(line.char_at(offset).unwrap())
+			}
+		}
+
 		let (line1, offset1, line2, offset2) = if from.line > to.line {
 			(to.line, to.offset, from.line, from.offset + 1)
 		} else if from.line == to.line {
@@ -330,16 +341,13 @@ pub trait Book {
 		let mut offset_from = offset1;
 		for line in line1..line_to {
 			let text = &lines[line];
-			for offset in offset_from..text.len() {
-				selected_text.push(text.char_at(offset).unwrap())
-			}
+			push_chars(text, offset_from..text.len(), &mut selected_text);
 			offset_from = 0;
 		}
 		let last_text = &lines[line_to];
 		let offset_to = cmp::min(last_text.len(), offset_to);
-		for offset in offset_from..offset_to {
-			selected_text.push(last_text.char_at(offset).unwrap())
-		}
+		push_chars(last_text, offset_from..offset_to, &mut selected_text);
+
 		if selected_text.len() == 0 {
 			None
 		} else {
