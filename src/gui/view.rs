@@ -122,7 +122,8 @@ impl GuiView {
 	}
 
 	pub fn show(&mut self, ui: &mut Ui, font_size: u8, book: &dyn Book,
-		detect_actions: bool, view_port: Option<Rect>) -> (Response, bool, ViewAction)
+		detect_actions: bool, view_port: Option<Rect>)
+		-> (Response, bool, ViewAction)
 	{
 		let font_redraw = if self.render_context.font_size != font_size {
 			self.render_context.font_size = font_size;

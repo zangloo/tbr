@@ -1,14 +1,17 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::str::FromStr;
-use egui::{Rect, RichText, TextStyle, Ui};
+use egui::{FontSelection, ImageButton, Key, Modifiers, Rect, RichText, TextEdit, TextStyle, Ui, Widget};
+use egui_extras::RetainedImage;
 use elsa::FrozenMap;
 use fancy_regex::{Regex, Captures};
 use stardict::{StarDict, WordDefinition};
 use crate::book::{Book, Colors, Line};
 use crate::Color32;
 use crate::controller::Render;
+use crate::gui::{ICON_SIZE, image};
 use crate::gui::view::{GuiView, ViewAction};
 use crate::html_convertor::{html_str_content, HtmlContent};
 use crate::i18n::I18n;
@@ -35,6 +38,14 @@ pub(super) struct DictionaryManager {
 	book: DictionaryBook,
 	view: GuiView,
 	replacer: Regex,
+
+	images: Rc<HashMap<String, RetainedImage>>,
+
+	words: Vec<String>,
+	current_index: Option<usize>,
+	current_word: String,
+	changed: bool,
+	pub inputting: bool,
 }
 
 pub(super) struct LookupResult {
@@ -114,7 +125,8 @@ impl DictionaryBook {
 }
 
 impl DictionaryManager {
-	pub fn from(data_path: &Option<PathBuf>, render_type: &str) -> Self
+	pub fn from(data_path: &Option<PathBuf>, render_type: &str,
+		images: Rc<HashMap<String, RetainedImage>>) -> Self
 	{
 		let mut dictionaries = vec![];
 		load_dictionaries(data_path, &mut dictionaries);
@@ -135,6 +147,13 @@ impl DictionaryManager {
 			book,
 			view,
 			replacer: Regex::new(INJECT_REGEXP).unwrap(),
+			images,
+
+			words: vec![],
+			current_index: None,
+			current_word: "".to_string(),
+			changed: false,
+			inputting: false,
 		}
 	}
 
@@ -146,6 +165,111 @@ impl DictionaryManager {
 		load_dictionaries(data_path, &mut self.book.dictionaries);
 	}
 
+	pub fn render_toolbar(&mut self, font_size: f32, i18n: &I18n, ui: &mut Ui)
+	{
+		match self.current_index {
+			Some(current_index) if current_index > 0 => {
+				let word = RichText::from(
+					&self.words[current_index - 1])
+					.size(font_size);
+				let left_id = image(&self.images, ui.ctx(), "backward.svg");
+				if ImageButton::new(left_id, ICON_SIZE)
+					.ui(ui)
+					.on_hover_text_at_pointer(word
+					)
+					.clicked() {
+					let current_index = current_index - 1;
+					self.current_index = Some(current_index);
+					self.current_word = self.words[current_index].clone();
+				}
+			}
+			_ => {
+				let left_disabled_id = image(&self.images, ui.ctx(), "backward_disabled.svg");
+				let button = ImageButton::new(left_disabled_id, ICON_SIZE);
+				ui.add_enabled(false, button);
+			}
+		}
+		match self.current_index {
+			Some(mut current_index) if current_index < self.words.len() - 1 => {
+				let word = RichText::from(
+					&self.words[current_index + 1])
+					.size(font_size as f32);
+				let right_id = image(&self.images, ui.ctx(), "forward.svg");
+				if ImageButton::new(right_id, ICON_SIZE)
+					.ui(ui)
+					.on_hover_text_at_pointer(word)
+					.clicked() {
+					current_index += 1;
+					self.current_index = Some(current_index);
+					self.current_word = self.words[current_index]
+						.clone();
+				}
+			}
+			_ => {
+				let right_disabled_id = image(&self.images, ui.ctx(), "forward_disabled.svg");
+				let button = ImageButton::new(right_disabled_id, ICON_SIZE);
+				ui.add_enabled(false, button);
+			}
+		}
+
+		let dict_input = TextEdit::singleline(&mut self.current_word)
+			.hint_text(i18n.msg("lookup-dictionary"))
+			.font(FontSelection::Style(TextStyle::Heading));
+		let response = ui.add(dict_input);
+		if response.gained_focus() {
+			self.inputting = true;
+		}
+		if self.inputting && response.ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Enter)) {
+			self.push_dict_word();
+			self.inputting = false;
+		}
+		if response.lost_focus() {
+			self.inputting = false;
+		}
+		if response.clicked_elsewhere() {
+			self.inputting = false;
+		}
+	}
+
+	fn push_dict_word(&mut self)
+	{
+		if self.current_word.is_empty() {
+			return;
+		}
+
+		let current_index = if let Some(mut current_index) = self.current_index {
+			if self.current_word == self.words[current_index] {
+				return;
+			}
+			current_index += 1;
+			self.words.drain(current_index..);
+			current_index
+		} else {
+			0
+		};
+		self.words.push(self.current_word.clone());
+		self.current_index = Some(current_index);
+		self.changed = true;
+	}
+
+	#[inline]
+	pub fn set_word(&mut self, new_word: String)
+	{
+		self.current_word = new_word;
+		self.push_dict_word();
+	}
+
+	#[inline]
+	pub fn reset_if_changed(&mut self) -> bool
+	{
+		if self.changed {
+			self.changed = false;
+			true
+		} else {
+			false
+		}
+	}
+
 	#[inline]
 	#[allow(unused)]
 	pub fn reload_render(&mut self, render_type: &str)
@@ -153,12 +277,29 @@ impl DictionaryManager {
 		self.view.reload_render(render_type);
 	}
 
-	pub fn lookup_and_render(&mut self, ui: &mut Ui, i18n: &I18n, word: &str,
-		font_size: u8, view_port: Rect) -> Option<String>
+	#[inline]
+	pub fn render(&mut self, view_rect: &Rect, font_size: u8,
+		i18n: &I18n, ui: &mut Ui)
 	{
+		if let Some(current_index) = self.current_index {
+			self.lookup_and_render(
+				current_index,
+				font_size,
+				view_rect,
+				i18n,
+				ui);
+		}
+	}
+
+	fn lookup_and_render(&mut self, current_index: usize, font_size: u8,
+		view_port: &Rect, i18n: &I18n, ui: &mut Ui)
+	{
+		let word = &self.words[current_index];
+
 		if let Some(orig_word) = &self.book.content.title {
 			if orig_word == word {
-				return self.render_view(font_size, view_port, ui);
+				self.render_view(font_size, view_port, ui);
+				return;
 			}
 		}
 		if let Some(results) = self.book.lookup(word) {
@@ -170,7 +311,8 @@ impl DictionaryManager {
 			if let Ok(mut content) = html_str_content(&text, None::<fn(String) -> Option<&'static String>>) {
 				content.title = Some(String::from(word));
 				self.book.content = content;
-				return self.render_view(font_size, view_port, ui);
+				self.render_view(font_size, view_port, ui);
+				return;
 			} else {
 				for single in results {
 					render_definition_text(ui, single, font_size as f32);
@@ -183,31 +325,30 @@ impl DictionaryManager {
 				.color(Color32::RED)
 				.strong());
 		}
-		None
 	}
 
-	fn render_view(&mut self, font_size: u8, view_port: Rect, ui: &mut Ui)
-		-> Option<String>
+	fn render_view(&mut self, font_size: u8, view_port: &Rect, ui: &mut Ui)
 	{
-		let (_, redraw, action) = self.view.show(ui, font_size, &self.book, true, Some(view_port));
-		let new_word = loop {
-			match action {
-				ViewAction::Goto(line, link_index) => {
-					if let Some(line) = self.book.lines().get(line) {
-						if let Some(link) = line.link_at(link_index) {
-							break Some(link.target.to_owned());
-						}
+		let (_, redraw, action) = self.view.show(
+			ui,
+			font_size,
+			&self.book,
+			true,
+			Some(view_port.clone()));
+		match action {
+			ViewAction::Goto(line, link_index) => {
+				if let Some(line) = self.book.lines().get(line) {
+					if let Some(link) = line.link_at(link_index) {
+						self.set_word(link.target.to_owned());
 					}
 				}
-				_ => {}
 			}
-			break None;
-		};
+			_ => {}
+		}
 		if redraw {
 			self.view.redraw(&self.book, &self.book.lines(), 0, 0, &None, ui);
 		}
 		self.view.draw(ui);
-		new_word
 	}
 }
 

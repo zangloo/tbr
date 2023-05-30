@@ -3,6 +3,7 @@ use std::fs::OpenOptions;
 use std::io::{BufReader, Cursor, Read};
 use std::ops::Index;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -11,7 +12,7 @@ use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use eframe::{egui, IconData};
 use eframe::egui::{Button, FontData, FontDefinitions, Frame, ImageButton, Pos2, Rect, Response, TextureId, Ui, Vec2, Widget};
 use eframe::glow::Context;
-use egui::{Align, Area, DroppedFile, FontSelection, Key, Modifiers, Order, RichText, ScrollArea, TextEdit, TextStyle};
+use egui::{Align, Area, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit, TextStyle};
 use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
 use image::imageops::FilterType;
@@ -217,19 +218,11 @@ enum DialogData {
 	Setting(SettingsData),
 }
 
-struct DictionaryLookupData {
-	words: Vec<String>,
-	current_index: Option<usize>,
-	current_word: String,
-	changed: bool,
-	inputting: bool,
-}
-
 struct ReaderApp {
 	configuration: Configuration,
 	theme_entries: Vec<ThemeEntry>,
 	i18n: I18n,
-	images: HashMap<String, RetainedImage>,
+	images: Rc<HashMap<String, RetainedImage>>,
 	controller: Controller<Ui, GuiView>,
 
 	status: AppStatus,
@@ -243,19 +236,11 @@ struct ReaderApp {
 	search_pattern: String,
 	dropdown: bool,
 	dictionary: DictionaryManager,
-	dictionary_lookup: DictionaryLookupData,
 
 	colors: Colors,
 }
 
 impl ReaderApp {
-	#[inline]
-	fn image(&self, ctx: &egui::Context, name: &str) -> TextureId
-	{
-		let image = self.images.get(name).unwrap();
-		image.texture_id(ctx)
-	}
-
 	#[inline]
 	fn error(&mut self, error: String)
 	{
@@ -303,73 +288,11 @@ impl ReaderApp {
 		});
 		let mut scroll_area = ScrollArea::vertical().max_width(width);
 		if matches!(self.sidebar_list, SidebarList::Dictionary) {
-			let left_id = self.image(ui.ctx(), "backward.svg");
-			let left_disabled_id = self.image(ui.ctx(), "backward_disabled.svg");
-			let right_id = self.image(ui.ctx(), "forward.svg");
-			let right_disabled_id = self.image(ui.ctx(), "forward_disabled.svg");
-			egui::menu::bar(ui, |ui| {
-				let lookup = &mut self.dictionary_lookup;
-				match lookup.current_index {
-					Some(current_index) if current_index > 0 => {
-						let word = RichText::from(
-							&lookup.words[current_index - 1])
-							.size(self.configuration.gui.font_size as f32);
-						if ImageButton::new(left_id, ICON_SIZE)
-							.ui(ui)
-							.on_hover_text_at_pointer(word
-							)
-							.clicked() {
-							let current_index = current_index - 1;
-							lookup.current_index = Some(current_index);
-							lookup.current_word = lookup.words[current_index].clone();
-						}
-					}
-					_ => {
-						let button = ImageButton::new(left_disabled_id, ICON_SIZE);
-						ui.add_enabled(false, button);
-					}
-				}
-				match lookup.current_index {
-					Some(mut current_index) if current_index < lookup.words.len() - 1 => {
-						let word = RichText::from(
-							&lookup.words[current_index + 1])
-							.size(self.configuration.gui.font_size as f32);
-						if ImageButton::new(right_id, ICON_SIZE)
-							.ui(ui)
-							.on_hover_text_at_pointer(word)
-							.clicked() {
-							current_index += 1;
-							lookup.current_index = Some(current_index);
-							lookup.current_word = lookup.words[current_index]
-								.clone();
-						}
-					}
-					_ => {
-						let button = ImageButton::new(right_disabled_id, ICON_SIZE);
-						ui.add_enabled(false, button);
-					}
-				}
-
-				let dict_input = TextEdit::singleline(&mut lookup.current_word)
-					.hint_text(self.i18n.msg("lookup-dictionary"))
-					.font(FontSelection::Style(TextStyle::Heading));
-				let response = ui.add(dict_input);
-				if response.gained_focus() {
-					lookup.inputting = true;
-				}
-				if lookup.inputting && response.ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Enter)) {
-					push_dict_word(lookup);
-					lookup.inputting = false;
-				}
-				if response.lost_focus() {
-					lookup.inputting = false;
-				}
-				if response.clicked_elsewhere() {
-					lookup.inputting = false;
-				}
-			});
-			if self.dictionary_lookup.changed {
-				self.dictionary_lookup.changed = false;
+			egui::menu::bar(ui, |ui|
+				self.dictionary.render_toolbar(
+					self.configuration.gui.font_size as f32,
+					&self.i18n, ui));
+			if self.dictionary.reset_if_changed() {
 				scroll_area = scroll_area.scroll_offset(Vec2::ZERO);
 			}
 		}
@@ -413,24 +336,14 @@ impl ReaderApp {
 						}
 					}
 				}
-				SidebarList::Dictionary => {
-					let lookup = &mut self.dictionary_lookup;
-					if let Some(current_index) = lookup.current_index {
-						if let Some(new_word) = self.dictionary
-							.lookup_and_render(ui, &self.i18n,
-								&lookup.words[current_index],
-								self.configuration.gui.font_size,
-								view_rect) {
-							lookup.current_word = new_word;
-							push_dict_word(lookup);
-						}
-					}
-				}
+				SidebarList::Dictionary => self.dictionary.render(
+					&view_rect, self.configuration.gui.font_size,
+					&self.i18n, ui),
 				SidebarList::Font => {
 					let mut font_deleted = None;
-					let font_remove_id = self.image(ui.ctx(), "remove.svg");
+					let font_remove_id = image(&self.images, ui.ctx(), "remove.svg");
 					ui.horizontal(|ui| {
-						let font_add_id = self.image(ui.ctx(), "add.svg");
+						let font_add_id = image(&self.images, ui.ctx(), "add.svg");
 						if ImageButton::new(font_add_id, INLINE_ICON_SIZE).ui(ui).clicked() {
 							let dialog = rfd::FileDialog::new()
 								.add_filter(self.i18n.msg("font-file").as_ref(), &FONT_FILE_EXTENSIONS);
@@ -593,7 +506,7 @@ impl ReaderApp {
 	fn setup_toolbar(&mut self, frame: &mut eframe::Frame, ui: &mut Ui)
 	{
 		let sidebar = self.sidebar;
-		let sidebar_id = self.image(ui.ctx(), if sidebar { "sidebar_off.svg" } else { "sidebar_on.svg" });
+		let sidebar_id = image(&self.images, ui.ctx(), if sidebar { "sidebar_off.svg" } else { "sidebar_on.svg" });
 		if ImageButton::new(sidebar_id, ICON_SIZE).ui(ui).clicked() {
 			self.sidebar = !sidebar;
 			if self.sidebar && matches!(self.sidebar_list, SidebarList::Chapter(false)) {
@@ -603,7 +516,7 @@ impl ReaderApp {
 
 		self.setup_history_button(frame, ui);
 
-		let setting_id = self.image(ui.ctx(), "setting.svg");
+		let setting_id = image(&self.images, ui.ctx(), "setting.svg");
 		if ImageButton::new(setting_id, ICON_SIZE).ui(ui).clicked() {
 			self.dialog = Some(DialogData::Setting(SettingsData::new(
 				&self.theme_entries,
@@ -627,11 +540,11 @@ impl ReaderApp {
 
 		let mut redraw = false;
 		let (render_type_id, render_type_tooltip) = if self.configuration.render_type == "han" {
-			let id = self.image(ui.ctx(), "render_xi.svg");
+			let id = image(&self.images, ui.ctx(), "render_xi.svg");
 			let tooltip = self.i18n.msg("render-xi");
 			(id, tooltip)
 		} else {
-			let id = self.image(ui.ctx(), "render_han.svg");
+			let id = image(&self.images, ui.ctx(), "render_han.svg");
 			let tooltip = self.i18n.msg("render-han");
 			(id, tooltip)
 		};
@@ -650,11 +563,11 @@ impl ReaderApp {
 		}
 
 		let (custom_color_id, custom_color_tooltip) = if self.controller.reading.custom_color {
-			let id = self.image(ui.ctx(), "custom_color_off.svg");
+			let id = image(&self.images, ui.ctx(), "custom_color_off.svg");
 			let tooltip = self.i18n.msg("no-custom-color");
 			(id, tooltip)
 		} else {
-			let id = self.image(ui.ctx(), "custom_color_on.svg");
+			let id = image(&self.images, ui.ctx(), "custom_color_on.svg");
 			let tooltip = self.i18n.msg("with-custom-color");
 			(id, tooltip)
 		};
@@ -670,7 +583,7 @@ impl ReaderApp {
 			self.controller.redraw(ui);
 		}
 
-		let file_open_id = self.image(ui.ctx(), "file_open.svg");
+		let file_open_id = image(&self.images, ui.ctx(), "file_open.svg");
 		if ImageButton::new(file_open_id, ICON_SIZE).ui(ui).clicked() {
 			let mut dialog = rfd::FileDialog::new();
 			if self.controller.reading.filename != README_TEXT_FILENAME {
@@ -684,7 +597,7 @@ impl ReaderApp {
 			}
 		}
 
-		let search_id = self.image(ui.ctx(), "search.svg");
+		let search_id = image(&self.images, ui.ctx(), "search.svg");
 		ui.image(search_id, ICON_SIZE);
 		let search_edit = ui.add(TextEdit::singleline(&mut self.search_pattern)
 			.desired_width(100.0)
@@ -720,7 +633,7 @@ impl ReaderApp {
 
 	fn setup_history_button(&mut self, frame: &mut eframe::Frame, ui: &mut Ui)
 	{
-		let history_id = self.image(ui.ctx(), "history.svg");
+		let history_id = image(&self.images, ui.ctx(), "history.svg");
 		let history_popup = ui.make_persistent_id("history_popup");
 		let history_button = ImageButton::new(history_id, ICON_SIZE).ui(ui);
 		if history_button.clicked() {
@@ -767,23 +680,21 @@ impl ReaderApp {
 					.show(ctx, |ui| {
 						Frame::popup(&ctx.style())
 							.show(ui, |ui| {
-								let texture_id = self.image(ctx, "copy.svg");
+								let texture_id = image(&self.images, ctx, "copy.svg");
 								let text = self.i18n.msg("copy-content");
 								if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
 									ui.output_mut(|output| output.copied_text = self.selected_text.clone());
 									self.popup_menu = None;
 								}
-								let texture_id = self.image(ctx, "dict.svg");
+								let texture_id = image(&self.images, ctx, "dict.svg");
 								let text = self.i18n.msg("lookup-dictionary");
 								if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
-									let lookup = &mut self.dictionary_lookup;
-									lookup.current_word = self.selected_text.clone();
-									push_dict_word(lookup);
+									self.dictionary.set_word(self.selected_text.clone());
 									self.sidebar = true;
 									self.sidebar_list = SidebarList::Dictionary;
 									self.popup_menu = None;
 								}
-								// let texture_id = self.image(ctx, "bookmark.svg");
+								// let texture_id = self.image("bookmark.svg");
 								// Button::image_and_text(texture_id, ICON_SIZE, "增加书签").ui(ui);
 							}).inner
 					}).response;
@@ -941,9 +852,7 @@ impl eframe::App for ReaderApp {
 				}
 				ViewAction::TextSelectedDone => if !self.selected_text.is_empty() {
 					if self.sidebar && matches!(self.sidebar_list, SidebarList::Dictionary) {
-						let lookup = &mut self.dictionary_lookup;
-						lookup.current_word = self.selected_text.clone();
-						push_dict_word(lookup)
+						self.dictionary.set_word(self.selected_text.clone());
 					}
 				}
 				ViewAction::StepBackward => self.controller.step_prev(ui),
@@ -961,7 +870,7 @@ impl eframe::App for ReaderApp {
 			}
 
 			if !self.input_search
-				&& !self.dictionary_lookup.inputting
+				&& !self.dictionary.inputting
 				&& !self.dropdown
 				&& self.dialog.is_none() {
 				response.request_focus();
@@ -1032,17 +941,10 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 	};
 	let colors = convert_colors(get_theme(&configuration.theme_name, &theme_entries)?);
 	let render = Box::new(GuiView::new(&configuration.render_type, colors.clone()));
-	let images = load_icons()?;
+	let images = Rc::new(load_icons()?);
 	let dictionary = DictionaryManager::from(
 		&configuration.gui.dictionary_data_path,
-		"xi");
-	let dictionary_lookup = DictionaryLookupData {
-		words: vec![],
-		current_index: None,
-		current_word: "".to_string(),
-		changed: false,
-		inputting: false,
-	};
+		"xi", images.clone());
 
 	let container_manager = Default::default();
 	let (container, book, reading, title) = if let Some(mut reading) = reading {
@@ -1081,7 +983,6 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 				images,
 				controller,
 				dictionary,
-				dictionary_lookup,
 
 				status: AppStatus::Startup,
 				current_toc: 0,
@@ -1122,23 +1023,10 @@ fn ts() -> u64
 		.as_secs()
 }
 
-fn push_dict_word(lookup: &mut DictionaryLookupData)
+#[inline]
+fn image(images: &HashMap<String, RetainedImage>, ctx: &egui::Context,
+	name: &str) -> TextureId
 {
-	if lookup.current_word.is_empty() {
-		return;
-	}
-
-	let current_index = if let Some(mut current_index) = lookup.current_index {
-		if lookup.current_word == lookup.words[current_index] {
-			return;
-		}
-		current_index += 1;
-		lookup.words.drain(current_index..);
-		current_index
-	} else {
-		0
-	};
-	lookup.words.push(lookup.current_word.clone());
-	lookup.current_index = Some(current_index);
-	lookup.changed = true;
+	let image = images.get(name).unwrap();
+	image.texture_id(ctx)
 }
