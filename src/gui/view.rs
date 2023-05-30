@@ -168,7 +168,7 @@ impl GuiView {
 			let action = response.ctx.input(|input| {
 				if let Some(pointer_pos) = input.pointer.interact_pos() {
 					let view_port = self.absolute_view_port();
-					if view_port.contains(pointer_pos) {
+					if view_port.contains(pointer_pos) || self.dragging {
 						return self.detect_action(
 							&response,
 							input,
