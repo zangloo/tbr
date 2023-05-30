@@ -308,8 +308,8 @@ impl ReaderApp {
 					self.configuration.gui.font_size as f32,
 					&self.i18n, ui));
 			scroll_area = scroll_area.drag_to_scroll(false);
-			if self.dictionary.reset_if_changed() {
-				scroll_area = scroll_area.scroll_offset(Vec2::ZERO);
+			if let Some(offset) = self.dictionary.reset_offset() {
+				scroll_area = scroll_area.scroll_offset(offset);
 			}
 		}
 		scroll_area.show_viewport(ui, |ui, view_rect| {

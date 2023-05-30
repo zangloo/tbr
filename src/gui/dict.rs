@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::str::FromStr;
-use egui::{FontSelection, ImageButton, Key, Modifiers, Rect, RichText, TextEdit, TextStyle, Ui, Widget};
+use egui::{FontSelection, ImageButton, Key, Modifiers, Rect, RichText, TextEdit, TextStyle, Ui, Vec2, Widget};
 use egui_extras::RetainedImage;
 use elsa::FrozenMap;
 use fancy_regex::{Regex, Captures};
@@ -41,11 +41,12 @@ pub(super) struct DictionaryManager {
 
 	images: Rc<HashMap<String, RetainedImage>>,
 
-	words: Vec<String>,
+	words: Vec<(String, Vec2)>,
 	current_index: Option<usize>,
 	current_word: String,
 	changed: bool,
 	highlight: Option<HighlightInfo>,
+	offset: Vec2,
 
 	pub inputting: bool,
 }
@@ -157,6 +158,7 @@ impl DictionaryManager {
 			changed: false,
 			highlight: None,
 
+			offset: Vec2::ZERO,
 			inputting: false,
 		}
 	}
@@ -174,7 +176,7 @@ impl DictionaryManager {
 		match self.current_index {
 			Some(current_index) if current_index > 0 => {
 				let word = RichText::from(
-					&self.words[current_index - 1])
+					&self.words[current_index - 1].0)
 					.size(font_size);
 				let left_id = image(&self.images, ui.ctx(), "backward.svg");
 				if ImageButton::new(left_id, ICON_SIZE)
@@ -182,10 +184,7 @@ impl DictionaryManager {
 					.on_hover_text_at_pointer(word
 					)
 					.clicked() {
-					let current_index = current_index - 1;
-					self.current_index = Some(current_index);
-					self.current_word = self.words[current_index].clone();
-					self.highlight = None;
+					self.switch_word(current_index - 1);
 				}
 			}
 			_ => {
@@ -195,19 +194,16 @@ impl DictionaryManager {
 			}
 		}
 		match self.current_index {
-			Some(mut current_index) if current_index < self.words.len() - 1 => {
+			Some(current_index) if current_index < self.words.len() - 1 => {
 				let word = RichText::from(
-					&self.words[current_index + 1])
+					&self.words[current_index + 1].0)
 					.size(font_size as f32);
 				let right_id = image(&self.images, ui.ctx(), "forward.svg");
 				if ImageButton::new(right_id, ICON_SIZE)
 					.ui(ui)
 					.on_hover_text_at_pointer(word)
 					.clicked() {
-					current_index += 1;
-					self.current_index = Some(current_index);
-					self.current_word = self.words[current_index].clone();
-					self.highlight = None;
+					self.switch_word(current_index + 1);
 				}
 			}
 			_ => {
@@ -236,6 +232,18 @@ impl DictionaryManager {
 		}
 	}
 
+	#[inline]
+	fn switch_word(&mut self, new_index: usize)
+	{
+		if let Some(current_index) = self.current_index {
+			self.words[current_index].1 = self.offset;
+		}
+		self.current_index = Some(new_index);
+		self.current_word = self.words[new_index].0.clone();
+		self.highlight = None;
+		self.changed = true;
+	}
+
 	fn push_dict_word(&mut self)
 	{
 		if self.current_word.is_empty() {
@@ -243,16 +251,17 @@ impl DictionaryManager {
 		}
 
 		let current_index = if let Some(mut current_index) = self.current_index {
-			if self.current_word == self.words[current_index] {
+			if self.current_word == self.words[current_index].0 {
 				return;
 			}
+			self.words[current_index].1 = self.offset;
 			current_index += 1;
 			self.words.drain(current_index..);
 			current_index
 		} else {
 			0
 		};
-		self.words.push(self.current_word.clone());
+		self.words.push((self.current_word.clone(), Vec2::ZERO));
 		self.current_index = Some(current_index);
 		self.changed = true;
 		self.highlight = None;
@@ -266,14 +275,18 @@ impl DictionaryManager {
 	}
 
 	#[inline]
-	pub fn reset_if_changed(&mut self) -> bool
+	pub fn reset_offset(&mut self) -> Option<Vec2>
 	{
-		if self.changed {
+		return if self.changed {
 			self.changed = false;
-			true
+			if let Some(current_index) = self.current_index {
+				Some(self.words[current_index].1)
+			} else {
+				Some(Vec2::ZERO)
+			}
 		} else {
-			false
-		}
+			None
+		};
 	}
 
 	#[inline]
@@ -288,6 +301,7 @@ impl DictionaryManager {
 		i18n: &I18n, ui: &mut Ui)
 	{
 		if let Some(current_index) = self.current_index {
+			self.offset = Vec2::new(view_rect.min.x, view_rect.min.y);
 			self.lookup_and_render(
 				current_index,
 				font_size,
@@ -300,7 +314,7 @@ impl DictionaryManager {
 	fn lookup_and_render(&mut self, current_index: usize, font_size: u8,
 		view_port: &Rect, i18n: &I18n, ui: &mut Ui)
 	{
-		let word = &self.words[current_index];
+		let word = &self.words[current_index].0;
 
 		if let Some(orig_word) = &self.book.content.title {
 			if orig_word == word {
