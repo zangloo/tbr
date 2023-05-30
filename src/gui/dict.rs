@@ -99,7 +99,7 @@ impl Book for DictionaryBook
 }
 
 impl DictionaryBook {
-	pub fn lookup(&mut self, word: &str) -> Option<&Vec<LookupResult>>
+	fn lookup(&mut self, word: &str) -> Option<&Vec<LookupResult>>
 	{
 		let result = self.cache
 			.entry(word.to_owned())

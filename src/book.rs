@@ -1,3 +1,4 @@
+use std::cmp;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::OpenOptions;
@@ -12,10 +13,11 @@ use crate::book::haodoo::HaodooLoader;
 use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
 use crate::Color32;
-use crate::common::char_index_for_byte;
+use crate::common::{char_index_for_byte, Position};
 use crate::common::TraceInfo;
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
+use crate::controller::{HighlightInfo, HighlightMode};
 
 mod epub;
 mod txt;
@@ -300,6 +302,56 @@ pub trait Book {
 	fn link_position(&mut self, _line: usize, _link_index: usize) -> Option<TraceInfo> { None }
 	// (absolute path, content)
 	fn image(&self, _href: &str) -> Option<(String, &[u8])> { None }
+	fn range_highlight(&self, from: Position, to: Position)
+		-> Option<HighlightInfo>
+	{
+		let (line1, offset1, line2, offset2) = if from.line > to.line {
+			(to.line, to.offset, from.line, from.offset + 1)
+		} else if from.line == to.line {
+			if from.offset >= to.offset {
+				(to.line, to.offset, from.line, from.offset + 1)
+			} else {
+				(from.line, from.offset, to.line, to.offset + 1)
+			}
+		} else {
+			(from.line, from.offset, to.line, to.offset + 1)
+		};
+		let lines = self.lines();
+		let lines_count = lines.len();
+		if lines_count == 0 {
+			return None;
+		}
+		let mut selected_text = String::new();
+		let (line_to, offset_to) = if line2 >= lines_count {
+			(lines_count - 1, usize::MAX)
+		} else {
+			(line2, offset2)
+		};
+		let mut offset_from = offset1;
+		for line in line1..line_to {
+			let text = &lines[line];
+			for offset in offset_from..text.len() {
+				selected_text.push(text.char_at(offset).unwrap())
+			}
+			offset_from = 0;
+		}
+		let last_text = &lines[line_to];
+		let offset_to = cmp::min(last_text.len(), offset_to);
+		for offset in offset_from..offset_to {
+			selected_text.push(last_text.char_at(offset).unwrap())
+		}
+		if selected_text.len() == 0 {
+			None
+		} else {
+			let highlight = HighlightInfo {
+				line: line1,
+				start: offset1,
+				end: offset_to,
+				mode: HighlightMode::Selection(selected_text, line_to),
+			};
+			Some(highlight)
+		}
+	}
 }
 
 pub struct BookLoader {

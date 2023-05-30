@@ -406,7 +406,7 @@ pub(self) fn update_for_highlight(render_line: usize, offset: usize, background:
 		if *line == render_line && *start <= offset && *end > offset
 		=> Some(colors.highlight_background),
 
-		Some(HighlightInfo { mode: HighlightMode::Selection(line2), line, start, end })
+		Some(HighlightInfo { mode: HighlightMode::Selection(_, line2), line, start, end })
 		if (*line == render_line && *line2 == render_line && *start <= offset && *end > offset)
 			|| (*line == render_line && *line2 > render_line && *start <= offset)
 			|| (*line < render_line && *line2 == render_line && *end > offset)

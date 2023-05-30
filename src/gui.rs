@@ -21,7 +21,7 @@ use crate::{Asset, Color32, Configuration, I18n, ReadingInfo, ThemeEntry};
 use crate::book::{Book, Colors, Line};
 use crate::common::{get_theme, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
-use crate::controller::{Controller, HighlightInfo, HighlightMode};
+use crate::controller::Controller;
 use crate::gui::dict::DictionaryManager;
 use crate::gui::settings::SettingsData;
 use crate::gui::view::{GuiView, ViewAction};
@@ -228,7 +228,6 @@ struct ReaderApp {
 	status: AppStatus,
 	current_toc: usize,
 	popup_menu: Option<Pos2>,
-	selected_text: String,
 	sidebar: bool,
 	sidebar_list: SidebarList,
 	dialog: Option<DialogData>,
@@ -257,6 +256,22 @@ impl ReaderApp {
 		}
 		self.current_toc = self.controller.toc_index();
 		self.status = AppStatus::Normal(status);
+	}
+
+	#[inline]
+	fn copy_selected(&self, ui: &mut Ui)
+	{
+		if let Some(selected_text) = self.controller.selected() {
+			ui.output_mut(|output| output.copied_text = selected_text.to_owned());
+		}
+	}
+
+	#[inline]
+	fn dictionary_lookup(&mut self)
+	{
+		if let Some(selected_text) = self.controller.selected() {
+			self.dictionary.set_word(selected_text.to_owned());
+		}
 	}
 
 	fn setup_sidebar(&mut self, ui: &mut Ui, width: f32)
@@ -459,13 +474,11 @@ impl ReaderApp {
 			} else if input.consume_key(Modifiers::NONE, Key::Escape) {
 				if self.sidebar {
 					self.sidebar = false;
-				} else if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = self.controller.highlight {
+				} else if self.controller.selected().is_some() {
 					return Some(GuiCommand::ClearHeightLight);
 				}
 			} else if input.consume_key(Modifiers::CTRL, Key::C) {
-				if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = self.controller.highlight {
-					return Some(GuiCommand::CopyHeightLight);
-				}
+				return Some(GuiCommand::CopyHeightLight);
 			} else if input.consume_key(Modifiers::CTRL, Key::F) {
 				self.input_search = true;
 			} else if let Some(DroppedFile { path: Some(path), .. }) = input.raw.dropped_files.first() {
@@ -490,11 +503,8 @@ impl ReaderApp {
 				GuiCommand::ChapterEnd => { self.controller.goto_end(ui); }
 				GuiCommand::NextChapter => { self.controller.switch_chapter(true, ui)?; }
 				GuiCommand::PrevChapter => { self.controller.switch_chapter(false, ui)?; }
-				GuiCommand::ClearHeightLight => {
-					self.selected_text.clear();
-					self.controller.clear_highlight(ui);
-				}
-				GuiCommand::CopyHeightLight => ui.output_mut(|output| output.copied_text = self.selected_text.clone()),
+				GuiCommand::ClearHeightLight => self.controller.clear_highlight(ui),
+				GuiCommand::CopyHeightLight => self.copy_selected(ui),
 				GuiCommand::OpenDroppedFile(path) => self.open_file(path, frame, ui),
 			}
 			Ok(true)
@@ -683,13 +693,13 @@ impl ReaderApp {
 								let texture_id = image(&self.images, ctx, "copy.svg");
 								let text = self.i18n.msg("copy-content");
 								if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
-									ui.output_mut(|output| output.copied_text = self.selected_text.clone());
+									self.copy_selected(ui);
 									self.popup_menu = None;
 								}
 								let texture_id = image(&self.images, ctx, "dict.svg");
 								let text = self.i18n.msg("lookup-dictionary");
 								if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
-									self.dictionary.set_word(self.selected_text.clone());
+									self.dictionary_lookup();
 									self.sidebar = true;
 									self.sidebar_list = SidebarList::Dictionary;
 									self.popup_menu = None;
@@ -845,15 +855,12 @@ impl eframe::App for ReaderApp {
 					self.update_status(self.controller.status_msg());
 				}
 				ViewAction::SelectText(from, to) => if let Some((from, to)) = self.controller.render.calc_selection(from, to) {
-					self.selected_text = self.controller.select_text(from, to, ui);
+					self.controller.select_text(from, to, ui)
 				} else {
 					self.controller.clear_highlight(ui);
-					self.selected_text.clear();
 				}
-				ViewAction::TextSelectedDone => if !self.selected_text.is_empty() {
-					if self.sidebar && matches!(self.sidebar_list, SidebarList::Dictionary) {
-						self.dictionary.set_word(self.selected_text.clone());
-					}
+				ViewAction::TextSelectedDone => if self.sidebar && matches!(self.sidebar_list, SidebarList::Dictionary) {
+					self.dictionary_lookup();
 				}
 				ViewAction::StepBackward => self.controller.step_prev(ui),
 				ViewAction::StepForward => self.controller.step_next(ui),
@@ -863,7 +870,7 @@ impl eframe::App for ReaderApp {
 				ViewAction::ZoomDown => if self.configuration.gui.font_size > MIN_FONT_SIZE {
 					self.configuration.gui.font_size -= 2;
 				}
-				ViewAction::RightClick(pos) => if matches!(self.controller.highlight, Some(HighlightInfo { mode: HighlightMode::Selection(_), .. })) {
+				ViewAction::RightClick(pos) => if self.controller.selected().is_some() {
 					self.popup_menu = Some(pos);
 				}
 				ViewAction::None => {}
@@ -987,7 +994,6 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 				status: AppStatus::Startup,
 				current_toc: 0,
 				popup_menu: None,
-				selected_text: String::new(),
 				sidebar: false,
 				sidebar_list: SidebarList::Chapter(true),
 				dialog: None,
