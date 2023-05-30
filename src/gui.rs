@@ -486,7 +486,6 @@ impl ReaderApp {
 	fn setup_input(&mut self, response: &Response, frame: &mut eframe::Frame,
 		ui: &mut Ui) -> Result<bool>
 	{
-		let rect = &response.rect;
 		if let Some(command) = response.ctx.input_mut(|input| {
 			if input.consume_key(Modifiers::NONE, Key::Space)
 				|| input.consume_key(Modifiers::NONE, Key::PageDown) {
@@ -559,24 +558,6 @@ impl ReaderApp {
 			} else if let Some(DroppedFile { path: Some(path), .. }) = input.raw.dropped_files.first() {
 				let path = path.clone();
 				return Some(GuiCommand::OpenDroppedFile(path));
-			} else if let Some(pointer_pos) = input.pointer.interact_pos() {
-				if rect.contains(pointer_pos) {
-					if input.zoom_delta() != 1.0 {
-						if input.zoom_delta() > 1.0 {
-							if self.configuration.gui.font_size < MAX_FONT_SIZE {
-								self.configuration.gui.font_size += 2;
-							}
-						} else {
-							if self.configuration.gui.font_size > MIN_FONT_SIZE {
-								self.configuration.gui.font_size -= 2;
-							}
-						}
-					} else if response.secondary_clicked() {
-						if let Some(HighlightInfo { mode: HighlightMode::Selection(_), .. }) = &self.controller.highlight {
-							self.popup_menu = Some(pointer_pos);
-						}
-					}
-				}
 			}
 			None
 		}) {
@@ -967,6 +948,15 @@ impl eframe::App for ReaderApp {
 				}
 				ViewAction::StepBackward => self.controller.step_prev(ui),
 				ViewAction::StepForward => self.controller.step_next(ui),
+				ViewAction::ZoomUp => if self.configuration.gui.font_size < MAX_FONT_SIZE {
+					self.configuration.gui.font_size += 2;
+				}
+				ViewAction::ZoomDown => if self.configuration.gui.font_size > MIN_FONT_SIZE {
+					self.configuration.gui.font_size -= 2;
+				}
+				ViewAction::RightClick(pos) => if matches!(self.controller.highlight, Some(HighlightInfo { mode: HighlightMode::Selection(_), .. })) {
+					self.popup_menu = Some(pos);
+				}
 				ViewAction::None => {}
 			}
 

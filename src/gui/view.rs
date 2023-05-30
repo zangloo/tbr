@@ -12,6 +12,9 @@ pub enum ViewAction {
 	TextSelectedDone,
 	StepBackward,
 	StepForward,
+	ZoomUp,
+	ZoomDown,
+	RightClick(Pos2),
 	None,
 }
 
@@ -227,13 +230,20 @@ impl GuiView {
 				return InternalAction::Action(ViewAction::TextSelectedDone);
 			}
 		} else if input.scroll_delta.y != 0.0 {
-			let delta = input.scroll_delta.y;
 			// delta > 0.0 for scroll up
-			if delta > 0.0 {
-				return InternalAction::Action(ViewAction::StepBackward);
+			return if input.scroll_delta.y > 0.0 {
+				InternalAction::Action(ViewAction::StepBackward)
 			} else {
-				return InternalAction::Action(ViewAction::StepForward);
-			}
+				InternalAction::Action(ViewAction::StepForward)
+			};
+		} else if input.zoom_delta() != 1.0 {
+			return if input.zoom_delta() > 1.0 {
+				InternalAction::Action(ViewAction::ZoomUp)
+			} else {
+				InternalAction::Action(ViewAction::ZoomDown)
+			};
+		} else if response.secondary_clicked() {
+			return InternalAction::Action(ViewAction::RightClick(pointer_pos));
 		} else {
 			let link = self.link_resolve(pointer_pos, &book.lines());
 			return InternalAction::Cursor(link.is_some());
