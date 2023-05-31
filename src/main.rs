@@ -38,6 +38,23 @@ mod i18n;
 
 const TBR_BOOK_ENV_KEY: &str = "TBR_BOOK";
 
+#[macro_export]
+macro_rules! description {
+    () => ( "Terminal ebook reader," )
+}
+#[macro_export]
+macro_rules! version {
+    () => ( env!("CARGO_PKG_VERSION") )
+}
+#[macro_export]
+macro_rules! version_string {
+    () => ( concat!(description!(), " v", version!()) )
+}
+#[macro_export]
+macro_rules! package_name {
+    () => ( env!("CARGO_PKG_NAME") )
+}
+
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Cli {

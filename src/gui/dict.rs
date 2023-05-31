@@ -7,9 +7,9 @@ use egui::{FontSelection, ImageButton, Key, Modifiers, Rect, RichText, TextEdit,
 use egui_extras::RetainedImage;
 use elsa::FrozenMap;
 use fancy_regex::{Regex, Captures};
-use stardict::{StarDict, WordDefinition};
+use stardict::{StarDict, StarDictCachedSqlite, WordDefinition};
 use crate::book::{Book, Colors, Line};
-use crate::Color32;
+use crate::{Color32, package_name};
 use crate::controller::{highlight_selection, HighlightInfo, Render};
 use crate::gui::{ICON_SIZE, image};
 use crate::gui::view::{GuiView, ViewAction};
@@ -57,7 +57,7 @@ pub(super) struct LookupResult {
 }
 
 struct DictionaryBook {
-	dictionaries: Vec<StarDict>,
+	dictionaries: Vec<StarDictCachedSqlite>,
 	cache: HashMap<String, Vec<LookupResult>>,
 	resources: FrozenMap<String, Vec<u8>>,
 
@@ -91,7 +91,7 @@ impl Book for DictionaryBook
 		let (dict_name, href) = href.split_once(":")?;
 		for dict in &self.dictionaries {
 			if dict.dict_name() == dict_name {
-				let bytes = dict.get_resource(href)?;
+				let bytes = dict.get_resource(href).ok()??;
 				let bytes = self.resources.insert(href.to_owned(), bytes);
 				return Some((href.to_owned(), bytes));
 			}
@@ -110,7 +110,7 @@ impl DictionaryBook {
 				let mut result = vec![];
 				for dict in &mut self.dictionaries {
 					let dict_name = dict.dict_name().to_owned();
-					if let Some(definitions) = dict.lookup(word) {
+					if let Ok(Some(definitions)) = dict.lookup(word) {
 						result.push(LookupResult {
 							dict_name,
 							definitions,
@@ -386,7 +386,7 @@ impl DictionaryManager {
 
 fn load_dictionaries(
 	data_path: &Option<PathBuf>,
-	dictionaries: &mut Vec<StarDict>)
+	dictionaries: &mut Vec<StarDictCachedSqlite>)
 {
 	#[cfg(not(windows))]
 	if let Ok(sys_data_path) = PathBuf::from_str(SYS_DICT_PATH) {
@@ -413,12 +413,13 @@ fn load_dictionaries(
 	}
 }
 
-fn load_dictionaries_dir(path: &PathBuf, dictionaries: &mut Vec<StarDict>)
+fn load_dictionaries_dir(path: &PathBuf, dictionaries: &mut Vec<StarDictCachedSqlite>)
 {
 	if let Ok(read) = path.read_dir() {
 		for entry in read {
 			if let Ok(entry) = entry {
-				if let Ok(dict) = StarDict::new(&entry.path()) {
+				if let Ok(dict) = stardict::with_sqlite(
+					&entry.path(), package_name!()) {
 					dictionaries.push(dict);
 				}
 			}

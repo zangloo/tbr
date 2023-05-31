@@ -2,7 +2,7 @@
 name = "tbr"
 description = "Terminal and GUI ebook reader"
 authors = ["zang.loo"]
-version = "2.1.0"
+version = "2.2.0"
 homepage = "https://github.com/zangloo/tbr"
 repository = "https://github.com/zangloo/tbr.git"
 keywords = ["terminal", "gui", "ebook", "epub"]
@@ -53,7 +53,7 @@ egui = "0.21"
 egui_extras = { version = "0.21", features = ["svg"] }
 rfd = "0.11"
 image = "0.24"
-egui-modal = "0.2.3"
+egui-modal = "0.2"
 
 stardict = "0.1"
 html-escape = "0.2"

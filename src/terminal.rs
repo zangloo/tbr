@@ -7,7 +7,7 @@ use cursive::traits::Resizable;
 use cursive::view::{Nameable, SizeConstraint};
 use cursive::views::{EditView, LinearLayout, OnEventView, TextView, ViewRef};
 
-use crate::{Configuration, ReadingInfo, ThemeEntry};
+use crate::{Configuration, ReadingInfo, ThemeEntry, version_string, description, version};
 use crate::common::{get_theme, reading_info};
 use crate::list::{list_dialog, ListIterator};
 use view::ReadingView;
@@ -21,16 +21,6 @@ const INPUT_VIEW_NAME: &str = "input";
 const INPUT_LAYOUT_NAME: &str = "input_layout";
 const SEARCH_LABEL_TEXT: &str = "Search: ";
 const GOTO_LABEL_TEXT: &str = "Goto line: ";
-
-macro_rules! description {
-    () => ( "Terminal ebook reader," )
-}
-macro_rules! version {
-    () => ( env!("CARGO_PKG_VERSION") )
-}
-macro_rules! version_string {
-    () => ( concat!(description!(), " v", version!()) )
-}
 
 struct TerminalContext {
 	configuration: Configuration,
