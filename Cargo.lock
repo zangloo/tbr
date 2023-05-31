@@ -2317,6 +2317,7 @@ version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "afc22eff61b133b115c6e8c74e818c628d6d5e7a502afea6f64dee076dd94326"
 dependencies = [
+ "cc",
  "pkg-config",
  "vcpkg",
 ]
@@ -3858,9 +3859,9 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "stardict"
-version = "0.1.8"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55619a1b327f3da3a3980d9ecfa57a4a2a233c47105bcc6bbe80eccd776229f0"
+checksum = "0cc22acdd98a15b8decfc38e58ac8da41865ca20eaf6f3110618d04d1b2b2801"
 dependencies = [
  "byteorder",
  "dirs 5.0.1",
