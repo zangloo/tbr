@@ -3133,6 +3133,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "process_alive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc1b5e484e0aa9dce62b74ddce9fd0cf94b2caeac8fc53a4433a5e8202fa6c47"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "ptr_meta"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3859,14 +3869,14 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "stardict"
-version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cc22acdd98a15b8decfc38e58ac8da41865ca20eaf6f3110618d04d1b2b2801"
+version = "0.1.11"
+source = "git+https://github.com/zangloo/stardict.git#5ce847becd8b835d03f1b099e1586a86fc2fce41"
 dependencies = [
  "byteorder",
  "dirs 5.0.1",
  "flate2",
  "inflate",
+ "process_alive",
  "rusqlite",
  "serde",
  "serde_json",
