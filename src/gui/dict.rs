@@ -434,14 +434,13 @@ fn render_definition(result: &LookupResult, text: &mut String, replacer: &Regex)
 	for definition in &result.definitions {
 		text.push_str(&format!("<h3 class=\"dict-word\">{}</h3>", definition.word));
 		for segment in &definition.segments {
-			let html = str::replace(&segment.text, "\n", "<br/>");
-			if segment.types.contains('h') || segment.types.contains('g') {
-				let inject_html = inject_definition(&html, &result.dict_name, replacer);
-				text.push_str(&inject_html);
+			let content = if segment.types.contains('h') || segment.types.contains('g') {
+				inject_definition(&segment.text, &result.dict_name, replacer)
 			} else {
-				let escaped = html_escape::encode_text(&html);
-				text.push_str(&escaped);
-			}
+				html_escape::encode_text(&segment.text)
+			};
+			let html = str::replace(&content, "\n", "<br>");
+			text.push_str(&html);
 		}
 	}
 }
