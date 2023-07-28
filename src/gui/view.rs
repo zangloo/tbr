@@ -19,7 +19,6 @@ const MIN_TEXT_SELECT_DISTANCE: f32 = 4.0;
 glib::wrapper! {
     pub struct GuiView(ObjectSubclass<imp::GuiView>)
         @extends gtk4::Widget,  gtk4::DrawingArea
-		,@implements gtk4::Scrollable
 	;
 }
 
