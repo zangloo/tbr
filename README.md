@@ -2,7 +2,7 @@
 
 ## About
 
-`tbr` is a simple e-book reader in terminal and gui(egui).By now, support txt, html, haodoo and epub.
+`tbr` is a simple e-book reader in terminal and gtk4(>4.10).By now, support txt, html, haodoo and epub.
 
 ## Build
 

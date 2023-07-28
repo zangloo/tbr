@@ -1,19 +1,23 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::iter::Enumerate;
 use std::ops::Range;
 use std::vec::IntoIter;
-use eframe::egui::{Align2, Color32, Pos2, Rect, Ui};
-use egui::{Stroke, Vec2};
+use gtk4::cairo::Context as CairoContext;
+use gtk4::pango::Layout as PangoContext;
 
 use crate::book::{Book, CharStyle, Line};
-use crate::common::{HAN_RENDER_CHARS_PAIRS, with_leading};
+use crate::color::Color32;
+use crate::common::{HAN_COMPACT_CHARS, HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::HighlightInfo;
-use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, paint_char, scale_font_size, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration};
+use crate::gui::math::{Pos2, Rect, vec2, Vec2};
+use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, scale_font_size, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, hline, CharDrawData};
 
 pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
+	compact_chars: HashSet<char>,
 	images: HashMap<String, ImageDrawingData>,
 	baseline: f32,
+	outline_draw_cache: HashMap<u64, CharDrawData>,
 }
 
 impl GuiHanRender
@@ -23,8 +27,10 @@ impl GuiHanRender
 		GuiHanRender
 		{
 			chars_map: HAN_RENDER_CHARS_PAIRS.into_iter().collect(),
+			compact_chars: HAN_COMPACT_CHARS.into_iter().collect(),
 			images: HashMap::new(),
 			baseline: 0.0,
+			outline_draw_cache: HashMap::new(),
 		}
 	}
 
@@ -36,6 +42,11 @@ impl GuiHanRender
 
 impl GuiRender for GuiHanRender
 {
+	#[inline(always)]
+	fn render_han(&self) -> bool {
+		true
+	}
+
 	#[inline]
 	fn reset_baseline(&mut self, render_context: &RenderContext)
 	{
@@ -66,9 +77,8 @@ impl GuiRender for GuiHanRender
 	}
 
 	fn wrap_line(&mut self, book: &dyn Book, text: &Line, line: usize,
-		start_offset: usize, end_offset: usize,
-		highlight: &Option<HighlightInfo>, ui: &mut Ui,
-		context: &RenderContext) -> Vec<RenderLine>
+		start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>,
+		pango: &PangoContext, context: &mut RenderContext) -> Vec<RenderLine>
 	{
 		let (end_offset, wrapped_empty_lines) = self.prepare_wrap(text, line, start_offset, end_offset, context);
 		if let Some(wrapped_empty_lines) = wrapped_empty_lines {
@@ -78,13 +88,12 @@ impl GuiRender for GuiHanRender
 		let mut draw_chars = vec![];
 		let mut top = context.render_rect.min.y;
 		let max_top = context.render_rect.max.y;
-		let mut draw_size = 0.0;
+		let mut line_size = 0.0;
 		let mut line_space = 0.0;
-		let full_screen_if_image = start_offset == 0 && end_offset == 1;
 
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, context.custom_color, &context.colors);
-			let (cell, mut rect) = if let Some((path, size)) = self.with_image(&char_style, full_screen_if_image, book, &context.render_rect, ui) {
+			let (cell, mut rect) = if let Some((path, size)) = self.with_image(&char_style, book, &context.render_rect) {
 				let left = self.baseline - size.x;
 				let bottom = top + size.y;
 				let rect = Rect::from_min_max(
@@ -99,52 +108,52 @@ impl GuiRender for GuiHanRender
 				let char = text.char_at(i).unwrap();
 				let char = self.map_char(char);
 				let font_size = scale_font_size(context.font_size, char_style.font_scale);
-				let mut rect = paint_char(
-					ui,
+				let (size, draw_size, draw_offset) = self.measure_char(
+					pango,
 					char,
 					font_size,
-					&Pos2::new(self.baseline, top),
-					Align2::RIGHT_TOP,
-					Color32::BLACK);
-				let color = char_style.color;
-				let char_size = Vec2::new(rect.width(), rect.height());
-				let draw_offset = if let Some(range) = &char_style.border {
-					let draw_height = rect.height();
-					let padding = draw_height / 4.0;
+					context);
+				let (char_height, y_offset) = if self.compact_chars.contains(&char) {
+					(draw_size.y * 2., -draw_offset.y + (draw_size.y / 2.))
+				} else {
+					(size.y, 0.)
+				};
+				let mut cell_offset = vec2(-draw_offset.x, y_offset);
+				let cell_size = vec2(draw_size.x, char_height);
+				let color = char_style.color.clone();
+				let mut rect = Rect::new(self.baseline - cell_size.x, top, cell_size.x, cell_size.y);
+				if let Some(range) = &char_style.border {
+					let padding = cell_size.y / 4.0;
 					let max = &mut rect.max;
 					if range.len() == 1 {
 						max.y += padding * 2.0;
-						Vec2::new(0.0, padding)
+						cell_offset.y += padding;
 					} else if i == range.start {
 						max.y += padding;
-						Vec2::new(0.0, padding)
+						cell_offset.y += padding;
 					} else if i == range.end - 1 {
 						max.y += padding;
-						Vec2::ZERO
-					} else {
-						Vec2::ZERO
 					}
-				} else {
-					Vec2::ZERO
-				};
-				let background = update_for_highlight(line, i, char_style.background, &context.colors, highlight);
+				}
+
+				let background = update_for_highlight(line, i, char_style.background.clone(), &context.colors, highlight);
 				let cell = CharCell {
 					char,
 					font_size,
 					color,
 					background,
-					draw_offset,
-					char_size,
+					cell_offset,
+					cell_size,
 				};
 				(RenderCell::Char(cell), rect)
 			};
 			if top + rect.height() > max_top {
-				let mut render_line = RenderLine::new(line, draw_size, line_space);
-				draw_size = 0.0;
+				let mut render_line = RenderLine::new(line, line_size, line_space);
+				line_size = 0.0;
 				line_space = 0.0;
 				setup_decorations(draw_chars, &mut render_line, context);
-				self.baseline -= render_line.draw_size + render_line.line_space;
-				let line_delta = render_line.draw_size + render_line.line_space;
+				self.baseline -= render_line.line_size + render_line.line_space;
+				let line_delta = render_line.line_size + render_line.line_space;
 				draw_lines.push(render_line);
 				draw_chars = vec![];
 				// the char wrapped to new line, so update positions
@@ -154,59 +163,53 @@ impl GuiRender for GuiHanRender
 					max: Pos2::new(rect.max.x - line_delta, rect.max.y - y_delta),
 				};
 			}
-			if draw_size < rect.width() {
-				draw_size = rect.width();
+			let rect_width = rect.width();
+			if line_size < rect_width {
+				line_size = rect_width;
 				if matches!(cell, RenderCell::Image(_)) {
 					let default_space = context.default_font_measure.x / 2.0;
 					if line_space < default_space {
 						line_space = default_space;
 					}
 				} else {
-					line_space = draw_size / 2.0
+					line_space = line_size / 2.0
 				}
 			}
+			top = rect.max.y;
 			let dc = RenderChar {
 				cell,
 				offset: i,
 				rect,
 			};
 			draw_chars.push((dc, char_style));
-			top = rect.max.y;
 		}
 		if draw_chars.len() > 0 {
-			let mut render_line = RenderLine::new(line, draw_size, line_space);
+			let mut render_line = RenderLine::new(line, line_size, line_space);
 			setup_decorations(draw_chars, &mut render_line, context);
-			self.baseline -= render_line.draw_size + render_line.line_space;
+			self.baseline -= render_line.line_size + render_line.line_space;
 			draw_lines.push(render_line);
 		}
 		return draw_lines;
 	}
 
-	fn draw_decoration(&self, decoration: &TextDecoration, ui: &mut Ui) {
+	fn draw_decoration(&self, decoration: &TextDecoration, cairo: &CairoContext) {
 		#[inline]
-		fn underline(ui: &mut Ui, left: f32, top: f32, bottom: f32, stroke_width: f32, color: Color32) {
-			let stroke = Stroke::new(stroke_width, color);
-			ui.painter().vline(left, top..=bottom, stroke);
-		}
-
-		#[inline]
-		fn border(ui: &mut Ui, left: f32, right: f32, top: f32, bottom: f32, start: bool, end: bool, stroke_width: f32, color: Color32) {
-			let stroke = Stroke::new(stroke_width, color);
-			ui.painter().vline(left, top..=bottom, stroke);
-			ui.painter().vline(right, top..=bottom, stroke);
+		fn border(cairo: &CairoContext, left: f32, right: f32, top: f32, bottom: f32, start: bool, end: bool, stroke_width: f32, color: Color32) {
+			vline(cairo, left, top, bottom, stroke_width, &color);
+			vline(cairo, right, top, bottom, stroke_width, &color);
 			if start {
-				ui.painter().hline(left..=right, top, stroke);
+				hline(cairo, left, right, top, stroke_width, &color);
 			}
 			if end {
-				ui.painter().hline(left..=right, bottom, stroke);
+				hline(cairo, left, right, bottom, stroke_width, &color);
 			}
 		}
 		match decoration {
 			TextDecoration::Border { rect, stroke_width, start, end, color } => {
-				border(ui, rect.min.x, rect.max.x, rect.min.y, rect.max.y, *start, *end, *stroke_width, *color);
+				border(cairo, rect.min.x, rect.max.x, rect.min.y, rect.max.y, *start, *end, *stroke_width, color.clone());
 			}
 			TextDecoration::UnderLine { pos2, length, stroke_width, color, .. } => {
-				underline(ui, pos2.x, pos2.y, pos2.y + length, *stroke_width, *color);
+				vline(cairo, pos2.x, pos2.y, pos2.y + length, *stroke_width, color);
 			}
 		}
 	}
@@ -225,7 +228,7 @@ impl GuiRender for GuiHanRender
 		}
 		for i in 0..render_lines.len() {
 			let render_line = &render_lines[i];
-			let left = line_base - render_line.draw_size - render_line.line_space;
+			let left = line_base - render_line.line_size - render_line.line_space;
 			if x <= line_base && x > left {
 				let y = pointer_pos.y;
 				if y <= rect.top() {
@@ -243,29 +246,28 @@ impl GuiRender for GuiHanRender
 		(PointerPosition::Tail, PointerPosition::Tail)
 	}
 
-	fn measure_lines_size(&mut self, book: &dyn Book, ui: &mut Ui,
-		context: &mut RenderContext) -> Rect
+	#[inline]
+	fn cache(&self) -> &HashMap<u64, CharDrawData>
 	{
-		let left = context.render_rect.min.x;
-		context.render_rect.min.x = f32::INFINITY;
-		self.reset_baseline(context);
-		self.reset_render_context(context);
-		for (idx, line) in book.lines().iter().enumerate() {
-			self.wrap_line(book, line, idx, 0, line.len(), &None, ui, context);
-		}
-		let mut rect = context.render_rect;
+		&self.outline_draw_cache
+	}
 
-		if self.baseline >= 0.0 {
-			rect.min.x = self.baseline;
-		} else {
-			rect.max.x += left - self.baseline;
-			rect.min.x = left
-		}
-		rect
+	#[inline]
+	fn cache_mut(&mut self) -> &mut HashMap<u64, CharDrawData>
+	{
+		&mut self.outline_draw_cache
+	}
+
+	#[inline]
+	fn drawn_size(&self, context: &mut RenderContext) -> Vec2
+	{
+		let width = context.render_rect.max.x - self.baseline
+			+ context.default_font_measure.x / 2.;
+		vec2(width, context.render_rect.height())
 	}
 }
 
-fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
+fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 	render_line: &mut RenderLine, context: &RenderContext)
 {
 	#[inline]
@@ -276,9 +278,9 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 		let mut left = min.x;
 		let top = min.y;
 		let offset = draw_char.offset;
-		let (color, padding) = match draw_char.cell {
-			RenderCell::Image(_) => (context.colors.color, 0.0),
-			RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 4.0),
+		let (color, padding) = match &draw_char.cell {
+			RenderCell::Image(_) => (context.colors.color.clone(), 0.0),
+			RenderCell::Char(CharCell { color, cell_size, .. }) => (color.clone(), cell_size.y / 4.0),
 		};
 		let margin = padding / 2.0;
 		let draw_top = if offset == range.start {
@@ -322,6 +324,20 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 			color,
 		}
 	}
+
+	// align chars
+	let line_size = render_line.line_size;
+	for (ref mut char, _) in &mut draw_chars {
+		let rect = &mut char.rect;
+		let width = rect.width();
+		if width < line_size {
+			let delta = (line_size - width) / 2.;
+			rect.min.x -= delta;
+			rect.max.x -= delta;
+		}
+	}
+
+	// do setup decorations
 	let len = draw_chars.len();
 	let mut iter = draw_chars.into_iter().enumerate();
 	while let Some((index, (mut draw_char, char_style))) = iter.next() {
@@ -330,12 +346,13 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 			let min = &rect.min;
 			let top = min.y;
 			let offset = draw_char.offset;
-			let (color, padding) = match draw_char.cell {
-				RenderCell::Image(_) => (context.colors.color, 0.0),
-				RenderCell::Char(CharCell { color, char_size, .. }) => (color, char_size.y / 4.0),
+			let (color, padding) = match &draw_char.cell {
+				RenderCell::Image(_) => (context.colors.color.clone(), 0.0),
+				RenderCell::Char(CharCell { color, cell_size, .. }) => (color.clone(), cell_size.y / 4.0),
 			};
 			let margin = padding / 2.0;
 			let mut left = min.x;
+			let mut right = rect.max.x;
 			let (start, border_top) = if offset == range.start {
 				(true, top + margin)
 			} else {
@@ -356,6 +373,10 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 					if left > new_left {
 						left = new_left;
 					}
+					let new_right = e.1.0.rect.right();
+					if right < new_right {
+						right = new_right;
+					}
 					render_line.chars.push(e.1.0);
 				}
 				let e = iter.next().unwrap();
@@ -368,7 +389,7 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 			let max = &draw_char.rect.max;
 			let border_bottom = max.y - margin;
 			let border_left = left - margin;
-			let border_right = max.x + margin;
+			let border_right = right + margin;
 			render_line.chars.push(draw_char);
 			render_line.add_decoration(TextDecoration::Border {
 				rect: Rect {

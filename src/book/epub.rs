@@ -91,7 +91,7 @@ impl Loader for EpubLoader {
 	}
 }
 
-impl<'a, R: Read + Seek> Book for EpubBook<R> {
+impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 	fn chapter_count(&self) -> usize {
 		self.content_opf.spine.len()
 	}
@@ -232,7 +232,7 @@ impl<'a, R: Read + Seek> Book for EpubBook<R> {
 	}
 }
 
-impl<R: Read + Seek> EpubBook<R> {
+impl<R: Read + Seek + 'static> EpubBook<R> {
 	pub fn new(reader: R, loading_chapter: LoadingChapter) -> Result<Self>
 	{
 		let mut zip = ZipArchive::new(reader)?;

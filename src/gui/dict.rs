@@ -1,26 +1,28 @@
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::rc::Rc;
-use std::str::FromStr;
-use egui::{FontSelection, ImageButton, Key, Modifiers, Rect, RichText, TextEdit, TextStyle, Ui, Vec2, Widget};
-use egui_extras::RetainedImage;
+use ab_glyph::FontVec;
 use elsa::FrozenMap;
 use fancy_regex::{Regex, Captures};
+use gtk4::{Button, Orientation, SearchEntry};
+use gtk4::gdk::Display;
+use gtk4::glib::{closure_local, ObjectExt};
+use gtk4::glib;
+use gtk4::prelude::{BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, WidgetExt};
 use stardict::{StarDict, StarDictCachedSqlite, WordDefinition};
 use crate::book::{Book, Colors, Line};
-use crate::{Color32, package_name};
-use crate::controller::{highlight_selection, HighlightInfo, Render};
-use crate::gui::{ICON_SIZE, image};
-use crate::gui::view::{GuiView, ViewAction};
+use crate::{package_name, PathConfig, ReadingInfo};
+use crate::color::Color32;
+use crate::common::{txt_lines, Position};
+use crate::container::{ContainerManager, DummyContainer};
+use crate::controller::Controller;
+use crate::gui::{create_button, GuiController, IconMap};
+use crate::gui::render::RenderContext;
+use crate::gui::view::GuiView;
 use crate::html_convertor::{html_str_content, HtmlContent};
 use crate::i18n::I18n;
 
-const SYS_DICT_PATH: &str = "/usr/share/stardict/dic";
-const USER_DICT_PATH_SUFFIXES: [&str; 2] = [
-	".stardict",
-	"dic",
-];
 const HTML_DEFINITION_HEAD: &str = "
 <style type=\"text/css\">
 	.dict-name {
@@ -35,20 +37,16 @@ const HTML_DEFINITION_TAIL: &str = "</body>";
 const INJECT_REGEXP: &str = r#"(<[\\s]*img[^>]+src[\\s]*=[\\s]*")([^"]+)("[^>]*>)|((<[\\s]*u)([^>]*>)(((?!</u>).)*)(</u>))"#;
 
 pub(super) struct DictionaryManager {
-	book: DictionaryBook,
 	view: GuiView,
-	replacer: Regex,
+	backward_btn: Button,
+	forward_btn: Button,
+	lookup_input: SearchEntry,
+	render_context: RenderContext,
+	i18n: Rc<I18n>,
 
-	images: Rc<HashMap<String, RetainedImage>>,
-
-	words: Vec<(String, Vec2)>,
+	controller: GuiController,
+	words: Vec<(String, Position)>,
 	current_index: Option<usize>,
-	current_word: String,
-	changed: bool,
-	highlight: Option<HighlightInfo>,
-	offset: Vec2,
-
-	pub inputting: bool,
 }
 
 pub(super) struct LookupResult {
@@ -60,6 +58,7 @@ struct DictionaryBook {
 	dictionaries: Vec<StarDictCachedSqlite>,
 	cache: HashMap<String, Vec<LookupResult>>,
 	resources: FrozenMap<String, Vec<u8>>,
+	replacer: Regex,
 
 	content: HtmlContent,
 }
@@ -101,10 +100,41 @@ impl Book for DictionaryBook
 	}
 }
 
-impl DictionaryBook {
-	fn lookup(&mut self, word: &str) -> Option<&Vec<LookupResult>>
+impl Default for DictionaryBook {
+	fn default() -> Self
 	{
-		let result = self.cache
+		DictionaryBook {
+			dictionaries: vec![],
+			cache: HashMap::new(),
+			resources: FrozenMap::new(),
+			replacer: Regex::new(INJECT_REGEXP).unwrap(),
+			content: HtmlContent {
+				title: None,
+				lines: vec![],
+				id_map: Default::default(),
+			},
+		}
+	}
+}
+
+impl DictionaryBook {
+	fn reload(&mut self, dictionary_paths: &Vec<PathConfig>)
+	{
+		self.dictionaries.clear();
+		self.cache.clear();
+		for config in dictionary_paths {
+			if config.enabled {
+				if let Ok(dict) = stardict::with_sqlite(
+					&config.path, package_name!()) {
+					self.dictionaries.push(dict);
+				}
+			}
+		}
+	}
+
+	fn lookup(&mut self, word: &str, i18n: &I18n)
+	{
+		let results = self.cache
 			.entry(word.to_owned())
 			.or_insert_with(|| {
 				let mut result = vec![];
@@ -119,311 +149,240 @@ impl DictionaryBook {
 				}
 				result
 			});
-		if result.len() == 0 {
-			None
+		let content = if results.len() > 0 {
+			let mut text = String::from(HTML_DEFINITION_HEAD);
+			for single in &mut *results {
+				render_definition(single, &mut text, &self.replacer);
+			}
+			text.push_str(HTML_DEFINITION_TAIL);
+			if let Ok(mut content) = html_str_content(&text, None::<fn(String) -> Option<&'static String>>) {
+				content.title = Some(String::from(word));
+				content
+			} else {
+				let mut lines = vec![];
+				for single in &mut *results {
+					let mut new_lines = render_definition_text(single);
+					lines.append(&mut new_lines);
+				}
+				HtmlContent {
+					title: None,
+					lines,
+					id_map: Default::default(),
+				}
+			}
 		} else {
-			Some(result)
-		}
+			let msg = i18n.msg("dictionary-no-definition");
+			let lines = txt_lines(&msg);
+			HtmlContent {
+				title: None,
+				lines,
+				id_map: Default::default(),
+			}
+		};
+		self.content = content;
 	}
 }
 
 impl DictionaryManager {
-	pub fn from(data_path: &Option<PathBuf>, render_type: &str,
-		images: Rc<HashMap<String, RetainedImage>>) -> Self
+	pub fn new(dictionary_paths: &Vec<PathConfig>, font_size: u8,
+		fonts: Rc<Option<Vec<FontVec>>>, i18n: &Rc<I18n>, icons: &Rc<IconMap>)
+		-> (Rc<RefCell<Self>>, gtk4::Box, SearchEntry)
 	{
-		let mut dictionaries = vec![];
-		load_dictionaries(data_path, &mut dictionaries);
-		let cache = HashMap::new();
-		let book = DictionaryBook {
-			dictionaries,
-			cache,
-			resources: FrozenMap::new(),
-			content: HtmlContent {
-				title: None,
-				lines: vec![],
-				id_map: Default::default(),
-			},
-		};
-		let mut view = GuiView::new(render_type, create_colors());
-		view.set_custom_color(true);
-		DictionaryManager {
-			book,
+		let mut render_context = RenderContext::new(create_colors(), font_size, true, 0);
+		let book = DictionaryBook::default();
+		let view = GuiView::new("dict", false, fonts, &mut render_context);
+		let backward_btn = create_button("backward_disabled.svg", "", icons, false);
+		let forward_btn = create_button("forward_disabled.svg", "", icons, false);
+		let lookup_input = SearchEntry::builder()
+			.placeholder_text(i18n.msg("lookup-dictionary").as_ref())
+			.activates_default(true)
+			.enable_undo(true)
+			.build();
+		let toolbar = gtk4::Box::new(Orientation::Horizontal, 0);
+		toolbar.append(&backward_btn);
+		toolbar.append(&forward_btn);
+		toolbar.append(&lookup_input);
+		let dict_box = gtk4::Box::new(Orientation::Vertical, 0);
+		dict_box.append(&toolbar);
+		dict_box.append(&view);
+
+		let controller = Controller::from_data(
+			ReadingInfo::new("dict").no_custom_color(),
+			ContainerManager::default(),
+			Box::new(DummyContainer::new("_dict_")),
+			Box::new(book),
+			Box::new(view.clone()),
+		);
+		let mut dm = DictionaryManager {
 			view,
-			replacer: Regex::new(INJECT_REGEXP).unwrap(),
-			images,
+			controller,
+			backward_btn: backward_btn.clone(),
+			forward_btn: forward_btn.clone(),
+			lookup_input: lookup_input.clone(),
+			render_context,
+			i18n: i18n.clone(),
 
 			words: vec![],
 			current_index: None,
-			current_word: "".to_string(),
-			changed: false,
-			highlight: None,
+		};
+		dm.reload(dictionary_paths);
+		let dm = Rc::new(RefCell::new(dm));
 
-			offset: Vec2::ZERO,
-			inputting: false,
+		setup_ui(&dm, &backward_btn, &forward_btn);
+
+		(dm, dict_box, lookup_input)
+	}
+
+	#[inline]
+	pub fn reload(&mut self, dictionary_paths: &Vec<PathConfig>)
+	{
+		if let Some(book) = self.controller.book
+			.as_mut()
+			.as_any()
+			.downcast_mut::<DictionaryBook>() {
+			book.reload(dictionary_paths);
+			if let Some(current_index) = self.current_index {
+				self.lookup(current_index);
+			}
 		}
 	}
 
 	#[inline]
-	pub fn reload(&mut self, data_path: &Option<PathBuf>)
+	pub fn redraw(&mut self)
 	{
-		self.book.dictionaries.clear();
-		self.book.cache.clear();
-		load_dictionaries(data_path, &mut self.book.dictionaries);
+		self.controller.redraw(&mut self.render_context);
 	}
 
-	pub fn render_toolbar(&mut self, font_size: f32, i18n: &I18n, ui: &mut Ui)
+	#[inline]
+	pub fn set_fonts(&mut self, fonts: Rc<Option<Vec<FontVec>>>)
 	{
-		match self.current_index {
-			Some(current_index) if current_index > 0 => {
-				let word = RichText::from(
-					&self.words[current_index - 1].0)
-					.size(font_size);
-				let left_id = image(&self.images, ui.ctx(), "backward.svg");
-				if ImageButton::new(left_id, ICON_SIZE)
-					.ui(ui)
-					.on_hover_text_at_pointer(word
-					)
-					.clicked() {
-					self.switch_word(current_index - 1);
-				}
-			}
-			_ => {
-				let left_disabled_id = image(&self.images, ui.ctx(), "backward_disabled.svg");
-				let button = ImageButton::new(left_disabled_id, ICON_SIZE);
-				ui.add_enabled(false, button);
-			}
-		}
-		match self.current_index {
-			Some(current_index) if current_index < self.words.len() - 1 => {
-				let word = RichText::from(
-					&self.words[current_index + 1].0)
-					.size(font_size as f32);
-				let right_id = image(&self.images, ui.ctx(), "forward.svg");
-				if ImageButton::new(right_id, ICON_SIZE)
-					.ui(ui)
-					.on_hover_text_at_pointer(word)
-					.clicked() {
-					self.switch_word(current_index + 1);
-				}
-			}
-			_ => {
-				let right_disabled_id = image(&self.images, ui.ctx(), "forward_disabled.svg");
-				let button = ImageButton::new(right_disabled_id, ICON_SIZE);
-				ui.add_enabled(false, button);
-			}
-		}
+		self.view.set_fonts(fonts, &mut self.render_context);
+		self.redraw();
+	}
 
-		let dict_input = TextEdit::singleline(&mut self.current_word)
-			.hint_text(i18n.msg("lookup-dictionary"))
-			.font(FontSelection::Style(TextStyle::Heading));
-		let response = ui.add(dict_input);
-		if response.gained_focus() {
-			self.inputting = true;
-		}
-		if self.inputting && response.ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Enter)) {
-			self.push_dict_word();
-			self.inputting = false;
-		}
-		if response.lost_focus() {
-			self.inputting = false;
-		}
-		if response.clicked_elsewhere() {
-			self.inputting = false;
+	#[inline]
+	pub fn set_font_size(&mut self, font_size: u8)
+	{
+		self.view.set_font_size(font_size, &mut self.render_context);
+		self.redraw();
+	}
+
+	#[inline]
+	pub fn resize(&mut self, width: i32, height: Option<i32>)
+	{
+		let height = height.unwrap_or_else(|| self.view.size(Orientation::Vertical));
+		self.view.resized(width, height, &mut self.render_context);
+		self.redraw();
+	}
+
+	#[inline]
+	pub fn set_lookup(&mut self, lookup_text: String)
+	{
+		self.lookup_input.set_text(&lookup_text);
+		self.push_dict_word(lookup_text);
+	}
+
+	fn select_text(&mut self, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64, complete: bool)
+	{
+		let from = Position::new(from_line as usize, from_offset as usize);
+		let to = Position::new(to_line as usize, to_offset as usize);
+		let render_context = &mut self.render_context;
+		self.controller.select_text(from, to, render_context);
+		if complete {
+			if let Some(selected_text) = self.controller.selected() {
+				if let Some(display) = Display::default() {
+					display.clipboard().set_text(selected_text);
+				}
+			}
 		}
 	}
 
 	#[inline]
-	fn switch_word(&mut self, new_index: usize)
+	fn clear_selection(&mut self)
+	{
+		self.controller.clear_highlight(&mut self.render_context);
+	}
+
+	#[inline]
+	fn scroll(&mut self, forward: bool)
+	{
+		if forward {
+			self.controller.step_next(&mut self.render_context);
+		} else {
+			self.controller.step_prev(&mut self.render_context);
+		}
+	}
+
+	#[inline]
+	fn goto_link(&mut self, line: usize, link_index: usize)
+	{
+		if let Some(line) = self.controller.book.lines().get(line) {
+			if let Some(link) = line.link_at(link_index) {
+				self.set_lookup(link.target.trim().to_owned());
+			}
+		}
+	}
+
+	#[inline]
+	fn switch_word(&mut self, forward: bool) -> Option<usize>
 	{
 		if let Some(current_index) = self.current_index {
-			self.words[current_index].1 = self.offset;
+			let new_index = if forward {
+				if current_index < self.words.len() - 1 {
+					current_index + 1
+				} else {
+					return None;
+				}
+			} else {
+				if current_index > 0 {
+					current_index - 1
+				} else {
+					return None;
+				}
+			};
+			self.words[current_index].1 = self.controller.reading.pos();
+			self.current_index = Some(new_index);
+			self.lookup_input.set_text(&self.words[new_index].0);
+			self.lookup(new_index);
+			Some(new_index)
+		} else {
+			None
 		}
-		self.current_index = Some(new_index);
-		self.current_word = self.words[new_index].0.clone();
-		self.highlight = None;
-		self.changed = true;
 	}
 
-	fn push_dict_word(&mut self)
+	fn push_dict_word(&mut self, word: String)
 	{
-		if self.current_word.is_empty() {
-			return;
-		}
-
 		let current_index = if let Some(mut current_index) = self.current_index {
-			if self.current_word == self.words[current_index].0 {
+			if word == self.words[current_index].0 {
 				return;
 			}
-			self.words[current_index].1 = self.offset;
+			self.words[current_index].1 = self.controller.reading.pos();
 			current_index += 1;
 			self.words.drain(current_index..);
 			current_index
 		} else {
 			0
 		};
-		self.words.push((self.current_word.clone(), Vec2::ZERO));
+		self.words.push((word.to_owned(), Position::new(0, 0)));
 		self.current_index = Some(current_index);
-		self.changed = true;
-		self.highlight = None;
+
+		self.backward_btn.set_sensitive(self.words.len() > 1);
+		self.forward_btn.set_sensitive(false);
+		self.lookup(current_index);
 	}
 
-	#[inline]
-	pub fn set_word(&mut self, new_word: String)
+	fn lookup(&mut self, current_index: usize)
 	{
-		self.current_word = new_word;
-		self.push_dict_word();
-	}
-
-	#[inline]
-	pub fn reset_offset(&mut self) -> Option<Vec2>
-	{
-		return if self.changed {
-			self.changed = false;
-			if let Some(current_index) = self.current_index {
-				Some(self.words[current_index].1)
-			} else {
-				Some(Vec2::ZERO)
-			}
-		} else {
-			None
-		};
-	}
-
-	#[inline]
-	#[allow(unused)]
-	pub fn reload_render(&mut self, render_type: &str)
-	{
-		self.view.reload_render(render_type);
-	}
-
-	#[inline]
-	pub fn render(&mut self, view_rect: &Rect, font_size: u8,
-		i18n: &I18n, ui: &mut Ui)
-	{
-		if let Some(current_index) = self.current_index {
-			self.offset = Vec2::new(view_rect.min.x, view_rect.min.y);
-			self.lookup_and_render(
-				current_index,
-				font_size,
-				view_rect,
-				i18n,
-				ui);
+		let (word, pos) = &self.words[current_index];
+		if let Some(book) = self.controller.book
+			.as_mut()
+			.as_any()
+			.downcast_mut::<DictionaryBook>() {
+			book.lookup(word, &self.i18n);
 		}
-	}
-
-	fn lookup_and_render(&mut self, current_index: usize, font_size: u8,
-		view_port: &Rect, i18n: &I18n, ui: &mut Ui)
-	{
-		let word = &self.words[current_index].0;
-
-		if let Some(orig_word) = &self.book.content.title {
-			if orig_word == word {
-				self.render_view(font_size, view_port, ui);
-				return;
-			}
-		}
-		if let Some(results) = self.book.lookup(word) {
-			let mut text = String::from(HTML_DEFINITION_HEAD);
-			for single in results {
-				render_definition(single, &mut text, &self.replacer);
-			}
-			text.push_str(HTML_DEFINITION_TAIL);
-			if let Ok(mut content) = html_str_content(&text, None::<fn(String) -> Option<&'static String>>) {
-				content.title = Some(String::from(word));
-				self.book.content = content;
-				self.render_view(font_size, view_port, ui);
-				return;
-			} else {
-				for single in results {
-					render_definition_text(ui, single, font_size as f32);
-				}
-			}
-		} else {
-			let msg = i18n.msg("dictionary-no-definition");
-			ui.label(RichText::from(msg.as_ref())
-				.text_style(TextStyle::Heading)
-				.color(Color32::RED)
-				.strong());
-		}
-	}
-
-	fn render_view(&mut self, font_size: u8, view_port: &Rect, ui: &mut Ui)
-	{
-		let (_, mut redraw, action) = self.view.show(
-			ui,
-			font_size,
-			&self.book,
-			true,
-			Some(view_port.clone()));
-		match action {
-			ViewAction::Goto(line, link_index) => {
-				if let Some(line) = self.book.lines().get(line) {
-					if let Some(link) = line.link_at(link_index) {
-						self.set_word(link.target.trim().to_owned());
-					}
-				}
-			}
-			ViewAction::SelectText(from, to) => {
-				if let Some((from, to)) = self.view.calc_selection(from, to) {
-					self.highlight = self.book.range_highlight(from, to);
-				} else {
-					self.highlight = None;
-				}
-				redraw = true;
-			}
-			ViewAction::TextSelectedDone => if let Some(selected_text) = highlight_selection(&self.highlight) {
-				ui.output_mut(|output| output.copied_text = selected_text.to_owned());
-			}
-			_ => {}
-		}
-		if redraw {
-			self.view.redraw(&self.book, &self.book.lines(), 0, 0,
-				&self.highlight, ui);
-		}
-		self.view.draw(ui);
-	}
-}
-
-fn load_dictionaries(
-	data_path: &Option<PathBuf>,
-	dictionaries: &mut Vec<StarDictCachedSqlite>)
-{
-	#[cfg(not(windows))]
-	if let Ok(sys_data_path) = PathBuf::from_str(SYS_DICT_PATH) {
-		if sys_data_path.is_dir() {
-			load_dictionaries_dir(&sys_data_path, dictionaries);
-		}
-	}
-
-	let user_home = dirs::home_dir();
-	if let Some(user_home) = user_home {
-		let mut user_data_path = user_home;
-		for suffix in USER_DICT_PATH_SUFFIXES {
-			user_data_path = user_data_path.join(suffix);
-		}
-		if user_data_path.is_dir() {
-			load_dictionaries_dir(&user_data_path, dictionaries);
-		}
-	}
-
-	if let Some(custom_data_path) = data_path {
-		if custom_data_path.is_dir() {
-			load_dictionaries_dir(&custom_data_path, dictionaries);
-		}
-	}
-}
-
-fn load_dictionaries_dir(path: &PathBuf, dictionaries: &mut Vec<StarDictCachedSqlite>)
-{
-	if let Ok(read) = path.read_dir() {
-		for entry in read {
-			if let Ok(entry) = entry {
-				if let Ok(dict) = stardict::with_sqlite(
-					&entry.path(), package_name!()) {
-					dictionaries.push(dict);
-				}
-			}
-		}
+		self.controller.clear_highlight_at(
+			pos.line, pos.offset,
+			&mut self.render_context);
 	}
 }
 
@@ -461,27 +420,25 @@ fn inject_definition<'a>(html: &'a str, dict_name: &str, replacer: &Regex) -> Co
 }
 
 #[inline]
-fn render_definition_text(ui: &mut Ui, result: &LookupResult, font_size: f32)
+fn render_definition_text(result: &LookupResult) -> Vec<Line>
 {
-	ui.label(RichText::from(&result.dict_name)
-		.color(Color32::BLUE)
-		.text_style(TextStyle::Heading)
-		.strong()
-		.size(font_size)
-	);
-	ui.separator();
+	let mut html = "<html><body>".to_string();
+
+	html.push_str("<h style='color: blue;'><b>");
+	html.push_str(&result.dict_name);
+	html.push_str("</b></h><br/>");
 	for definition in &result.definitions {
-		ui.label(RichText::from(&definition.word)
-			.text_style(TextStyle::Heading)
-			.strong()
-			.size(font_size)
-		);
+		html.push_str("<h><b>");
+		html.push_str(&definition.word);
+		html.push_str("</b></h>");
 		for segment in &definition.segments {
-			ui.label(RichText::from(&segment.text)
-				.size(font_size));
+			html.push_str("<p>");
+			html.push_str(&segment.text);
+			html.push_str("</p>");
 		}
 	}
-	ui.separator();
+	html.push_str("</body></html>");
+	html_str_content(&html, None::<fn(String) -> Option<&'static String>>).unwrap().lines
 }
 
 #[inline]
@@ -493,6 +450,133 @@ fn create_colors() -> Colors
 		highlight: Color32::BLUE,
 		highlight_background: Color32::YELLOW,
 		link: Color32::BLUE,
+	}
+}
+
+fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_btn: &Button)
+{
+	{
+		backward_btn.set_sensitive(false);
+		let forward_btn = forward_btn.clone();
+		let dm = dm.clone();
+		backward_btn.connect_clicked(move |btn| {
+			let mut dictionary_manager = dm.borrow_mut();
+			if let Some(new_index) = dictionary_manager.switch_word(false) {
+				if new_index == 0 {
+					btn.set_sensitive(false);
+				}
+				forward_btn.set_sensitive(true);
+			}
+		});
+	}
+	{
+		forward_btn.set_sensitive(false);
+		let backward_btn = backward_btn.clone();
+		let dm = dm.clone();
+		forward_btn.connect_clicked(move |btn| {
+			let mut dictionary_manager = dm.borrow_mut();
+			if let Some(new_index) = dictionary_manager.switch_word(true) {
+				if new_index == dictionary_manager.words.len() - 1 {
+					btn.set_sensitive(false);
+				}
+				backward_btn.set_sensitive(true);
+			}
+		});
+	}
+	let dictionary_manager = dm.borrow();
+	{
+		let dm = dm.clone();
+		dictionary_manager.lookup_input.connect_activate(move |entry| {
+			let lookup_pattern = entry.text();
+			if lookup_pattern.len() == 0 {
+				return;
+			}
+			let mut dictionary_manager = dm.borrow_mut();
+			dictionary_manager.push_dict_word(lookup_pattern.to_string());
+		});
+	}
+
+	// setup view
+	let view = &dictionary_manager.view;
+	{
+		let dm = dm.clone();
+		view.connect_resize(move |_, width, height| {
+			let mut dictionary_manager = dm.borrow_mut();
+			dictionary_manager.resize(width, Some(height));
+		});
+	}
+
+	{
+		let dm = dm.clone();
+		view.setup_gesture(false, move |view, pos| {
+			let dictionary_manager = dm.borrow();
+			view.link_resolve(pos, dictionary_manager.controller.book.lines())
+		});
+	}
+
+	{
+		// open link signal
+		let dm = dm.clone();
+		view.connect_closure(
+			GuiView::OPEN_LINK_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView, line: u64, link_index: u64| {
+				let mut dictionary_manager = dm.borrow_mut();
+				dictionary_manager.goto_link(line as usize, link_index as usize);
+	        }),
+		);
+	}
+
+	// selecting text signal
+	{
+		let dm = dm.clone();
+		view.connect_closure(
+			GuiView::SELECTING_TEXT_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
+				let mut dictionary_manager = dm.borrow_mut();
+				dictionary_manager.select_text(from_line, from_offset, to_line, to_offset, false);
+	        }),
+		);
+	}
+
+	// selecting text signal
+	{
+		let dm = dm.clone();
+		view.connect_closure(
+			GuiView::TEXT_SELECTED_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
+				let mut dictionary_manager = dm.borrow_mut();
+				dictionary_manager.select_text(from_line, from_offset, to_line, to_offset, true);
+	        }),
+		);
+	}
+
+	{
+		// clear selection signal
+		let dm = dm.clone();
+		view.connect_closure(
+			GuiView::CLEAR_SELECTION_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView| {
+				let mut dictionary_manager = dm.borrow_mut();
+				dictionary_manager.clear_selection();
+	        }),
+		);
+	}
+
+	{
+		// scroll signal
+		let dm = dm.clone();
+		view.connect_closure(
+			GuiView::SCROLL_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView, delta: i32| {
+				let mut dictionary_manager = dm.borrow_mut();
+				dictionary_manager.scroll(delta > 0);
+	        }),
+		);
 	}
 }
 

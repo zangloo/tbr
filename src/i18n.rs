@@ -1,7 +1,6 @@
 use anyhow::Result;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use egui::WidgetText;
 use fluent::{FluentArgs, FluentBundle, FluentResource, FluentValue};
 use unic_langid::LanguageIdentifier;
 use crate::Asset;
@@ -26,12 +25,6 @@ impl LocaleEntry {
 impl PartialEq for LocaleEntry {
 	fn eq(&self, other: &Self) -> bool {
 		self.locale == other.locale
-	}
-}
-
-impl Into<WidgetText> for LocaleEntry {
-	fn into(self) -> WidgetText {
-		WidgetText::from(&self.name)
 	}
 }
 
@@ -70,6 +63,7 @@ impl I18n
 		Ok(I18n { bundles, locale: locale.to_string(), locale_list })
 	}
 
+	#[allow(unused)]
 	pub fn set_locale(&mut self, locale: &str) -> Result<()>
 	{
 		if self.bundles.contains_key(locale) {
@@ -100,15 +94,6 @@ impl I18n
 	pub fn locales(&self) -> &Vec<LocaleEntry>
 	{
 		&self.locale_list
-	}
-
-	pub fn locale_text(&self, locale: &str) -> &str {
-		for entry in &self.locale_list {
-			if entry.locale == locale {
-				return &entry.name;
-			}
-		}
-		"Unknown"
 	}
 }
 

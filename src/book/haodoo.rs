@@ -110,7 +110,7 @@ struct Chapter {
 	lines: Option<Vec<Line>>,
 }
 
-impl<R: Read + Seek> HaodooBook<R> {
+impl<R: Read + Seek + 'static> HaodooBook<R> {
 	pub fn new(reader: R, loading_chapter: LoadingChapter) -> Result<Self> {
 		let mut book = parse_header(reader)?;
 		book.load_toc()?;
@@ -155,7 +155,7 @@ fn parse_header<R: Read + Seek>(mut reader: R) -> Result<HaodooBook<R>> {
 	})
 }
 
-impl<R: Read + Seek> Book for HaodooBook<R> {
+impl<R: Read + Seek + 'static> Book for HaodooBook<R> {
 	fn chapter_count(&self) -> usize {
 		if matches!(self.book_type, PDBType::PalmDoc) {
 			1

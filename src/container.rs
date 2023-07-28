@@ -7,7 +7,7 @@ use crate::container::zip::ZipLoader;
 mod zip;
 
 pub struct ContainerManager {
-	book_loader: BookLoader,
+	pub book_loader: BookLoader,
 	zip_loader: ZipLoader,
 }
 
@@ -23,7 +23,7 @@ impl ContainerManager {
 		if self.zip_loader.accept(filename) {
 			self.zip_loader.open(filename, &self.book_loader)
 		} else {
-			Ok(Box::new(DummyContainer { filenames: vec![BookName { name: filename.clone(), index: 0 }] }))
+			Ok(Box::new(DummyContainer::new(&filename)))
 		}
 	}
 
@@ -99,6 +99,15 @@ impl Container for DummyContainer {
 
 	fn book_content(&mut self, _inner_index: usize) -> Result<BookContent> {
 		Ok(BookContent::File(self.filenames[0].name.clone()))
+	}
+}
+
+impl DummyContainer {
+	pub fn new(filename: &str) -> Self
+	{
+		DummyContainer {
+			filenames: vec![BookName::new(filename.to_owned(), 0)]
+		}
 	}
 }
 

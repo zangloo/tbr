@@ -1,16 +1,19 @@
-use std::borrow::Borrow;
-
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chardetng::EncodingDetector;
-use cursive::theme::Theme;
 use encoding_rs::{Encoding, UTF_8};
+use std::borrow::Borrow;
 use unicode_width::UnicodeWidthChar;
 
 use crate::book::Line;
-use crate::{ReadingInfo, ThemeEntry};
+use crate::ReadingInfo;
 
 pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 34] = [
 	(' ', '　'),
+	('─', '︱'),
+	('…', '︙'),
+	('\t', '　'),
+	('-', '︱'),
+	('—', '︱'),
 	('「', '﹁'),
 	('」', '﹂'),
 	('〈', '︿'),
@@ -29,9 +32,6 @@ pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 34] = [
 	('】', '︼'),
 	('｛', '︷'),
 	('｝', '︸'),
-	('─', '︱'),
-	('…', '︙'),
-	('\t', '　'),
 	('(', '︵'),
 	(')', '︶'),
 	('[', '︹'),
@@ -40,10 +40,39 @@ pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 34] = [
 	('>', '︼'),
 	('{', '︷'),
 	('}', '︸'),
-	('-', '︱'),
-	('—', '︱'),
 	('〖', '︘'),
 	('〗', '︗'),
+];
+
+pub const HAN_COMPACT_CHARS: [char; 28] = [
+	'﹁',
+	'﹂',
+	'︿',
+	'﹀',
+	'﹃',
+	'﹄',
+	'︵',
+	'︶',
+	'︽',
+	'︾',
+	'︹',
+	'︺',
+	'︹',
+	'︺',
+	'︻',
+	'︼',
+	'︷',
+	'︸',
+	'︵',
+	'︶',
+	'︹',
+	'︺',
+	'︻',
+	'︼',
+	'︷',
+	'︸',
+	'︘',
+	'︗',
 ];
 
 #[derive(Clone)]
@@ -73,15 +102,6 @@ pub fn reading_info(history: &mut Vec<ReadingInfo>, current: &str) -> (bool, Rea
 		i += 1;
 	}
 	(false, ReadingInfo::new(&current))
-}
-
-pub fn get_theme<'a>(theme_name: &String, theme_entries: &'a Vec<ThemeEntry>) -> Result<&'a Theme> {
-	for entry in theme_entries {
-		if entry.0.eq(theme_name) {
-			return Ok(&entry.1);
-		}
-	}
-	Err(anyhow!("No theme defined: {}",theme_name))
 }
 
 pub fn with_leading(text: &Line) -> bool {

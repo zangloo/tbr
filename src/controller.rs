@@ -63,14 +63,15 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		let container_manager = Default::default();
 		let mut container = load_container(&container_manager, &reading)?;
 		let book = load_book(&container_manager, &mut container, &mut reading)?;
-		Controller::from_data(reading, container_manager, container, book, render)
+		Ok(Controller::from_data(reading, container_manager, container, book, render))
 	}
 
 	#[inline]
-	pub fn from_data(reading: ReadingInfo, container_manager: ContainerManager, container: Box<dyn Container>, book: Box<dyn Book>, render: Box<R>) -> Result<Self>
+	pub fn from_data(reading: ReadingInfo, container_manager: ContainerManager,
+		container: Box<dyn Container>, book: Box<dyn Book>, render: Box<R>) -> Self
 	{
 		let trace = vec![TraceInfo { chapter: reading.chapter, line: reading.line, offset: reading.position }];
-		Ok(Controller {
+		Controller {
 			_render_context: PhantomData,
 			container_manager,
 			container,
@@ -82,7 +83,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			highlight: None,
 			next: None,
 			render,
-		})
+		}
 	}
 	#[inline]
 	pub fn reading_container(&self) -> &dyn Container
@@ -629,6 +630,13 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		self.redraw(context);
 	}
 
+	#[cfg(feature = "gui")]
+	pub fn clear_highlight_at(&mut self, line: usize, offset: usize, context: &mut C)
+	{
+		self.highlight = None;
+		self.redraw_at(line, offset, context);
+	}
+
 	#[inline]
 	pub fn toc_index(&self) -> usize
 	{
@@ -640,6 +648,13 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	{
 		highlight_selection(&self.highlight)
 	}
+	/*
+	#[inline]
+	pub fn has_selection(&self) -> bool
+	{
+		self.highlight.is_some()
+	}
+	*/
 }
 
 #[inline]

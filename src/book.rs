@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::cmp;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -12,7 +13,7 @@ use crate::book::epub::EpubLoader;
 use crate::book::haodoo::HaodooLoader;
 use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
-use crate::Color32;
+use crate::color::Color32;
 use crate::common::{char_index_for_byte, Position};
 use crate::common::TraceInfo;
 use crate::container::BookContent;
@@ -26,6 +27,7 @@ mod haodoo;
 
 pub const EMPTY_CHAPTER_CONTENT: &str = "No content.";
 pub const IMAGE_CHAR: char = '🖼';
+pub const HAN_CHAR: char = '漢';
 
 type TextDecorationLine = lightningcss::properties::text::TextDecorationLine;
 
@@ -61,6 +63,18 @@ pub struct Colors
 	pub highlight: Color32,
 	pub highlight_background: Color32,
 	pub link: Color32,
+}
+
+impl Default for Colors {
+	fn default() -> Self {
+		Colors {
+			color: Color32::BLACK,
+			background: Color32::WHITE,
+			highlight: Color32::LIGHT_RED,
+			highlight_background: Color32::LIGHT_GREEN,
+			link: Color32::BLUE,
+		}
+	}
 }
 
 pub struct Line {
@@ -206,7 +220,7 @@ impl Line {
 	{
 		let mut char_style = CharStyle {
 			font_scale: 1.0,
-			color: colors.color,
+			color: colors.color.clone(),
 			background: None,
 			line: None,
 			border: None,
@@ -226,12 +240,12 @@ impl Line {
 					TextStyle::Image(href) => char_style.image = Some(href.clone()),
 					TextStyle::Link(target) => {
 						char_style.link = Some((target.clone(), range.clone()));
-						char_style.color = colors.link;
+						char_style.color = colors.link.clone();
 					}
 					TextStyle::Border => char_style.border = Some(range.clone()),
 					TextStyle::Line(line) => char_style.line = Some((*line, range.clone())),
-					TextStyle::Color(color) => if custom_color { char_style.color = *color },
-					TextStyle::BackgroundColor(color) => if custom_color { char_style.background = Some(*color) },
+					TextStyle::Color(color) => if custom_color { char_style.color = color.clone() },
+					TextStyle::BackgroundColor(color) => if custom_color { char_style.background = Some(color.clone()) },
 				}
 			}
 		}
@@ -272,7 +286,18 @@ pub enum LoadingChapter {
 	Last,
 }
 
-pub trait Book {
+pub trait AsAny: 'static {
+	fn as_any(&mut self) -> &mut dyn Any;
+}
+
+impl<T: 'static> AsAny for T {
+	fn as_any(&mut self) -> &mut dyn Any
+	{
+		self
+	}
+}
+
+pub trait Book: AsAny {
 	fn chapter_count(&self) -> usize { 1 }
 	fn prev_chapter(&mut self) -> Result<Option<usize>> {
 		let current = self.current_chapter();
@@ -386,6 +411,17 @@ pub(crate) trait Loader {
 }
 
 impl BookLoader {
+	pub fn extension(&self) -> Vec<&'static str>
+	{
+		let mut vec = vec![];
+		for loader in self.loaders.iter() {
+			for ext in loader.extensions() {
+				vec.push(*ext);
+			}
+		}
+		vec
+	}
+
 	pub fn support(&self, filename: &str) -> bool {
 		for loader in self.loaders.iter() {
 			if loader.support(filename) {

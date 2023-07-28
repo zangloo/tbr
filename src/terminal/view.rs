@@ -128,10 +128,12 @@ pub(super) trait TerminalRender: Render<RenderContext> {
 	}
 }
 
-fn load_render(render_type: &String) -> Box<dyn TerminalRender> {
-	match render_type.as_str() {
-		"han" => Box::new(Han::new()),
-		_ => Box::new(Xi::new()),
+#[inline]
+fn load_render(render_han: bool) -> Box<dyn TerminalRender> {
+	if render_han {
+		Box::new(Han::new())
+	} else {
+		Box::new(Xi::new())
 	}
 }
 
@@ -182,8 +184,8 @@ impl View for ReadingView {
 }
 
 impl ReadingView {
-	pub(crate) fn new(render_type: &String, reading: ReadingInfo) -> Result<ReadingView> {
-		let render: Box<dyn TerminalRender> = load_render(render_type);
+	pub(crate) fn new(render_han: bool, reading: ReadingInfo) -> Result<ReadingView> {
+		let render: Box<dyn TerminalRender> = load_render(render_han);
 		let mut controller = Controller::new(reading, render)?;
 		let mut render_context = RenderContext::new();
 		controller.book_loaded(&mut render_context);
@@ -266,8 +268,8 @@ impl ReadingView {
 		self.controller.goto_toc(toc_index, &mut self.render_context)
 	}
 
-	pub(crate) fn switch_render(&mut self, render_type: &String) {
-		self.controller.render = load_render(render_type);
+	pub(crate) fn switch_render(&mut self, render_han: bool) {
+		self.controller.render = load_render(render_han);
 		self.controller.render.resized(&self.render_context);
 		self.controller.redraw(&mut self.render_context);
 	}

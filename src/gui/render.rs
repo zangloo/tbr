@@ -1,17 +1,22 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use eframe::egui::{Align2, FontFamily, FontId, Rect, Rounding, Stroke, Ui};
-use eframe::emath::{Pos2, Vec2};
-use eframe::epaint::Color32;
-use egui::{ColorImage, Mesh, Shape, TextureFilter, TextureHandle, TextureOptions};
-use image::imageops::FilterType;
+use std::rc::Rc;
+use ab_glyph::{Font, FontVec};
+use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
+use gtk4::cairo;
+use gtk4::prelude::GdkCairoContextExt;
+use gtk4::cairo::{Context as CairoContext};
+use gtk4::pango::{Layout as PangoContext, FontDescription};
+use gtk4::pango::ffi::PANGO_SCALE;
 
-use crate::book::{Book, CharStyle, Colors, Line};
+use crate::book::{Book, CharStyle, Colors, HAN_CHAR, Line};
+use crate::color::Color32;
 use crate::common::Position;
 use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::render::han::GuiHanRender;
 use crate::gui::render::xi::GuiXiRender;
 use crate::gui::load_image;
+use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
 
 mod han;
 mod xi;
@@ -35,23 +40,23 @@ pub(super) enum TextDecoration {
 	},
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct CharCell {
 	pub char: char,
 	pub font_size: f32,
 	pub color: Color32,
 	pub background: Option<Color32>,
-	pub draw_offset: Vec2,
-	pub char_size: Vec2,
+	pub cell_offset: Vec2,
+	pub cell_size: Vec2,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) enum RenderCell {
 	Char(CharCell),
 	Image(String),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct RenderChar {
 	pub cell: RenderCell,
 	pub offset: usize,
@@ -62,25 +67,25 @@ pub(super) struct RenderChar {
 pub(super) struct RenderLine {
 	pub(super) chars: Vec<RenderChar>,
 	pub(super) line: usize,
-	draw_size: f32,
+	line_size: f32,
 	line_space: f32,
 	decorations: Vec<TextDecoration>,
 }
 
 impl RenderLine
 {
-	fn new(line: usize, draw_size: f32, line_space: f32) -> Self
+	fn new(line: usize, line_size: f32, line_space: f32) -> Self
 	{
 		RenderLine {
 			chars: vec![],
 			line,
-			draw_size,
+			line_size,
 			line_space,
 			decorations: vec![],
 		}
 	}
 
-	pub(super) fn char_at_pos(&self, pos: Pos2) -> Option<&RenderChar>
+	pub(super) fn char_at_pos(&self, pos: &Pos2) -> Option<&RenderChar>
 	{
 		for dc in &self.chars {
 			if dc.rect.contains(pos) {
@@ -96,10 +101,156 @@ impl RenderLine
 	}
 }
 
-#[derive(Clone)]
-pub(super) struct RenderContext
+pub(super) enum CharDrawData {
+	Outline(OutlineDrawData),
+	Pango(PangoDrawData),
+	Space(Vec2),
+}
+
+impl CharDrawData {
+	#[inline(always)]
+	fn size(&self) -> Vec2
+	{
+		match self {
+			CharDrawData::Outline(data) => data.size,
+			CharDrawData::Pango(data) => data.size,
+			CharDrawData::Space(data) => *data,
+		}
+	}
+
+	#[inline(always)]
+	fn offset(&self) -> Pos2
+	{
+		match self {
+			CharDrawData::Outline(data) => data.draw_offset,
+			CharDrawData::Pango(data) => data.draw_offset,
+			CharDrawData::Space(_) => Pos2::ZERO,
+		}
+	}
+
+	#[inline(always)]
+	fn draw_size(&self) -> Vec2
+	{
+		match self {
+			CharDrawData::Outline(data) => data.draw_size,
+			CharDrawData::Pango(data) => data.draw_size,
+			CharDrawData::Space(data) => *data,
+		}
+	}
+}
+
+pub(super) struct PangoDrawData {
+	char: String,
+	font_size: i32,
+	size: Vec2,
+	draw_offset: Pos2,
+	draw_size: Vec2,
+}
+
+impl PangoDrawData {
+	fn measure(char: char, font_size: f32, layout: &PangoContext) -> Self
+	{
+		let text = char.to_string();
+		set_pango_font_size(font_size as i32, layout);
+		layout.set_text(&text);
+		let (ink_rect, logical_rect) = layout.pixel_extents();
+		let logical_x = logical_rect.x() as f32;
+		let logical_y = logical_rect.y() as f32;
+		let logical_w = logical_rect.width() as f32;
+		let logical_h = logical_rect.height() as f32;
+		let size = vec2(logical_w, logical_h);
+		let draw_size = vec2(ink_rect.width() as f32, ink_rect.height() as f32);
+		let draw_offset = pos2(
+			ink_rect.x() as f32 - logical_x,
+			ink_rect.y() as f32 - logical_y,
+		);
+
+		PangoDrawData {
+			char: text,
+			font_size: font_size as i32,
+			size,
+			draw_offset,
+			draw_size,
+		}
+	}
+
+	fn draw(&self, cairo: &CairoContext, offset_x: f32, offset_y: f32, color: &Color32,
+		layout: &PangoContext)
+	{
+		set_pango_font_size(self.font_size, layout);
+		layout.set_text(&self.char);
+
+		let x_offset = offset_x as f64;
+		let y_offset = offset_y as f64;
+		color.apply(cairo);
+		cairo.move_to(x_offset, y_offset);
+		pangocairo::show_layout(cairo, &layout);
+	}
+}
+
+pub(super) struct OutlineDrawData {
+	points: Vec<(u32, u32, u8)>,
+	size: Vec2,
+	draw_offset: Pos2,
+	draw_size: Vec2,
+}
+
+impl OutlineDrawData {
+	fn measure(char: char, font_size: f32, fonts: &Option<Vec<FontVec>>) -> Option<Self>
+	{
+		if let Some(fonts) = fonts {
+			for font in fonts {
+				if let Some(scale) = font.pt_to_px_scale(font_size) {
+					let glyph = font.glyph_id(char)
+						.with_scale(scale);
+					if let Some(outline) = font.outline_glyph(glyph) {
+						let mut points = vec![];
+						outline.draw(|x, y, a| {
+							points.push((x, y, (a * 255.) as u8));
+						});
+						let bounds = outline.px_bounds();
+						let draw_size = vec2(bounds.width(), bounds.height());
+						let rect = font.glyph_bounds(outline.glyph());
+						let size = vec2(rect.width(), rect.height());
+						let offset_x = bounds.min.x - rect.min.x;
+						let offset_y = bounds.min.y - rect.min.y;
+						let draw_offset = pos2(offset_x, offset_y);
+						return Some(OutlineDrawData {
+							points,
+							size,
+							draw_offset,
+							draw_size,
+						});
+					}
+				}
+			}
+		}
+		None
+	}
+
+	fn draw(&self, cairo: &CairoContext, offset_x: f32, offset_y: f32, color: &Color32)
+	{
+		if let Some(pixbuf) = Pixbuf::new(Colorspace::Rgb, true, 8,
+			self.draw_size.x as i32, self.draw_size.y as i32) {
+			let r = color.r();
+			let g = color.g();
+			let b = color.b();
+			for point in &self.points {
+				pixbuf.put_pixel(point.0, point.1, r, g, b, point.2);
+			}
+			let draw_x = (offset_x + self.draw_offset.x) as f64;
+			let draw_y = (offset_y + self.draw_offset.y) as f64;
+			cairo.set_source_pixbuf(&pixbuf, draw_x, draw_y);
+			handle_cairo(cairo.paint());
+		}
+	}
+}
+
+pub struct RenderContext
 {
 	pub colors: Colors,
+	pub fonts: Rc<Option<Vec<FontVec>>>,
+
 	// font size in configuration
 	pub font_size: u8,
 	// default single char size
@@ -108,7 +259,6 @@ pub(super) struct RenderContext
 	// use book custom color
 	pub custom_color: bool,
 
-	pub view_port: Rect,
 	pub render_rect: Rect,
 	pub leading_chars: usize,
 	pub leading_space: f32,
@@ -116,10 +266,35 @@ pub(super) struct RenderContext
 	pub max_page_size: f32,
 }
 
+impl RenderContext {
+	pub fn new(colors: Colors, font_size: u8, custom_color: bool,
+		leading_chars: usize) -> Self
+	{
+		RenderContext {
+			colors,
+			fonts: Rc::new(None),
+			font_size,
+			default_font_measure: Pos2::ZERO,
+			custom_color,
+			render_rect: Rect::NOTHING,
+			leading_chars,
+			leading_space: 0.0,
+			max_page_size: 0.0,
+		}
+	}
+}
+
 pub(super) struct ImageDrawingData {
 	view_rect: Rect,
-	image_size: Pos2,
-	texture: TextureHandle,
+	texture: Pixbuf,
+}
+
+impl ImageDrawingData {
+	#[inline]
+	pub fn size(&self) -> Vec2
+	{
+		Vec2::new(self.texture.width() as f32, self.texture.height() as f32)
+	}
 }
 
 pub(super) enum PointerPosition {
@@ -128,7 +303,14 @@ pub(super) enum PointerPosition {
 	Tail,
 }
 
+#[inline(always)]
+fn cache_key(char: char, font_size: u32) -> u64
+{
+	(char as u64) << 32 | font_size as u64
+}
+
 pub(super) trait GuiRender {
+	fn render_han(&self) -> bool;
 	fn reset_baseline(&mut self, render_context: &RenderContext);
 	fn reset_render_context(&mut self, render_context: &mut RenderContext);
 	fn create_render_line(&self, line: usize, render_context: &RenderContext)
@@ -136,14 +318,31 @@ pub(super) trait GuiRender {
 	fn update_baseline_for_delta(&mut self, delta: f32);
 	fn wrap_line(&mut self, book: &dyn Book, text: &Line, line: usize,
 		start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>,
-		ui: &mut Ui, context: &RenderContext) -> Vec<RenderLine>;
-	fn draw_decoration(&self, decoration: &TextDecoration, ui: &mut Ui);
+		pango: &PangoContext, context: &mut RenderContext) -> Vec<RenderLine>;
+	fn draw_decoration(&self, decoration: &TextDecoration, cairo: &CairoContext);
 	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData>;
 	// return (line, offset) position
 	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>,
 		rect: &Rect) -> (PointerPosition, PointerPosition);
-	fn measure_lines_size(&mut self, book: &dyn Book, ui: &mut Ui,
-		context: &mut RenderContext) -> Rect;
+	fn cache(&self) -> &HashMap<u64, CharDrawData>;
+	fn cache_mut(&mut self) -> &mut HashMap<u64, CharDrawData>;
+	// get redraw lines size for scrollable size measure
+	fn drawn_size(&self, context: &mut RenderContext) -> Vec2;
+
+	fn cache_get(&self, char: char, font_size: f32) -> Option<&CharDrawData>
+	{
+		let key = cache_key(char, font_size as u32);
+		self.cache().get(&key)
+	}
+	fn cache_insert(&mut self, char: char, font_size: f32, data: CharDrawData)
+	{
+		let key = cache_key(char, font_size as u32);
+		self.cache_mut().insert(key, data);
+	}
+	fn cache_clear(&mut self)
+	{
+		self.cache_mut().clear()
+	}
 
 	#[inline]
 	fn prepare_wrap(&mut self, text: &Line, line: usize, start_offset: usize,
@@ -157,7 +356,7 @@ pub(super) trait GuiRender {
 		};
 		if start_offset == end_offset {
 			let draw_line = self.create_render_line(line, context);
-			let line_delta = draw_line.draw_size + draw_line.line_space;
+			let line_delta = draw_line.line_size + draw_line.line_space;
 			self.update_baseline_for_delta(line_delta);
 			(end_offset, Some(vec![draw_line]))
 		} else {
@@ -167,68 +366,72 @@ pub(super) trait GuiRender {
 
 	fn gui_redraw(&mut self, book: &dyn Book, lines: &Vec<Line>,
 		reading_line: usize, reading_offset: usize,
-		highlight: &Option<HighlightInfo>, ui: &mut Ui,
-		render_lines: &mut Vec<RenderLine>, context: &RenderContext)
-		-> Option<Position>
+		highlight: &Option<HighlightInfo>, pango: &PangoContext,
+		context: &mut RenderContext) -> (Vec<RenderLine>, Option<Position>)
 	{
-		render_lines.clear();
+		let mut render_lines = vec![];
 		self.reset_baseline(context);
-		ui.set_clip_rect(Rect::NOTHING);
 
 		let mut drawn_size = 0.0;
 		let mut offset = reading_offset;
 		for index in reading_line..lines.len() {
 			let line = &lines[index];
-			let wrapped_lines = self.wrap_line(book, &line, index, offset, line.len(), highlight, ui, context);
+			let wrapped_lines = self.wrap_line(book, &line, index, offset, line.len(), highlight, pango, context);
 			offset = 0;
 			for wrapped_line in wrapped_lines {
-				drawn_size += wrapped_line.draw_size;
+				drawn_size += wrapped_line.line_size;
 				if drawn_size > context.max_page_size {
 					let next = if let Some(char) = wrapped_line.chars.first() {
 						Some(Position::new(index, char.offset))
 					} else {
 						Some(Position::new(index, 0))
 					};
-					return next;
+					render_lines.push(wrapped_line);
+					return (render_lines, next);
 				}
 				drawn_size += wrapped_line.line_space;
 				render_lines.push(wrapped_line);
 			}
 		}
-		None
+		(render_lines, None)
 	}
 
-	fn draw(&mut self, render_lines: &Vec<RenderLine>, ui: &mut Ui)
+	fn draw(&mut self, render_lines: &Vec<RenderLine>, cairo: &CairoContext, layout: &PangoContext)
 	{
+		cairo.set_line_width(1.0);
 		for render_line in render_lines {
 			for dc in &render_line.chars {
 				match &dc.cell {
 					RenderCell::Image(name) => {
-						self.draw_image(name, &dc.rect, ui);
+						self.draw_image(name, &dc.rect, cairo);
 					}
 					RenderCell::Char(cell) => {
-						if let Some(bg) = cell.background {
-							let min = dc.rect.min + cell.draw_offset;
-							let max = min + cell.char_size;
-							let rect = Rect::from_min_max(min, max);
-							ui.painter().rect(rect, Rounding::none(), bg, Stroke::default());
+						if let Some(bg) = &cell.background {
+							draw_rect(cairo, &dc.rect, 1.0, bg);
 						}
-						let draw_position = Pos2::new(dc.rect.min.x + cell.draw_offset.x, dc.rect.min.y + cell.draw_offset.y);
-						paint_char(ui, cell.char, cell.font_size, &draw_position, Align2::LEFT_TOP, cell.color);
+						let draw_position = Pos2::new(dc.rect.min.x + cell.cell_offset.x, dc.rect.min.y + cell.cell_offset.y);
+						// should always exists
+						if let Some(draw_data) = self.cache_get(cell.char, cell.font_size) {
+							draw_char(
+								cairo,
+								draw_data,
+								&draw_position,
+								&cell.color,
+								layout,
+							);
+						}
 					}
 				}
 			}
 			for decoration in &render_line.decorations {
-				self.draw_decoration(decoration, ui);
+				self.draw_decoration(decoration, cairo);
 			}
 		}
 	}
 
 	fn gui_prev_page(&mut self, book: &dyn Book, lines: &Vec<Line>,
-		reading_line: usize, offset: usize, ui: &mut Ui, context: &RenderContext) -> Position
+		reading_line: usize, offset: usize, pango: &PangoContext, context: &mut RenderContext) -> Position
 	{
-		ui.set_clip_rect(Rect::NOTHING);
-
 		let (reading_line, mut offset) = if offset == 0 {
 			(reading_line - 1, usize::MAX)
 		} else {
@@ -238,10 +441,10 @@ pub(super) trait GuiRender {
 		let mut drawn_size = 0.0;
 		for index in (0..=reading_line).rev() {
 			let line = &lines[index];
-			let wrapped_lines = self.wrap_line(book, &line, index, 0, offset, &None, ui, context);
+			let wrapped_lines = self.wrap_line(book, &line, index, 0, offset, &None, pango, context);
 			offset = usize::MAX;
 			for wrapped_line in wrapped_lines.iter().rev() {
-				drawn_size += wrapped_line.draw_size;
+				drawn_size += wrapped_line.line_size;
 				if drawn_size > context.max_page_size {
 					return if let Some(char) = wrapped_line.chars.last() {
 						let offset = char.offset + 1;
@@ -261,12 +464,10 @@ pub(super) trait GuiRender {
 	}
 
 	fn gui_next_line(&mut self, book: &dyn Book, lines: &Vec<Line>,
-		line: usize, offset: usize, ui: &mut Ui, context: &RenderContext)
+		line: usize, offset: usize, pango: &PangoContext, context: &mut RenderContext)
 		-> Position
 	{
-		ui.set_clip_rect(Rect::NOTHING);
-
-		let wrapped_lines = self.wrap_line(book, &lines[line], line, offset, usize::MAX, &None, ui, context);
+		let wrapped_lines = self.wrap_line(book, &lines[line], line, offset, usize::MAX, &None, pango, context);
 		if wrapped_lines.len() > 1 {
 			if let Some(next_line_char) = wrapped_lines[1].chars.first() {
 				Position::new(line, next_line_char.offset)
@@ -279,11 +480,8 @@ pub(super) trait GuiRender {
 	}
 
 	fn gui_prev_line(&mut self, book: &dyn Book, lines: &Vec<Line>,
-		line: usize, offset: usize, ui: &mut Ui, context: &RenderContext)
-		-> Position
+		line: usize, offset: usize, pango: &PangoContext, context: &mut RenderContext) -> Position
 	{
-		ui.set_clip_rect(Rect::NOTHING);
-
 		let (line, offset) = if offset == 0 {
 			if line == 0 {
 				return Position::new(0, 0);
@@ -293,7 +491,7 @@ pub(super) trait GuiRender {
 			(line, offset)
 		};
 		let text = &lines[line];
-		let wrapped_lines = self.wrap_line(book, text, line, 0, offset, &None, ui, context);
+		let wrapped_lines = self.wrap_line(book, text, line, 0, offset, &None, pango, context);
 		if let Some(last_line) = wrapped_lines.last() {
 			if let Some(first_char) = last_line.chars.first() {
 				Position::new(line, first_char.offset)
@@ -306,13 +504,11 @@ pub(super) trait GuiRender {
 	}
 
 	fn gui_setup_highlight(&mut self, book: &dyn Book, lines: &Vec<Line>,
-		line: usize, start: usize, ui: &mut Ui, context: &RenderContext)
+		line: usize, start: usize, pango: &PangoContext, context: &mut RenderContext)
 		-> Position
 	{
-		ui.set_clip_rect(Rect::NOTHING);
-
 		let text = &lines[line];
-		let wrapped_lines = self.wrap_line(book, text, line, 0, start + 1, &None, ui, context);
+		let wrapped_lines = self.wrap_line(book, text, line, 0, start + 1, &None, pango, context);
 		if let Some(last_line) = wrapped_lines.last() {
 			if let Some(first_char) = last_line.chars.first() {
 				Position::new(line, first_char.offset)
@@ -324,31 +520,35 @@ pub(super) trait GuiRender {
 		}
 	}
 
-	fn with_image(&mut self, char_style: &CharStyle, full_screen_if_image: bool,
-		book: &dyn Book, view_rect: &Rect, ui: &mut Ui) -> Option<(String, Pos2)>
+	fn with_image(&mut self, char_style: &CharStyle, book: &dyn Book,
+		view_rect: &Rect) -> Option<(String, Pos2)>
 	{
 		if let Some(href) = &char_style.image {
 			if let Some((path, bytes)) = book.image(href) {
 				let cache = self.image_cache();
-				let mut image_data = match cache.entry(path.clone()) {
-					Entry::Occupied(o) => o.into_mut(),
-					Entry::Vacant(v) => if let Some(data) = load_image_and_resize(view_rect, full_screen_if_image, bytes, &path, ui) {
-						v.insert(data)
+				let (image_data, mut size) = match cache.entry(path.clone()) {
+					Entry::Occupied(o) => {
+						let data = o.into_mut();
+						let size = data.size();
+						(data, size)
+					}
+					Entry::Vacant(v) => if let Some((data, size)) = load_image_and_resize(view_rect, bytes) {
+						(v.insert(data), size)
 					} else {
 						return None;
 					}
 				};
 
 				if *view_rect != image_data.view_rect {
-					if let Some(new_image_data) = load_image_and_resize(view_rect, full_screen_if_image, bytes, &path, ui) {
+					if let Some((new_image_data, new_size)) = load_image_and_resize(view_rect, bytes) {
 						cache.insert(path.clone(), new_image_data);
-						image_data = cache.get_mut(&path).unwrap();
+						size = new_size
 					} else {
 						return None;
 					}
-				}
+				};
 
-				Some((path, image_data.image_size))
+				Some((path, size))
 			} else {
 				None
 			}
@@ -357,44 +557,96 @@ pub(super) trait GuiRender {
 		}
 	}
 
-	fn draw_image(&mut self, name: &str, rect: &Rect, ui: &mut Ui)
+	fn draw_image(&mut self, name: &str, rect: &Rect, cairo: &CairoContext)
 	{
 		if let Some(image_data) = self.image_cache().get(name) {
-			let mut mesh = Mesh::with_texture(image_data.texture.id());
-			let uv = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
-			mesh.add_rect_with_uv(*rect, uv, Color32::WHITE);
-			ui.painter().add(Shape::mesh(mesh));
+			cairo.set_source_pixbuf(&image_data.texture, rect.min.x as f64, rect.min.y as f64);
+			handle_cairo(cairo.paint());
+		}
+	}
+
+	fn apply_font_modified(&mut self, pango: &PangoContext, render_context: &mut RenderContext)
+	{
+		self.cache_mut().clear();
+		let (size, _draw_size, _draw_offset) = self.measure_char(
+			pango,
+			HAN_CHAR,
+			render_context.font_size as f32,
+			render_context);
+		render_context.default_font_measure = size;
+	}
+
+	fn measure_char(&mut self, layout: &PangoContext, char: char, font_size: f32,
+		render_context: &mut RenderContext) -> (Vec2, Vec2, Pos2)
+	{
+		const SPACE: char = ' ';
+		const FULL_SPACE: char = '　';
+		if let Some(data) = self.cache_get(char, font_size) {
+			return (data.size(), data.draw_size(), data.offset());
+		}
+		match char {
+			SPACE => {
+				let (size, draw_size, draw_offset) = self.measure_char(
+					layout, 'S', font_size, render_context);
+				self.cache_insert(SPACE, font_size, CharDrawData::Space(size));
+				return (size, draw_size, draw_offset);
+			}
+			FULL_SPACE => {
+				let (size, draw_size, draw_offset) = self.measure_char(
+					layout, HAN_CHAR, font_size, render_context);
+				self.cache_insert(FULL_SPACE, font_size, CharDrawData::Space(size));
+				return (size, draw_size, draw_offset);
+			}
+			_ => {}
+		}
+
+		if let Some(draw_data) = OutlineDrawData::measure(char, font_size, &render_context.fonts) {
+			let data = (draw_data.size, draw_data.draw_size, draw_data.draw_offset);
+			self.cache_insert(char, font_size, CharDrawData::Outline(draw_data));
+			data
+		} else {
+			let draw_data = PangoDrawData::measure(char, font_size, layout);
+			let data = (draw_data.size, draw_data.draw_size, draw_data.draw_offset);
+			self.cache_insert(char, font_size, CharDrawData::Pango(draw_data));
+			data
 		}
 	}
 }
 
-fn load_image_and_resize(view_rect: &Rect, full_screen: bool, bytes: &[u8], name: &str, ui: &mut Ui) -> Option<ImageDrawingData>
+fn load_image_and_resize(view_rect: &Rect, bytes: &[u8]) -> Option<(ImageDrawingData, Vec2)>
 {
-	let image = load_image(name, bytes)?;
-	let width = view_rect.width() as u32;
-	let height = view_rect.height() as u32;
-	let image = if full_screen || image.width() > width || image.height() > height {
-		image.resize(width, height, FilterType::Nearest)
+	let image = load_image(bytes)?;
+	let width = view_rect.width();
+	let height = view_rect.height();
+	let image_width = image.width() as f32;
+	let image_height = image.height() as f32;
+	let image = if image_width > width || image_height > height {
+		let image_ratio = image_width / image_height;
+		let view_ratio = width / height;
+		let (draw_width, draw_height) = if image_ratio > view_ratio {
+			let draw_width = width;
+			let draw_height = width / image_ratio;
+			(draw_width, draw_height)
+		} else if image_ratio < view_ratio {
+			let draw_width = height * image_ratio;
+			let draw_height = height;
+			(draw_width, draw_height)
+		} else {
+			(width, height)
+		};
+		image.scale_simple(draw_width as i32, draw_height as i32, InterpType::Nearest)?
 	} else {
 		image
 	};
-	let draw_width = image.width();
-	let draw_height = image.height();
-	let image_buffer = image.to_rgba8();
-	let pixels = image_buffer.as_flat_samples();
-	let color_image = ColorImage::from_rgba_unmultiplied(
-		[draw_width as usize, draw_height as usize],
-		pixels.as_slice(),
-	);
-	let texture = ui.ctx().load_texture(name, color_image, TextureOptions {
-		magnification: TextureFilter::Linear,
-		minification: TextureFilter::Linear,
-	});
-	Some(ImageDrawingData {
-		view_rect: *view_rect,
-		image_size: Pos2::new(draw_width as f32, draw_height as f32),
-		texture,
-	})
+	let draw_width = image.width() as f32;
+	let draw_height = image.height() as f32;
+	Some((
+		ImageDrawingData {
+			view_rect: view_rect.clone(),
+			texture: image,
+		},
+		Pos2::new(draw_width, draw_height)
+	))
 }
 
 #[inline]
@@ -404,7 +656,7 @@ pub(self) fn update_for_highlight(render_line: usize, offset: usize, background:
 		Some(HighlightInfo { mode: HighlightMode::Search, line, start, end })
 		| Some(HighlightInfo { mode: HighlightMode::Link(_), line, start, end })
 		if *line == render_line && *start <= offset && *end > offset
-		=> Some(colors.highlight_background),
+		=> Some(colors.highlight_background.clone()),
 
 		Some(HighlightInfo { mode: HighlightMode::Selection(_, line2), line, start, end })
 		if (*line == render_line && *line2 == render_line && *start <= offset && *end > offset)
@@ -412,31 +664,11 @@ pub(self) fn update_for_highlight(render_line: usize, offset: usize, background:
 			|| (*line < render_line && *line2 == render_line && *end > offset)
 			|| (*line < render_line && *line2 > render_line)
 		=> {
-			Some(colors.highlight_background)
+			Some(colors.highlight_background.clone())
 		}
 
 		_ => background,
 	}
-}
-
-pub(super) fn measure_char_size(ui: &mut Ui, char: char, font_size: f32) -> Vec2 {
-	let old_clip_rect = ui.clip_rect();
-	ui.set_clip_rect(Rect::NOTHING);
-	let rect = paint_char(ui, char, font_size, &Pos2::ZERO, Align2::LEFT_TOP, Color32::BLACK);
-	ui.set_clip_rect(old_clip_rect);
-	rect.size()
-}
-
-#[inline]
-pub(super) fn paint_char(ui: &Ui, char: char, font_size: f32, position: &Pos2, align: Align2, color: Color32) -> Rect
-{
-	let rect = ui.painter().text(
-		*position,
-		align,
-		char,
-		FontId::new(font_size, FontFamily::Proportional),
-		color);
-	rect
 }
 
 #[inline]
@@ -450,11 +682,74 @@ pub(super) fn scale_font_size(font_size: u8, scale: f32) -> f32
 	}
 }
 
-pub(super) fn create_render(render_type: &str) -> Box<dyn GuiRender>
+#[inline]
+pub(super) fn vline(cairo: &CairoContext, x: f32, top: f32, bottom: f32, stroke_width: f32, color: &Color32)
 {
-	if render_type == "han" {
+	let x = x as f64;
+	color.apply(cairo);
+	cairo.move_to(x, top as f64);
+	cairo.line_to(x, bottom as f64);
+	cairo.set_line_width(stroke_width as f64);
+	handle_cairo(cairo.stroke());
+}
+
+#[inline]
+pub(super) fn hline(cairo: &CairoContext, left: f32, right: f32, y: f32, stroke_width: f32, color: &Color32)
+{
+	let y = y as f64;
+	color.apply(cairo);
+	cairo.move_to(left as f64, y);
+	cairo.line_to(right as f64, y);
+	cairo.set_line_width(stroke_width as f64);
+	handle_cairo(cairo.stroke());
+}
+
+#[inline]
+pub(super) fn draw_rect(cairo: &CairoContext, rect: &Rect, stroke_width: f32, color: &Color32)
+{
+	color.apply(cairo);
+	cairo.set_line_width(stroke_width as f64);
+	let size = rect.size();
+	cairo.rectangle(rect.min.x as f64, rect.min.y as f64, size.x as f64, size.y as f64);
+	handle_cairo(cairo.fill());
+}
+
+#[inline]
+pub(super) fn handle_cairo<T>(result: Result<T, cairo::Error>)
+{
+	if let Err(err) = result {
+		println!("Failed cairo call: {}", err.to_string());
+	}
+}
+
+pub(super) fn create_render(render_han: bool) -> Box<dyn GuiRender>
+{
+	if render_han {
 		Box::new(GuiHanRender::new())
 	} else {
 		Box::new(GuiXiRender::new())
+	}
+}
+
+#[inline(always)]
+fn set_pango_font_size(font_size: i32, layout: &PangoContext)
+{
+	let mut description = FontDescription::new();
+	description.set_size(font_size * PANGO_SCALE);
+	layout.set_font_description(Some(&description));
+}
+
+#[inline]
+fn draw_char(cairo: &CairoContext, draw_data: &CharDrawData, position: &Pos2,
+	color: &Color32, layout: &PangoContext)
+{
+	match draw_data {
+		CharDrawData::Outline(data) => {
+			data.draw(cairo, position.x, position.y, &color);
+		}
+		CharDrawData::Pango(data) => {
+			data.draw(cairo, position.x, position.y, &color, layout);
+		}
+		CharDrawData::Space(_) => {}
 	}
 }

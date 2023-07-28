@@ -7,8 +7,8 @@ use cursive::traits::Resizable;
 use cursive::view::{Nameable, SizeConstraint};
 use cursive::views::{EditView, LinearLayout, OnEventView, TextView, ViewRef};
 
-use crate::{Configuration, ReadingInfo, ThemeEntry, version_string, description, version};
-use crate::common::{get_theme, reading_info};
+use crate::{Configuration, ReadingInfo, version_string, description, version, Themes};
+use crate::common::reading_info;
 use crate::list::{list_dialog, ListIterator};
 use view::ReadingView;
 
@@ -24,10 +24,10 @@ const GOTO_LABEL_TEXT: &str = "Goto line: ";
 
 struct TerminalContext {
 	configuration: Configuration,
-	theme_entries: Vec<ThemeEntry>,
+	themes: Themes,
 }
 
-pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -> Result<()> {
+pub fn start(mut configuration: Configuration, themes: Themes) -> Result<()> {
 	if configuration.current.is_none() {
 		return Err(anyhow!("No file to open."));
 	}
@@ -35,10 +35,10 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 	println!("Loading {} ...", current);
 	let (_history, reading) = reading_info(&mut configuration.history, current);
 	let mut app = Cursive::new();
-	let theme = get_theme(&configuration.theme_name, &theme_entries)?;
+	let theme = themes.get(configuration.dark_theme);
 	app.set_theme(theme.clone());
-	let reading_view = ReadingView::new(&configuration.render_type, reading.clone())?;
-	app.set_user_data(TerminalContext { configuration, theme_entries });
+	let reading_view = ReadingView::new(configuration.render_han, reading.clone())?;
+	app.set_user_data(TerminalContext { configuration, themes });
 	let status_view = LinearLayout::horizontal()
 		.child(TextView::new(&reading_view.status_msg())
 			.no_wrap()
@@ -54,7 +54,7 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>) -
 			.on_event('g', |s| goto_line(s))
 			.on_event('b', |s| select_book(s))
 			.on_event('h', |s| select_history(s))
-			.on_event('t', |s| select_theme(s))
+			.on_event('t', |s| switch_theme(s))
 			.on_event('c', move |s| {
 				let reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
 				let book = reading_view.reading_book();
@@ -99,11 +99,8 @@ fn switch_render(s: &mut Cursive) {
 	let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
 	s.with_user_data(|controller_context: &mut TerminalContext| {
 		let configuration = &mut controller_context.configuration;
-		configuration.render_type = String::from(match configuration.render_type.as_str() {
-			"han" => "xi",
-			_ => "han",
-		});
-		reading_view.switch_render(&configuration.render_type);
+		configuration.render_han = !configuration.render_han;
+		reading_view.switch_render(configuration.render_han);
 	});
 }
 
@@ -180,39 +177,14 @@ fn select_history(s: &mut Cursive)
 	}
 }
 
-fn select_theme(s: &mut Cursive) {
-	let option = s.with_user_data(|controller_context: &mut TerminalContext| {
-		let configuration = &mut controller_context.configuration;
-		let theme_entries = &controller_context.theme_entries;
-		if theme_entries.len() <= 1 {
-			return None;
-		}
-		let mut themes = vec![];
-		for (idx, entry) in theme_entries.iter().enumerate() {
-			if entry.0.eq(&configuration.theme_name) {
-				continue;
-			}
-			themes.push((&entry.0, idx));
-		}
-		let li = ListIterator::new(|position| {
-			let entry = themes.get(position)?;
-			Some((entry.0, entry.1))
-		});
-		let dialog = list_dialog("Select theme", li, 0, |s, selected| {
-			let theme = s.with_user_data(|controller_context: &mut TerminalContext| {
-				let theme_entries = &controller_context.theme_entries;
-				controller_context.configuration.theme_name = theme_entries[selected].0.clone();
-				let theme = &theme_entries[selected].1;
-				theme.clone()
-			}).unwrap();
-			s.set_theme(theme.clone());
-		});
-		Some(dialog)
+fn switch_theme(s: &mut Cursive) {
+	let theme = s.with_user_data(|controller_context: &mut TerminalContext| {
+		let dark = !controller_context.configuration.dark_theme;
+		controller_context.configuration.dark_theme = dark;
+		let theme = controller_context.themes.get(dark);
+		theme.clone()
 	}).unwrap();
-	match option {
-		Some(dialog) => s.add_layer(dialog),
-		None => (),
-	}
+	s.set_theme(theme.clone());
 }
 
 fn update_status(s: &mut Cursive, msg: &str) {

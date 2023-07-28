@@ -1,45 +1,59 @@
+use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
-use std::io::{BufReader, Cursor, Read};
+use std::io::Read;
 use std::ops::Index;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use ab_glyph::FontVec;
 
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
-use eframe::{egui, IconData};
-use eframe::egui::{Button, FontData, FontDefinitions, Frame, ImageButton, Pos2, Rect, Response, TextureId, Ui, Vec2, Widget};
-use eframe::glow::Context;
-use egui::{Align, Area, DroppedFile, Key, Modifiers, Order, RichText, ScrollArea, TextEdit, TextStyle};
-use egui_extras::RetainedImage;
-use image::{DynamicImage, ImageFormat};
-use image::imageops::FilterType;
+use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, SearchEntry, Stack, Window};
+use gtk4::gdk::{Display, DragAction, Key, ModifierType};
+use gtk4::gdk_pixbuf::Pixbuf;
+use gtk4::gio::{Cancellable, File, ListStore, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
+use gtk4::glib;
+use gtk4::glib::{Bytes, closure_local, ExitCode, Object, ObjectExt, StaticType};
+use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, PopoverExt, WidgetExt};
+use resvg::{tiny_skia, usvg};
+use resvg::usvg::TreeParsing;
 
-use crate::{Asset, Color32, Configuration, I18n, ReadingInfo, ThemeEntry};
+use crate::{Asset, PathConfig, Configuration, I18n, package_name, ReadingInfo, Themes};
 use crate::book::{Book, Colors, Line};
-use crate::common::{get_theme, reading_info, txt_lines};
+use crate::color::Color32;
+use crate::common::{Position, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::Controller;
+use crate::gui::render::RenderContext;
 use crate::gui::dict::DictionaryManager;
-use crate::gui::settings::SettingsData;
-use crate::gui::view::{GuiView, ViewAction};
+use crate::gui::view::GuiView;
 
 mod render;
-mod settings;
 mod dict;
 mod view;
+mod math;
+mod settings;
+mod chapter_list;
 
-const ICON_SIZE: Vec2 = Vec2 { x: 32.0, y: 32.0 };
-const INLINE_ICON_SIZE: Vec2 = Vec2 { x: 16.0, y: 16.0 };
-const APP_ICON_SIZE: u32 = 48;
+const APP_ID: &str = "net.lzrj.tbr";
+const ICON_SIZE: i32 = 32;
+const INLINE_ICON_SIZE: i32 = 16;
 const MIN_FONT_SIZE: u8 = 20;
 const MAX_FONT_SIZE: u8 = 50;
 const FONT_FILE_EXTENSIONS: [&str; 3] = ["ttf", "otf", "ttc"];
-const MIN_SIDEBAR_WIDTH: f32 = 300.0;
+const SIDEBAR_CHAPTER_LIST_NAME: &str = "chapter_list";
+const SIDEBAR_DICT_NAME: &str = "dictionary_list";
+const BOOK_NAME_LABEL_CLASS: &str = "book-name";
+const TOC_LABEL_CLASS: &str = "toc";
+const COPY_CONTENT_KEY: &str = "copy-content";
+const DICT_LOOKUP_KEY: &str = "lookup-dictionary";
 
 const README_TEXT_FILENAME: &str = "readme";
+
+type GuiController = Controller<RenderContext, GuiView>;
+type IconMap = HashMap<String, Pixbuf>;
 
 struct ReadmeContainer {
 	book_names: Vec<BookName>,
@@ -93,21 +107,6 @@ impl Book for ReadmeBook
 	}
 }
 
-fn load_icons() -> Result<HashMap<String, RetainedImage>>
-{
-	const ICONS_PREFIX: &str = "gui/image/";
-	let mut map = HashMap::new();
-	for file in Asset::iter() {
-		if file.starts_with("gui/image/") && file.ends_with(".svg") {
-			let content = Asset::get(file.as_ref()).unwrap().data;
-			let retained_image = RetainedImage::from_svg_bytes(file.to_string(), &content).unwrap();
-			let name = &file[ICONS_PREFIX.len()..];
-			map.insert(name.to_string(), retained_image);
-		}
-	}
-	Ok(map)
-}
-
 fn convert_colors(theme: &Theme) -> Colors
 {
 	fn convert_base(base_color: &BaseColor) -> Color32
@@ -141,821 +140,149 @@ fn convert_colors(theme: &Theme) -> Colors
 	Colors { color, background, highlight, highlight_background, link }
 }
 
-fn insert_font(fonts: &mut FontDefinitions, name: &str, font_data: FontData)
+fn setup_fonts(font_paths: &Vec<PathConfig>) -> Result<Option<Vec<FontVec>>>
 {
-	fonts.font_data.insert(name.to_string(), font_data);
-
-	fonts.families
-		.entry(egui::FontFamily::Proportional)
-		.or_default()
-		.insert(0, name.to_string());
-
-	fonts.families
-		.entry(egui::FontFamily::Monospace)
-		.or_default()
-		.insert(0, name.to_string());
-}
-
-#[derive(PartialEq)]
-enum SidebarList {
-	Chapter(bool),
-	Dictionary,
-	Font,
-}
-
-enum AppStatus {
-	Startup,
-	Normal(String),
-	Error(String, u64),
-}
-
-fn setup_fonts(ctx: &egui::Context, font_paths: &Vec<PathBuf>) -> Result<()>
-{
-	let mut fonts = FontDefinitions::default();
 	if font_paths.is_empty() {
-		let content = Asset::get("font/wqy-zenhei.ttc")
-			.unwrap()
-			.data
-			.as_ref()
-			.to_vec();
-		insert_font(&mut fonts, "embedded", FontData::from_owned(content));
+		Ok(None)
 	} else {
-		for path in font_paths {
-			let mut file = OpenOptions::new().read(true).open(path)?;
-			let mut buf = vec![];
-			file.read_to_end(&mut buf)?;
-			let filename = path.file_name().unwrap().to_str().unwrap();
-			insert_font(&mut fonts, filename, FontData::from_owned(buf));
-		}
-	}
-	ctx.set_fonts(fonts);
-	Ok(())
-}
-
-enum GuiCommand {
-	PageDown,
-	PageUp,
-	StepForward,
-	StepBackward,
-	TraceForward,
-	TraceBackward,
-	SearchForward,
-	SearchBackward,
-	// can not disable tab for navigate between view and search box
-	// NextLink, PrevLink,
-	TryGotoLink,
-	ChapterBegin,
-	ChapterEnd,
-	NextChapter,
-	PrevChapter,
-	ClearHeightLight,
-	CopyHeightLight,
-
-	OpenDroppedFile(PathBuf),
-}
-
-enum DialogData {
-	Setting(SettingsData),
-}
-
-struct ReaderApp {
-	configuration: Configuration,
-	theme_entries: Vec<ThemeEntry>,
-	i18n: I18n,
-	images: Rc<HashMap<String, RetainedImage>>,
-	controller: Controller<Ui, GuiView>,
-
-	status: AppStatus,
-	current_toc: usize,
-	popup_menu: Option<Pos2>,
-	sidebar: bool,
-	sidebar_list: SidebarList,
-	dialog: Option<DialogData>,
-	input_search: bool,
-	search_pattern: String,
-	dropdown: bool,
-	dictionary: DictionaryManager,
-
-	colors: Colors,
-}
-
-impl ReaderApp {
-	#[inline]
-	fn error(&mut self, error: String)
-	{
-		self.status = AppStatus::Error(error, ts());
-	}
-
-	#[inline]
-	fn update_status(&mut self, status: String)
-	{
-		if let AppStatus::Error(_, start) = &self.status {
-			if ts() - start < 5 {
-				return;
+		let mut fonts = vec![];
+		for config in font_paths {
+			if config.enabled {
+				let mut file = OpenOptions::new().read(true).open(&config.path)?;
+				let mut buf = vec![];
+				file.read_to_end(&mut buf)?;
+				fonts.push(FontVec::try_from_vec(buf)?);
 			}
 		}
-		self.current_toc = self.controller.toc_index();
-		self.status = AppStatus::Normal(status);
-	}
-
-	#[inline]
-	fn copy_selected(&self, ui: &mut Ui)
-	{
-		if let Some(selected_text) = self.controller.selected() {
-			ui.output_mut(|output| output.copied_text = selected_text.to_owned());
-		}
-	}
-
-	#[inline]
-	fn dictionary_lookup(&mut self)
-	{
-		if let Some(selected_text) = self.controller.selected() {
-			self.dictionary.set_word(selected_text.trim().to_owned());
-		}
-	}
-
-	fn setup_sidebar(&mut self, ui: &mut Ui, width: f32)
-	{
-		egui::menu::bar(ui, |ui| {
-			let chapter_text = self.i18n.msg("tab-chapter");
-			let text = RichText::new(chapter_text.as_ref())
-				.text_style(TextStyle::Heading);
-			ui.selectable_value(
-				&mut self.sidebar_list,
-				SidebarList::Chapter(true),
-				text);
-
-			let dictionary_text = self.i18n.msg("tab-dictionary");
-			let text = RichText::new(dictionary_text.as_ref())
-				.text_style(TextStyle::Heading);
-			ui.selectable_value(
-				&mut self.sidebar_list,
-				SidebarList::Dictionary,
-				text);
-
-			let font_text = self.i18n.msg("tab-font");
-			let text = RichText::new(font_text.as_ref())
-				.text_style(TextStyle::Heading);
-			ui.selectable_value(
-				&mut self.sidebar_list,
-				SidebarList::Font,
-				text);
-		});
-		let mut scroll_area = ScrollArea::vertical().max_width(width);
-		if matches!(self.sidebar_list, SidebarList::Dictionary) {
-			egui::menu::bar(ui, |ui|
-				self.dictionary.render_toolbar(
-					self.configuration.gui.font_size as f32,
-					&self.i18n, ui));
-			scroll_area = scroll_area.drag_to_scroll(false);
-			if let Some(offset) = self.dictionary.reset_offset() {
-				scroll_area = scroll_area.scroll_offset(offset);
-			}
-		}
-		scroll_area.show_viewport(ui, |ui, view_rect| {
-			match self.sidebar_list {
-				SidebarList::Chapter(init) => {
-					let mut selected_book = None;
-					let mut selected_toc = None;
-					for (index, bn) in self.controller.container.inner_book_names().iter().enumerate() {
-						let bookname = bn.name();
-						if bookname == README_TEXT_FILENAME {
-							break;
-						}
-						if index == self.controller.reading.inner_book {
-							ui.heading(RichText::from(bookname).color(Color32::LIGHT_RED));
-							if let Some(toc) = self.controller.book.toc_iterator() {
-								for (title, value) in toc {
-									let current = self.current_toc == value;
-									let label = ui.selectable_label(current, title);
-									if current && init {
-										self.sidebar_list = SidebarList::Chapter(false);
-										label.scroll_to_me(Some(Align::Center));
-									}
-									if label.clicked() {
-										selected_toc = Some(value);
-									}
-								}
-							}
-						} else if ui.button(RichText::from(bookname).heading()).clicked() {
-							selected_book = Some(index);
-						}
-					}
-					if let Some(index) = selected_book {
-						let new_reading = ReadingInfo::new(&self.controller.reading.filename)
-							.with_inner_book(index);
-						let msg = self.controller.switch_book(new_reading, ui);
-						self.update_status(msg);
-					} else if let Some(index) = selected_toc {
-						if let Some(msg) = self.controller.goto_toc(index, ui) {
-							self.update_status(msg);
-						}
-					}
-				}
-				SidebarList::Dictionary => self.dictionary.render(
-					&view_rect, self.configuration.gui.font_size,
-					&self.i18n, ui),
-				SidebarList::Font => {
-					let mut font_deleted = None;
-					let font_remove_id = image(&self.images, ui.ctx(), "remove.svg");
-					ui.horizontal(|ui| {
-						let font_add_id = image(&self.images, ui.ctx(), "add.svg");
-						if ImageButton::new(font_add_id, INLINE_ICON_SIZE).ui(ui).clicked() {
-							let dialog = rfd::FileDialog::new()
-								.add_filter(self.i18n.msg("font-file").as_ref(), &FONT_FILE_EXTENSIONS);
-							if let Some(paths) = dialog.pick_files() {
-								let mut new_fonts = self.configuration.gui.fonts.clone();
-								'outer:
-								for path in paths {
-									for font in &new_fonts {
-										if *font == path {
-											continue 'outer;
-										}
-									}
-									new_fonts.push(path)
-								}
-								if new_fonts.len() != self.configuration.gui.fonts.len() {
-									match setup_fonts(ui.ctx(), &new_fonts) {
-										Ok(_) => self.configuration.gui.fonts = new_fonts,
-										Err(e) => {
-											let error = self.i18n.args_msg("font-fail", vec![
-												("error", e.to_string())
-											]);
-											self.error(error);
-										}
-									}
-								}
-							}
-						}
-						ui.label(self.i18n.msg("font-demo").as_ref());
-					});
-					for i in (0..self.configuration.gui.fonts.len()).rev() {
-						let font = self.configuration.gui.fonts[i].to_str().unwrap();
-						ui.horizontal(|ui| {
-							if ImageButton::new(font_remove_id, INLINE_ICON_SIZE).ui(ui).clicked() {
-								font_deleted = Some(i);
-							}
-							ui.label(font);
-						});
-					}
-					if let Some(font_deleted) = font_deleted {
-						self.configuration.gui.fonts.remove(font_deleted);
-						if let Err(e) = setup_fonts(ui.ctx(), &self.configuration.gui.fonts) {
-							let error = self.i18n.args_msg("font-fail", vec![
-								("error", e.to_string())
-							]);
-							self.error(error);
-						}
-					}
-				}
-			}
-		});
-	}
-
-	fn setup_input(&mut self, response: &Response, frame: &mut eframe::Frame,
-		ui: &mut Ui) -> Result<bool>
-	{
-		if let Some(command) = response.ctx.input_mut(|input| {
-			if input.consume_key(Modifiers::NONE, Key::Space)
-				|| input.consume_key(Modifiers::NONE, Key::PageDown) {
-				return Some(GuiCommand::PageDown);
-			} else if input.consume_key(Modifiers::SHIFT, Key::Space)
-				|| input.consume_key(Modifiers::NONE, Key::PageUp) {
-				return Some(GuiCommand::PageUp);
-			} else if input.consume_key(Modifiers::NONE, Key::ArrowDown) {
-				return Some(GuiCommand::StepForward);
-			} else if input.consume_key(Modifiers::NONE, Key::ArrowUp) {
-				return Some(GuiCommand::StepBackward);
-			} else if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
-				return Some(GuiCommand::TraceBackward);
-			} else if input.consume_key(Modifiers::NONE, Key::ArrowRight) {
-				return Some(GuiCommand::TraceForward);
-			} else if input.consume_key(Modifiers::NONE, Key::N) {
-				return Some(GuiCommand::SearchForward);
-			} else if input.consume_key(Modifiers::SHIFT, Key::N) {
-				return Some(GuiCommand::SearchBackward);
-				// } else if input.consume_key(Modifiers::SHIFT, Key::Tab) {
-				// 	Some(GuiCommand::PrevLink)
-				// } else if input.consume_key(Modifiers::NONE, Key::Tab) {
-				// 	Some(GuiCommand::NextLink)
-			} else if input.consume_key(Modifiers::NONE, Key::C) {
-				if self.sidebar && matches!(self.sidebar_list, SidebarList::Chapter(_)) {
-					self.sidebar = false;
-				} else {
-					self.sidebar = true;
-					self.sidebar_list = SidebarList::Chapter(true);
-				}
-			} else if input.consume_key(Modifiers::NONE, Key::D) {
-				if self.sidebar && matches!(self.sidebar_list, SidebarList::Dictionary) {
-					self.sidebar = false;
-				} else {
-					self.sidebar = true;
-					self.sidebar_list = SidebarList::Dictionary;
-				}
-			} else if input.consume_key(Modifiers::NONE, Key::Enter) {
-				return Some(GuiCommand::TryGotoLink);
-			} else if input.consume_key(Modifiers::NONE, Key::Home) {
-				if self.controller.reading.line != 0 || self.controller.reading.position != 0 {
-					return Some(GuiCommand::ChapterBegin);
-				}
-			} else if input.consume_key(Modifiers::NONE, Key::End) {
-				return Some(GuiCommand::ChapterEnd);
-			} else if input.consume_key(Modifiers::CTRL, Key::D) {
-				return Some(GuiCommand::NextChapter);
-			} else if input.consume_key(Modifiers::CTRL, Key::B) {
-				return Some(GuiCommand::PrevChapter);
-			} else if input.consume_key(Modifiers::CTRL, Key::ArrowUp) {
-				if self.configuration.gui.font_size < MAX_FONT_SIZE {
-					self.configuration.gui.font_size += 2;
-				}
-			} else if input.consume_key(Modifiers::CTRL, Key::ArrowDown) {
-				if self.configuration.gui.font_size > MIN_FONT_SIZE {
-					self.configuration.gui.font_size -= 2;
-				}
-			} else if input.consume_key(Modifiers::NONE, Key::Escape) {
-				if self.sidebar {
-					self.sidebar = false;
-				} else if self.controller.selected().is_some() {
-					return Some(GuiCommand::ClearHeightLight);
-				}
-			} else if input.consume_key(Modifiers::CTRL, Key::C) {
-				return Some(GuiCommand::CopyHeightLight);
-			} else if input.consume_key(Modifiers::CTRL, Key::F) {
-				self.input_search = true;
-			} else if let Some(DroppedFile { path: Some(path), .. }) = input.raw.dropped_files.first() {
-				let path = path.clone();
-				return Some(GuiCommand::OpenDroppedFile(path));
-			}
-			None
-		}) {
-			match command {
-				GuiCommand::PageDown => self.controller.next_page(ui)?,
-				GuiCommand::PageUp => self.controller.prev_page(ui)?,
-				GuiCommand::StepForward => self.controller.step_next(ui),
-				GuiCommand::StepBackward => self.controller.step_prev(ui),
-				GuiCommand::TraceForward => self.controller.goto_trace(false, ui)?,
-				GuiCommand::TraceBackward => self.controller.goto_trace(true, ui)?,
-				GuiCommand::SearchForward => self.controller.search_again(true, ui)?,
-				GuiCommand::SearchBackward => self.controller.search_again(false, ui)?,
-				// GuiCommand::NextLink => self.controller.switch_link_next(ui),
-				// GuiCommand::PrevLink => self.controller.switch_link_prev(ui),
-				GuiCommand::TryGotoLink => self.controller.try_goto_link(ui)?,
-				GuiCommand::ChapterBegin => self.controller.redraw_at(0, 0, ui),
-				GuiCommand::ChapterEnd => { self.controller.goto_end(ui); }
-				GuiCommand::NextChapter => { self.controller.switch_chapter(true, ui)?; }
-				GuiCommand::PrevChapter => { self.controller.switch_chapter(false, ui)?; }
-				GuiCommand::ClearHeightLight => self.controller.clear_highlight(ui),
-				GuiCommand::CopyHeightLight => self.copy_selected(ui),
-				GuiCommand::OpenDroppedFile(path) => self.open_file(path, frame, ui),
-			}
-			Ok(true)
-		} else {
-			Ok(false)
-		}
-	}
-
-	fn setup_toolbar(&mut self, frame: &mut eframe::Frame, ui: &mut Ui)
-	{
-		let sidebar = self.sidebar;
-		let sidebar_id = image(&self.images, ui.ctx(), if sidebar { "sidebar_off.svg" } else { "sidebar_on.svg" });
-		if ImageButton::new(sidebar_id, ICON_SIZE).ui(ui).clicked() {
-			self.sidebar = !sidebar;
-			if self.sidebar && matches!(self.sidebar_list, SidebarList::Chapter(false)) {
-				self.sidebar_list = SidebarList::Chapter(true);
-			}
-		}
-
-		self.setup_history_button(frame, ui);
-
-		let setting_id = image(&self.images, ui.ctx(), "setting.svg");
-		if ImageButton::new(setting_id, ICON_SIZE).ui(ui).clicked() {
-			self.dialog = Some(DialogData::Setting(SettingsData::new(
-				&self.theme_entries,
-				&self.configuration.theme_name,
-				&self.i18n,
-				&self.configuration.gui.lang,
-				&self.configuration.gui.dictionary_data_path,
-			)));
-		}
-
-		match &mut self.dialog {
-			Some(DialogData::Setting(settings_data)) =>
-				if settings::show(ui, settings_data, &self.i18n) {
-					if self.approve_settings() {
-						self.controller.redraw(ui);
-					}
-					self.dialog = None;
-				}
-			None => {}
-		}
-
-		let mut redraw = false;
-		let (render_type_id, render_type_tooltip) = if self.configuration.render_type == "han" {
-			let id = image(&self.images, ui.ctx(), "render_xi.svg");
-			let tooltip = self.i18n.msg("render-xi");
-			(id, tooltip)
-		} else {
-			let id = image(&self.images, ui.ctx(), "render_han.svg");
-			let tooltip = self.i18n.msg("render-han");
-			(id, tooltip)
-		};
-		if ImageButton::new(render_type_id, ICON_SIZE)
-			.ui(ui)
-			.on_hover_text_at_pointer(render_type_tooltip)
-			.clicked() {
-			let render_type = if self.configuration.render_type == "han" {
-				"xi"
-			} else {
-				"han"
-			};
-			self.configuration.render_type = render_type.to_owned();
-			self.controller.render.reload_render(render_type);
-			redraw = true;
-		}
-
-		let (custom_color_id, custom_color_tooltip) = if self.controller.reading.custom_color {
-			let id = image(&self.images, ui.ctx(), "custom_color_off.svg");
-			let tooltip = self.i18n.msg("no-custom-color");
-			(id, tooltip)
-		} else {
-			let id = image(&self.images, ui.ctx(), "custom_color_on.svg");
-			let tooltip = self.i18n.msg("with-custom-color");
-			(id, tooltip)
-		};
-		if ImageButton::new(custom_color_id, ICON_SIZE)
-			.ui(ui)
-			.on_hover_text_at_pointer(custom_color_tooltip)
-			.clicked() {
-			self.controller.reading.custom_color = !self.controller.reading.custom_color;
-			self.controller.render.set_custom_color(self.controller.reading.custom_color);
-			redraw = true;
-		}
-		if redraw {
-			self.controller.redraw(ui);
-		}
-
-		let file_open_id = image(&self.images, ui.ctx(), "file_open.svg");
-		if ImageButton::new(file_open_id, ICON_SIZE).ui(ui).clicked() {
-			let mut dialog = rfd::FileDialog::new();
-			if self.controller.reading.filename != README_TEXT_FILENAME {
-				let mut path = PathBuf::from(&self.controller.reading.filename);
-				if path.pop() && path.is_dir() {
-					dialog = dialog.set_directory(path);
-				}
-			}
-			if let Some(path) = dialog.pick_file() {
-				self.open_file(path, frame, ui);
-			}
-		}
-
-		let search_id = image(&self.images, ui.ctx(), "search.svg");
-		ui.image(search_id, ICON_SIZE);
-		let search_edit = ui.add(TextEdit::singleline(&mut self.search_pattern)
-			.desired_width(100.0)
-			.hint_text(self.i18n.msg("search-hint").as_ref())
-			.id_source("search_text"));
-		if self.input_search {
-			if search_edit.ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Enter)) {
-				self.do_search(ui);
-			}
-			if search_edit.clicked_elsewhere() {
-				self.input_search = false;
-			}
-		}
-		if search_edit.lost_focus() {
-			self.input_search = false;
-		}
-		if search_edit.gained_focus() {
-			self.input_search = true;
-		}
-		if self.input_search {
-			search_edit.request_focus();
-		};
-
-		let status_msg = match &self.status {
-			AppStatus::Startup => RichText::from("Starting...").color(Color32::GREEN),
-			AppStatus::Normal(status) => RichText::from(status).color(Color32::BLUE),
-			AppStatus::Error(error, _) => RichText::from(error).color(Color32::RED),
-		};
-		ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-			ui.label(status_msg);
-		});
-	}
-
-	fn setup_history_button(&mut self, frame: &mut eframe::Frame, ui: &mut Ui)
-	{
-		let history_id = image(&self.images, ui.ctx(), "history.svg");
-		let history_popup = ui.make_persistent_id("history_popup");
-		let history_button = ImageButton::new(history_id, ICON_SIZE).ui(ui);
-		if history_button.clicked() {
-			ui.memory_mut(|memory| memory.toggle_popup(history_popup));
-		}
-		self.dropdown = egui::popup::popup_below_widget(ui, history_popup, &history_button, |ui| {
-			ui.set_max_width(400.0);
-			let size = self.configuration.history.len();
-			let start = if size < 20 {
-				0
-			} else {
-				size - 20
-			};
-			for i in (start..size).rev() {
-				let path_str = &self.configuration.history[i].filename;
-				let path = PathBuf::from(path_str);
-				if path.exists() {
-					if let Some(file_name) = path.file_name() {
-						if let Some(text) = file_name.to_str() {
-							if ui.button(text)
-								.on_hover_text_at_pointer(path.to_str().unwrap())
-								.clicked() {
-								self.open_file(path, frame, ui);
-							}
-						}
-					}
-				}
-			}
-		}).is_some();
-	}
-
-	fn setup_popup(&mut self, response: &Response, ctx: &egui::Context, ui: &mut Ui)
-	{
-		let rect = &response.rect;
-		if let Some(mut pos) = self.popup_menu {
-			if ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape)) {
-				self.popup_menu = None;
-			} else {
-				let text_view_popup = ui.make_persistent_id("text_view_popup");
-				let popup_response = Area::new(text_view_popup)
-					.order(Order::Foreground)
-					.fixed_pos(pos)
-					.drag_bounds(Rect::EVERYTHING)
-					.show(ctx, |ui| {
-						Frame::popup(&ctx.style())
-							.show(ui, |ui| {
-								let texture_id = image(&self.images, ctx, "copy.svg");
-								let text = self.i18n.msg("copy-content");
-								if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
-									self.copy_selected(ui);
-									self.popup_menu = None;
-								}
-								let texture_id = image(&self.images, ctx, "dict.svg");
-								let text = self.i18n.msg("lookup-dictionary");
-								if Button::image_and_text(texture_id, ICON_SIZE, text).ui(ui).clicked() {
-									self.dictionary_lookup();
-									self.sidebar = true;
-									self.sidebar_list = SidebarList::Dictionary;
-									self.popup_menu = None;
-								}
-								// let texture_id = self.image("bookmark.svg");
-								// Button::image_and_text(texture_id, ICON_SIZE, "增加书签").ui(ui);
-							}).inner
-					}).response;
-				let repos = if popup_response.rect.max.x > rect.max.x {
-					pos.x -= popup_response.rect.max.x - rect.max.x;
-					if popup_response.rect.max.y > rect.max.y {
-						pos.y -= popup_response.rect.max.y - rect.max.y;
-					}
-					true
-				} else if popup_response.rect.max.y > rect.max.y {
-					pos.y -= popup_response.rect.max.y - rect.max.y;
-					true
-				} else {
-					false
-				};
-				if repos {
-					self.popup_menu = Some(pos);
-				}
-				if response.clicked() || response.clicked_elsewhere() {
-					self.popup_menu = None;
-				}
-			}
-		}
-	}
-
-	fn approve_settings(&mut self) -> bool
-	{
-		if let Some(DialogData::Setting(settings)) = &mut self.dialog {
-			let mut redraw = false;
-			if self.configuration.theme_name != settings.theme_name {
-				for theme in &self.theme_entries {
-					if theme.0 == settings.theme_name {
-						self.configuration.theme_name = settings.theme_name.clone();
-						self.colors = convert_colors(&theme.1);
-						self.controller.render.set_colors(self.colors.clone());
-						redraw = true;
-					}
-				}
-			}
-			if self.configuration.gui.lang != settings.locale.locale {
-				if let Ok(()) = self.i18n.set_locale(&settings.locale.locale) {
-					self.configuration.gui.lang = settings.locale.locale.clone();
-				}
-			}
-
-			if settings.dictionary_data_path.is_empty() {
-				if self.configuration.gui.dictionary_data_path.is_some() {
-					self.configuration.gui.dictionary_data_path = None;
-					self.dictionary.reload(&self.configuration.gui.dictionary_data_path);
-				}
-			} else {
-				if let Ok(dictionary_data_path) = PathBuf::from_str(&settings.dictionary_data_path) {
-					let dictionary_data_path = Some(dictionary_data_path);
-					if self.configuration.gui.dictionary_data_path != dictionary_data_path {
-						self.configuration.gui.dictionary_data_path = dictionary_data_path;
-						self.dictionary.reload(&self.configuration.gui.dictionary_data_path);
-					}
-				}
-			}
-			redraw
-		} else {
-			false
-		}
-	}
-
-	fn do_search(&mut self, ui: &mut Ui)
-	{
-		if let Err(e) = self.controller.search(&self.search_pattern, ui) {
-			self.error(e.to_string());
-		} else {
-			self.update_status(self.controller.status_msg());
-		}
-		self.input_search = false;
-	}
-
-	fn open_file(&mut self, path: PathBuf, frame: &mut eframe::Frame,
-		ui: &mut Ui)
-	{
-		if let Ok(absolute_path) = path.canonicalize() {
-			if let Some(filepath) = absolute_path.to_str() {
-				if filepath != self.controller.reading.filename {
-					let reading_now = self.controller.reading.clone();
-					let (history, new_reading) = reading_info(&mut self.configuration.history, filepath);
-					let history_entry = if history { Some(new_reading.clone()) } else { None };
-					match self.controller.switch_container(new_reading, ui) {
-						Ok(msg) => {
-							self.configuration.history.push(reading_now);
-							update_title(frame, &self.controller.reading.filename);
-							self.update_status(msg)
-						}
-						Err(e) => {
-							if let Some(history_entry) = history_entry {
-								self.configuration.history.push(history_entry);
-							}
-							self.error(e.to_string())
-						}
-					}
-				}
-			}
-		}
+		Ok(Some(fonts))
 	}
 }
 
-impl eframe::App for ReaderApp {
-	fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-		egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
-			egui::menu::bar(ui, |ui| {
-				self.setup_toolbar(frame, ui);
-			});
-		});
-
-		if self.sidebar {
-			let width = ctx.available_rect().width();
-			let mut max = width / 2.0;
-			if max < MIN_SIDEBAR_WIDTH {
-				max = MIN_SIDEBAR_WIDTH;
-			}
-			let mut min = width / 4.0;
-			if min < MIN_SIDEBAR_WIDTH {
-				min = MIN_SIDEBAR_WIDTH;
-			}
-			egui::SidePanel::left("sidebar")
-				.default_width(min)
-				.width_range(min..=max)
-				.show(ctx, |ui| {
-					self.setup_sidebar(ui, ui.available_width());
-				});
-		}
-
-		egui::CentralPanel::default().frame(Frame::default().fill(self.colors.background)).show(ctx, |ui| {
-			if matches!(self.status, AppStatus::Startup) {
-				self.controller.book_loaded(ui);
-				self.update_status(self.controller.status_msg());
-			}
-			let detect_actions = self.popup_menu.is_none()
-				&& !self.dropdown
-				&& self.dialog.is_none();
-			let (response, redraw, action) = self.controller.render.show(
-				ui,
-				self.configuration.gui.font_size,
-				self.controller.book.as_ref(),
-				detect_actions,
-				None);
-			match action {
-				ViewAction::Goto(line, link_index) => if let Err(e) = self.controller.goto_link(line, link_index, ui) {
-					self.error(e.to_string());
-				} else {
-					self.update_status(self.controller.status_msg());
-				}
-				ViewAction::SelectText(from, to) => if let Some((from, to)) = self.controller.render.calc_selection(from, to) {
-					self.controller.select_text(from, to, ui)
-				} else {
-					self.controller.clear_highlight(ui);
-				}
-				ViewAction::TextSelectedDone => if self.sidebar && matches!(self.sidebar_list, SidebarList::Dictionary) {
-					self.dictionary_lookup();
-				}
-				ViewAction::StepBackward => self.controller.step_prev(ui),
-				ViewAction::StepForward => self.controller.step_next(ui),
-				ViewAction::ZoomUp => if self.configuration.gui.font_size < MAX_FONT_SIZE {
-					self.configuration.gui.font_size += 2;
-				}
-				ViewAction::ZoomDown => if self.configuration.gui.font_size > MIN_FONT_SIZE {
-					self.configuration.gui.font_size -= 2;
-				}
-				ViewAction::RightClick(pos) => if self.controller.selected().is_some() {
-					self.popup_menu = Some(pos);
-				}
-				ViewAction::None => {}
-			}
-
-			if !self.input_search
-				&& !self.dictionary.inputting
-				&& !self.dropdown
-				&& self.dialog.is_none() {
-				response.request_focus();
-				match self.setup_input(&response, frame, ui) {
-					Ok(action) => if action {
-						self.update_status(self.controller.status_msg());
-					}
-					Err(e) => self.error(e.to_string()),
-				}
-			}
-			self.setup_popup(&response, ctx, ui);
-
-			if redraw {
-				self.controller.redraw(ui);
-			}
-			self.controller.render.draw(ui);
-			response
-		});
-	}
-
-	fn on_exit(&mut self, _gl: Option<&Context>)
-	{
-		if self.controller.reading.filename != README_TEXT_FILENAME {
-			self.configuration.current = Some(self.controller.reading.filename.clone());
-			self.configuration.history.push(self.controller.reading.clone());
-		}
-		if let Err(e) = self.configuration.save() {
-			println!("Failed save configuration: {}", e.to_string());
-		}
-	}
-}
-
-fn app_icon() -> Option<IconData>
+pub(self) fn load_image(bytes: &[u8]) -> Option<Pixbuf>
 {
-	let bytes = Asset::get("gui/icon.png").unwrap().data;
-	let image = load_image("icon.png", &bytes)?;
-	let icon_image = image.resize(48, 48, FilterType::Nearest);
-	let image_buffer = icon_image.to_rgba8();
-	let pixels = image_buffer.as_flat_samples().as_slice().to_vec();
-	Some(IconData {
-		rgba: pixels,
-		width: APP_ICON_SIZE,
-		height: APP_ICON_SIZE,
-	})
+	let bytes = Bytes::from(bytes);
+	let stream = MemoryInputStream::from_bytes(&bytes);
+	let image = Pixbuf::from_stream(&stream, None::<&Cancellable>).ok()?;
+	Some(image)
 }
 
-pub(self) fn load_image(name: &str, bytes: &[u8]) -> Option<DynamicImage>
-{
-	let cursor = Cursor::new(bytes);
-	let reader = BufReader::new(cursor);
-	let format = match ImageFormat::from_path(name) {
-		Ok(f) => f,
-		Err(_) => return None,
-	};
-	match image::load(reader, format) {
-		Ok(image) => Some(image),
-		Err(_) => None,
+struct StatusUpdater {
+	status_bar: Label,
+	chapter_list: ListBox,
+	chapter_model: ListStore,
+}
+
+impl StatusUpdater {
+	fn new(status_bar: &Label) -> Self
+	{
+		let (chapter_list, chapter_model) = chapter_list::create();
+		StatusUpdater {
+			status_bar: status_bar.clone(),
+			chapter_list,
+			chapter_model,
+		}
+	}
+
+	#[inline]
+	fn update(&self, msg: &str, orig_inner_book: usize, controller: &GuiController)
+	{
+		self.message(msg);
+		self.sync_chapter_list(orig_inner_book, controller);
+	}
+
+	#[inline]
+	fn message(&self, msg: &str)
+	{
+		self.update_status(false, msg);
+	}
+
+	#[inline]
+	fn item(&self, position: u32) -> Option<Object>
+	{
+		self.chapter_model.item(position)
+	}
+
+	#[inline]
+	fn init(me: &Rc<Self>, ctrl: &Rc<RefCell<GuiController>>, ctx: &Rc<RefCell<RenderContext>>)
+	{
+		chapter_list::init(ctrl, ctx, &me.chapter_list, &me.chapter_model, me);
+	}
+
+	fn sync_chapter_list(&self, orig_inner_book: usize, controller: &GuiController)
+	{
+		let chapter_list = &self.chapter_list;
+		let chapter_model = &self.chapter_model;
+
+		let inner_book = controller.reading.inner_book;
+		if orig_inner_book != inner_book {
+			chapter_model.remove_all();
+			chapter_list::load_model(chapter_list, chapter_model, controller);
+			return;
+		}
+
+		let toc_index = controller.toc_index() as u64;
+		if let Some(row) = chapter_list.selected_row() {
+			let index = row.index();
+			if index >= 0 {
+				if let Some(obj) = chapter_model.item(index as u32) {
+					let entry = chapter_list::entry_cast(&obj);
+					if entry.index() == toc_index {
+						return;
+					}
+				}
+			}
+		}
+
+		for i in 0..chapter_model.n_items() {
+			if let Some(obj) = chapter_model.item(i) {
+				let entry = chapter_list::entry_cast(&obj);
+				if !entry.book() && entry.index() == toc_index {
+					if let Some(row) = chapter_list.row_at_index(i as i32) {
+						chapter_list.select_row(Some(&row));
+					}
+				}
+			}
+		}
+	}
+
+	#[inline]
+	fn error(&self, msg: &str)
+	{
+		self.update_status(true, msg);
+	}
+
+	fn update_status(&self, error: bool, msg: &str)
+	{
+		if error {
+			let markup = format!("<span foreground='red'>{msg}</span>");
+			self.status_bar.set_markup(&markup);
+		} else {
+			self.status_bar.set_text(msg);
+		};
 	}
 }
 
-pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
-	i18n: I18n) -> Result<()>
+fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: Themes) -> Result<()>
 {
-	let reading = if let Some(current) = &configuration.current {
-		Some(reading_info(&mut configuration.history, current).1)
+	let mut configuration = cfg.borrow_mut();
+	let conf_ref: &mut Configuration = &mut configuration;
+	let reading = if let Some(current) = &conf_ref.current {
+		Some(reading_info(&mut conf_ref.history, current).1)
 	} else {
 		None
 	};
-	let colors = convert_colors(get_theme(&configuration.theme_name, &theme_entries)?);
-	let render = Box::new(GuiView::new(&configuration.render_type, colors.clone()));
-	let images = Rc::new(load_icons()?);
-	let dictionary = DictionaryManager::from(
-		&configuration.gui.dictionary_data_path,
-		"xi", images.clone());
-
+	let dark_colors = convert_colors(themes.get(true));
+	let bright_colors = convert_colors(themes.get(false));
+	let colors = if configuration.dark_theme {
+		dark_colors.clone()
+	} else {
+		bright_colors.clone()
+	};
+	let fonts = setup_fonts(&configuration.gui.fonts)?;
+	let fonts = Rc::new(fonts);
 	let container_manager = Default::default();
-	let (container, book, reading, title) = if let Some(mut reading) = reading {
+	let i18n = I18n::new(&configuration.gui.lang).unwrap();
+	let (container, book, reading, book_name) = if let Some(mut reading) = reading {
 		let mut container = load_container(&container_manager, &reading)?;
 		let book = load_book(&container_manager, &mut container, &mut reading)?;
 		let title = reading.filename.clone();
@@ -964,76 +291,1158 @@ pub fn start(mut configuration: Configuration, theme_entries: Vec<ThemeEntry>,
 		let readme = i18n.msg("readme");
 		let container: Box<dyn Container> = Box::new(ReadmeContainer::new(readme.as_ref()));
 		let book: Box<dyn Book> = Box::new(ReadmeBook::new(readme.as_ref()));
-		(container, book, ReadingInfo::new(README_TEXT_FILENAME), "The e-book reader".to_string())
+		(container, book, ReadingInfo::new(README_TEXT_FILENAME), "The e-book reader".to_owned())
 	};
-	let controller = Controller::from_data(reading, container_manager, container, book, render)?;
 
-	let icon_data = app_icon();
+	let i18n = Rc::new(i18n);
+	let icons = load_icons();
+	let icons = Rc::new(icons);
 
-	let options = eframe::NativeOptions {
-		drag_and_drop_support: true,
-		maximized: true,
-		default_theme: eframe::Theme::Light,
-		icon_data,
-		..Default::default()
-	};
-	if let Err(err) = eframe::run_native(
-		&title,
-		options,
-		Box::new(move |cc| {
-			if let Err(e) = setup_fonts(&cc.egui_ctx, &configuration.gui.fonts) {
-				println!("Failed setup fonts: {}", e.to_string());
+	let status_bar = Label::new(None);
+	let su = Rc::new(StatusUpdater::new(&status_bar));
+
+	let mut ctx = RenderContext::new(colors, configuration.gui.font_size,
+		reading.custom_color, book.leading_space());
+	let view = GuiView::new(
+		"main",
+		configuration.render_han,
+		fonts.clone(),
+		&mut ctx);
+	let css_provider = view::init_css("main", &ctx.colors.background);
+	let (dm, dict_view, lookup_entry) = DictionaryManager::new(
+		&configuration.gui.dictionaries,
+		configuration.gui.font_size,
+		fonts,
+		&i18n,
+		&icons,
+	);
+
+	// now setup ui
+	let ctx = Rc::new(RefCell::new(ctx));
+	let ctrl = Controller::from_data(reading, container_manager, container, book, Box::new(view.clone()));
+	let ctrl = Rc::new(RefCell::new(ctrl));
+
+	let window = ApplicationWindow::builder()
+		.application(app)
+		.default_width(800)
+		.default_height(600)
+		.maximized(true)
+		.title(package_name!())
+		.build();
+
+	status_bar.set_label(&ctrl.borrow().status_msg());
+
+	let (render_icon, render_tooltip) = get_render_icon(configuration.render_han, &i18n);
+	let (theme_icon, theme_tooltip) = get_theme_icon(configuration.dark_theme, &i18n);
+	let (custom_color_icon, custom_color_tooltip) = get_custom_color_icon(ctrl.borrow().reading.custom_color, &i18n);
+	drop(configuration);
+
+	StatusUpdater::init(&su, &ctrl, &ctx);
+
+	let (paned, stack) = setup_sidebar(&cfg, &i18n, &view, &dm, &su.chapter_list, &dict_view);
+	setup_view(&view, &ctx, &ctrl, &su, &stack, &dm);
+
+	let (toolbar, sidebar_btn, render_btn, theme_btn, search_box)
+		= setup_toolbar(
+		&icons, &i18n, &cfg, &ctrl, &ctx, &dm, &su, &view, &paned, &window, &lookup_entry,
+		&dark_colors, &bright_colors, &css_provider,
+		render_icon, &render_tooltip, theme_icon, &theme_tooltip,
+		custom_color_icon, &custom_color_tooltip);
+
+	{
+		let ctrl = ctrl.clone();
+		let ctx = ctx.clone();
+		let su = su.clone();
+		let bv = view.clone();
+		search_box.connect_activate(move |entry| {
+			let search_pattern = entry.text();
+			handle(&ctrl, &ctx, &su, |controller, render_context|
+				controller.search(&search_pattern, render_context));
+			bv.grab_focus();
+		});
+		let bv = view.clone();
+		search_box.connect_stop_search(move |_| {
+			bv.grab_focus();
+		});
+	}
+	{
+		let cfg = cfg.clone();
+		let ctrl = ctrl.clone();
+		let ctx = ctx.clone();
+		let su = su.clone();
+		let bv = view.clone();
+		let dm = dm.clone();
+		let key_event = EventControllerKey::new();
+		key_event.connect_key_pressed(move |_, key, _, modifier| {
+			const MODIFIER_NONE: ModifierType = ModifierType::empty();
+			match (key, modifier) {
+				(Key::space | Key::Page_Down, MODIFIER_NONE) => {
+					handle(&ctrl, &ctx, &su, |controller, render_context|
+						controller.next_page(render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::space, ModifierType::SHIFT_MASK) | (Key::Page_Up, MODIFIER_NONE) => {
+					handle(&ctrl, &ctx, &su, |controller, render_context|
+						controller.prev_page(render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::Home, MODIFIER_NONE) => {
+					apply(&ctrl, &ctx, &su, |controller, render_context|
+						controller.redraw_at(0, 0, render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::End, MODIFIER_NONE) => {
+					apply(&ctrl, &ctx, &su, |controller, render_context|
+						controller.goto_end(render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::Down, MODIFIER_NONE) => {
+					apply(&ctrl, &ctx, &su, |controller, render_context|
+						controller.step_next(render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::Up, MODIFIER_NONE) => {
+					apply(&ctrl, &ctx, &su, |controller, render_context|
+						controller.step_prev(render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::n, MODIFIER_NONE) => {
+					handle(&ctrl, &ctx, &su, |controller, render_context|
+						controller.search_again(true, render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::N, ModifierType::SHIFT_MASK) => {
+					handle(&ctrl, &ctx, &su, |controller, render_context|
+						controller.search_again(false, render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::d, ModifierType::CONTROL_MASK) => {
+					handle(&ctrl, &ctx, &su, |controller, render_context|
+						controller.switch_chapter(true, render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::b, ModifierType::CONTROL_MASK) => {
+					handle(&ctrl, &ctx, &su, |controller, render_context|
+						controller.switch_chapter(false, render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::Right, MODIFIER_NONE) => {
+					handle(&ctrl, &ctx, &su, |controller, render_context|
+						controller.goto_trace(false, render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::Left, MODIFIER_NONE) => {
+					handle(&ctrl, &ctx, &su, |controller, render_context|
+						controller.goto_trace(true, render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::Tab, MODIFIER_NONE) => {
+					apply(&ctrl, &ctx, &su, |controller, render_context|
+						controller.switch_link_next(render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::Tab, ModifierType::SHIFT_MASK) => {
+					apply(&ctrl, &ctx, &su, |controller, render_context|
+						controller.switch_link_prev(render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::Return, MODIFIER_NONE) => {
+					handle(&ctrl, &ctx, &su, |controller, render_context|
+						controller.try_goto_link(render_context));
+					gtk4::Inhibit(true)
+				}
+				(Key::equal, ModifierType::CONTROL_MASK) => {
+					let mut configuration = cfg.borrow_mut();
+					if configuration.gui.font_size < MAX_FONT_SIZE {
+						configuration.gui.font_size += 2;
+						let mut render_context = ctx.borrow_mut();
+						bv.set_font_size(configuration.gui.font_size, &mut render_context);
+						ctrl.borrow_mut().redraw(&mut render_context);
+						dm.borrow_mut().set_font_size(configuration.gui.font_size);
+					}
+					gtk4::Inhibit(true)
+				}
+				(Key::minus, ModifierType::CONTROL_MASK) => {
+					let mut configuration = cfg.borrow_mut();
+					if configuration.gui.font_size > MIN_FONT_SIZE {
+						configuration.gui.font_size -= 2;
+						let mut render_context = ctx.borrow_mut();
+						bv.set_font_size(configuration.gui.font_size, &mut render_context);
+						ctrl.borrow_mut().redraw(&mut render_context);
+						dm.borrow_mut().set_font_size(configuration.gui.font_size);
+					}
+					gtk4::Inhibit(true)
+				}
+				(Key::c, ModifierType::CONTROL_MASK) => {
+					if let Some(selected_text) = ctrl.borrow().selected() {
+						if let Some(display) = Display::default() {
+							display.clipboard().set_text(selected_text);
+						}
+					}
+					gtk4::Inhibit(true)
+				}
+				_ => {
+					// println!("view, key: {key}, modifier: {modifier}");
+					gtk4::Inhibit(false)
+				}
 			}
-			let app = ReaderApp {
-				configuration,
-				theme_entries,
-				i18n,
-				images,
-				controller,
-				dictionary,
+		});
+		view.add_controller(key_event);
+	}
 
-				status: AppStatus::Startup,
-				current_toc: 0,
-				popup_menu: None,
-				sidebar: false,
-				sidebar_list: SidebarList::Chapter(true),
-				dialog: None,
-				input_search: false,
-				search_pattern: String::new(),
-				dropdown: false,
+	let main = gtk4::Box::new(Orientation::Vertical, 0);
+	main.append(&toolbar);
+	main.append(&paned);
 
-				colors,
+	window.set_child(Some(&main));
+	setup_window(&window, view, stack, paned, sidebar_btn, render_btn,
+		theme_btn, search_box, cfg, ctrl, ctx, icons, i18n, dm, dark_colors,
+		bright_colors, css_provider, book_name);
+	window.present();
+	Ok(())
+}
+
+#[inline]
+fn apply<F>(ctrl: &Rc<RefCell<GuiController>>, ctx: &Rc<RefCell<RenderContext>>,
+	status_updater: &Rc<StatusUpdater>, f: F)
+	where F: FnOnce(&mut GuiController, &mut RenderContext)
+{
+	let mut controller = ctrl.borrow_mut();
+	let orig_inner_book = controller.reading.inner_book;
+	f(&mut controller, &mut ctx.borrow_mut());
+	status_updater.update(&controller.status_msg(), orig_inner_book, &controller);
+}
+
+#[inline]
+fn handle<T, F>(ctrl: &Rc<RefCell<GuiController>>,
+	ctx: &Rc<RefCell<RenderContext>>, su: &Rc<StatusUpdater>, f: F)
+	where F: FnOnce(&mut GuiController, &mut RenderContext) -> Result<T>
+{
+	let (orig_inner_book, result) = {
+		let mut controller = ctrl.borrow_mut();
+		let orig_inner_book = controller.reading.inner_book;
+		let result = f(&mut controller, &mut ctx.borrow_mut());
+		(orig_inner_book, result)
+	};
+	match result {
+		Ok(_) => {
+			let controller = ctrl.borrow();
+			let msg = controller.status_msg();
+			su.update(&msg, orig_inner_book, &controller);
+		}
+		Err(err) => su.error(&err.to_string()),
+	}
+}
+
+fn load_icons() -> IconMap
+{
+	const ICONS_PREFIX: &str = "gui/image/";
+	let mut map = HashMap::new();
+	for file in Asset::iter() {
+		if file.starts_with(ICONS_PREFIX) && file.ends_with(".svg") {
+			let content = Asset::get(file.as_ref()).unwrap().data;
+			let rtree = {
+				let opt = usvg::Options::default();
+				let tree = usvg::Tree::from_data(&content, &opt).unwrap();
+				resvg::Tree::from_usvg(&tree)
 			};
-			Box::new(app)
-		}),
-	) {
-		bail!("{}", err.to_string())
+			let pixmap_size = rtree.size.to_int_size();
+			let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
+			rtree.render(tiny_skia::Transform::default(), &mut pixmap.as_mut());
+			let png = pixmap.encode_png().unwrap();
+			let bytes = Bytes::from(&png);
+			let mis = MemoryInputStream::from_bytes(&bytes);
+			let pixbuf = Pixbuf::from_stream(&mis, None::<&Cancellable>).unwrap();
+			let name = &file[ICONS_PREFIX.len()..];
+			map.insert(name.to_string(), pixbuf);
+		}
+	}
+	map
+}
+
+#[allow(unused)]
+fn setup_popup_menu(label: &Label, i18n: &I18n,
+	ctrl: &Rc<RefCell<GuiController>>) -> PopoverMenu
+{
+	let action_group = SimpleActionGroup::new();
+	let menu = Menu::new();
+	label.insert_action_group("popup", Some(&action_group));
+
+	let copy_action = SimpleAction::new(COPY_CONTENT_KEY, None);
+	{
+		let ctrl = ctrl.clone();
+		copy_action.connect_activate(move |_, _| {
+			if let Some(selected_text) = ctrl.borrow().selected() {
+				println!("copy {}", selected_text);
+			}
+		});
+	}
+	action_group.add_action(&copy_action);
+	let title = i18n.msg(COPY_CONTENT_KEY);
+	let action_name = format!("popup.{}", COPY_CONTENT_KEY);
+	menu.append(Some(&title), Some(&action_name));
+
+	let lookup_action = SimpleAction::new(DICT_LOOKUP_KEY, None);
+	{
+		let ctrl = ctrl.clone();
+		lookup_action.connect_activate(move |_, _| {
+			if let Some(selected_text) = ctrl.borrow().selected() {
+				println!("lookup {}", selected_text);
+			}
+		});
+	}
+	action_group.add_action(&lookup_action);
+	let title = i18n.msg(DICT_LOOKUP_KEY);
+	let menu_action_name = format!("popup.{}", DICT_LOOKUP_KEY);
+	menu.append(Some(&title), Some(&menu_action_name));
+
+	let pm = PopoverMenu::builder()
+		.has_arrow(false)
+		.menu_model(&MenuModel::from(menu))
+		.build();
+	pm.set_parent(label);
+	pm
+}
+
+fn setup_view(view: &GuiView, ctx: &Rc<RefCell<RenderContext>>,
+	ctrl: &Rc<RefCell<GuiController>>, su: &Rc<StatusUpdater>, stack: &Stack,
+	dm: &Rc<RefCell<DictionaryManager>>)
+{
+	#[inline]
+	fn select_text(controller: &mut GuiController, ctx: &Rc<RefCell<RenderContext>>,
+		from_line: u64, from_offset: u64, to_line: u64, to_offset: u64)
+	{
+		let from = Position::new(from_line as usize, from_offset as usize);
+		let to = Position::new(to_line as usize, to_offset as usize);
+		controller.select_text(from, to, &mut ctx.borrow_mut());
+	}
+
+	let controller = ctrl.clone();
+	let render_context = ctx.clone();
+	view.connect_resize(move |view, width, height| {
+		let mut render_context = render_context.borrow_mut();
+		view.resized(width, height, &mut render_context);
+		let mut controller = controller.borrow_mut();
+		controller.redraw(&mut render_context);
+	});
+
+	let controller = ctrl.clone();
+	view.setup_gesture(false, move |view, pos| {
+		view.link_resolve(pos, controller.borrow().book.lines())
+	});
+
+	/* no way to position popup menu next to mouse...
+	{
+		// right click
+		let right_click = GestureClick::builder()
+			.button(gdk::BUTTON_SECONDARY)
+			.build();
+		let popup_menu = setup_popup_menu(&su.status_bar, i18n, ctrl);
+		let ctrl = ctrl.clone();
+		right_click.connect_pressed(move |_, _, _, _| {
+			let controller = ctrl.borrow_mut();
+			if controller.has_selection() {
+				popup_menu.popup();
+			}
+		});
+		view.add_controller(right_click);
+	}
+	*/
+	{
+		// open link signal
+		let ctrl = ctrl.clone();
+		let ctx = ctx.clone();
+		let su = su.clone();
+		view.connect_closure(
+			GuiView::OPEN_LINK_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView, line: u64, link_index: u64| {
+				handle(&ctrl, &ctx, &su, |controller, render_context|
+					controller.goto_link(line as usize,	link_index as usize, render_context));
+	        }),
+		);
+	}
+
+	// select text signal
+	{
+		let ctrl = ctrl.clone();
+		let ctx = ctx.clone();
+		view.connect_closure(
+			GuiView::SELECTING_TEXT_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
+				select_text(&mut ctrl.borrow_mut(), &ctx, from_line, from_offset, to_line, to_offset);
+	        }),
+		);
+	}
+
+	// text selected signal
+	{
+		let ctrl = ctrl.clone();
+		let ctx = ctx.clone();
+		let stack = stack.clone();
+		let dm = dm.clone();
+		view.connect_closure(
+			GuiView::TEXT_SELECTED_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
+				let mut controller = ctrl.borrow_mut();
+				select_text(&mut controller, &ctx, from_line, from_offset, to_line, to_offset);
+				if let Some(selected_text) = controller.selected() {
+					if let Some(current_tab) = stack.visible_child_name() {
+						if current_tab == SIDEBAR_DICT_NAME {
+							dm.borrow_mut().set_lookup(selected_text.to_owned());
+						}
+					}
+				}
+			}),
+		);
+	}
+
+	{
+		// clear selection signal
+		let ctrl = ctrl.clone();
+		let ctx = ctx.clone();
+		view.connect_closure(
+			GuiView::CLEAR_SELECTION_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView| {
+				ctrl.borrow_mut().clear_highlight(&mut ctx.borrow_mut());
+	        }),
+		);
+	}
+
+	{
+		// scroll signal
+		let ctrl = ctrl.clone();
+		let ctx = ctx.clone();
+		let su = su.clone();
+		view.connect_closure(
+			GuiView::SCROLL_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView, delta: i32| {
+				if delta > 0 {
+					apply(&ctrl, &ctx, &su, |controller, render_context|
+						controller.step_next(render_context));
+				} else {
+					apply(&ctrl, &ctx, &su, |controller, render_context|
+						controller.step_prev(render_context));
+				}
+	        }),
+		);
+	}
+}
+
+fn setup_sidebar(cfg: &Rc<RefCell<Configuration>>, i18n: &I18n, view: &GuiView,
+	dm: &Rc<RefCell<DictionaryManager>>, chapter_list: &ListBox, dict_view: &gtk4::Box)
+	-> (Paned, gtk4::Stack)
+{
+	let chapter_list_view = gtk4::ScrolledWindow::builder()
+		.child(chapter_list)
+		.hscrollbar_policy(PolicyType::Never)
+		.build();
+
+	let stack = gtk4::Stack::builder()
+		.vexpand(true)
+		.build();
+	stack.add_titled(
+		&chapter_list_view,
+		Some(SIDEBAR_CHAPTER_LIST_NAME), &i18n.msg("tab-chapter"));
+	stack.add_titled(
+		dict_view,
+		Some(SIDEBAR_DICT_NAME), &i18n.msg("tab-dictionary"));
+	stack.set_visible_child(&chapter_list_view);
+
+	let sidebar_tab_switch = gtk4::StackSwitcher::builder()
+		.stack(&stack)
+		.build();
+	let sidebar = gtk4::Box::new(Orientation::Vertical, 0);
+	sidebar.append(&sidebar_tab_switch);
+	sidebar.append(&stack);
+
+	let paned = Paned::builder()
+		.orientation(Orientation::Horizontal)
+		.start_child(&sidebar)
+		.end_child(view)
+		.position(0)
+		.build();
+	let configuration = cfg.clone();
+	let dm = dm.clone();
+	paned.connect_position_notify(move |p| {
+		let position = p.position();
+		if position > 0 {
+			configuration.borrow_mut().gui.sidebar_size = position as u32;
+			dm.borrow_mut().resize(position, None);
+		}
+	});
+
+	(paned, stack)
+}
+
+#[inline]
+fn setup_window(window: &ApplicationWindow, view: GuiView, stack: gtk4::Stack,
+	paned: Paned, sidebar_btn: Button, render_btn: Button, theme_btn: Button,
+	search_box: SearchEntry,
+	cfg: Rc<RefCell<Configuration>>, ctrl: Rc<RefCell<GuiController>>,
+	ctx: Rc<RefCell<RenderContext>>, icons: Rc<IconMap>, i18n: Rc<I18n>,
+	dm: Rc<RefCell<DictionaryManager>>,
+	dark_colors: Colors, bright_colors: Colors, css_provider: CssProvider,
+	book_name: String)
+{
+	fn switch_stack(tab_name: &str, stack: &gtk4::Stack, paned: &Paned,
+		sidebar_btn: &Button, icons: &IconMap, i18n: &I18n,
+		configuration: &Rc<RefCell<Configuration>>) -> bool
+	{
+		if paned.position() == 0 {
+			stack.set_visible_child_name(tab_name);
+			toggle_sidebar(sidebar_btn, paned, i18n, &icons, configuration);
+			true
+		} else if let Some(current_tab_name) = stack.visible_child_name() {
+			if current_tab_name == tab_name {
+				toggle_sidebar(sidebar_btn, paned, i18n, &icons, configuration);
+				false
+			} else {
+				stack.set_visible_child_name(tab_name);
+				true
+			}
+		} else {
+			stack.set_visible_child_name(tab_name);
+			true
+		}
+	}
+
+	window.set_default_widget(Some(&view));
+	window.set_focus(Some(&view));
+	update_title(window, &book_name);
+
+	let window_key_event = EventControllerKey::new();
+	let configuration = cfg.clone();
+	let controller = ctrl.clone();
+	let render_context = ctx.clone();
+	let dc = dark_colors.clone();
+	let bc = bright_colors.clone();
+	let cp = css_provider.clone();
+	window_key_event.connect_key_pressed(move |_, key, _, modifier| {
+		const MODIFIER_NONE: ModifierType = ModifierType::empty();
+		match (key, modifier) {
+			(Key::c, MODIFIER_NONE) => {
+				switch_stack(SIDEBAR_CHAPTER_LIST_NAME, &stack, &paned, &sidebar_btn,
+					&icons, &i18n, &configuration);
+				gtk4::Inhibit(true)
+			}
+			(Key::d, MODIFIER_NONE) => {
+				if switch_stack(SIDEBAR_DICT_NAME, &stack, &paned, &sidebar_btn,
+					&icons, &i18n, &configuration) {
+					if let Some(selected_text) = controller.borrow().selected() {
+						dm.borrow_mut().set_lookup(selected_text.to_owned());
+					}
+				}
+				gtk4::Inhibit(true)
+			}
+			(Key::slash, MODIFIER_NONE) | (Key::f, ModifierType::CONTROL_MASK) => {
+				search_box.grab_focus();
+				gtk4::Inhibit(true)
+			}
+			(Key::Escape, MODIFIER_NONE) => {
+				if paned.position() != 0 {
+					toggle_sidebar(&sidebar_btn, &paned, &i18n, &icons, &configuration);
+					gtk4::Inhibit(true)
+				} else {
+					gtk4::Inhibit(false)
+				}
+			}
+			(Key::x, ModifierType::CONTROL_MASK) => {
+				switch_render(&render_btn,
+					&mut configuration.borrow_mut(),
+					&mut controller.borrow_mut(),
+					&mut render_context.borrow_mut(),
+					&view,
+					&icons,
+					&i18n,
+				);
+				gtk4::Inhibit(true)
+			}
+			(Key::t, MODIFIER_NONE) => {
+				switch_theme(&theme_btn,
+					&mut configuration.borrow_mut(),
+					&mut controller.borrow_mut(),
+					&mut render_context.borrow_mut(),
+					&dc,
+					&bc,
+					&cp,
+					&icons,
+					&i18n,
+				);
+				gtk4::Inhibit(true)
+			}
+			_ => {
+				// println!("window, key: {key}, modifier: {modifier}");
+				gtk4::Inhibit(false)
+			}
+		}
+	});
+	window.add_controller(window_key_event);
+
+	window.connect_close_request(move |_| {
+		let controller = ctrl.borrow();
+		if controller.reading.filename != README_TEXT_FILENAME {
+			let mut configuration = cfg.borrow_mut();
+			configuration.current = Some(controller.reading.filename.clone());
+			configuration.history.push(controller.reading.clone());
+		}
+		let configuration = cfg.borrow();
+		if let Err(e) = configuration.save() {
+			println!("Failed save configuration: {}", e.to_string());
+		}
+		gtk4::Inhibit(false)
+	});
+}
+
+#[inline(always)]
+fn get_render_icon<'a>(render_han: bool, i18n: &'a I18n) -> (&'static str, Cow<'a, str>) {
+	if render_han {
+		("render_xi.svg", i18n.msg("render-xi"))
 	} else {
-		Ok(())
+		("render_han.svg", i18n.msg("render-han"))
 	}
 }
 
-#[inline]
-fn update_title(frame: &mut eframe::Frame, title: &str)
-{
-	if title != README_TEXT_FILENAME {
-		frame.set_window_title(title);
+#[inline(always)]
+fn get_theme_icon(dark_theme: bool, i18n: &I18n) -> (&'static str, Cow<str>) {
+	if dark_theme {
+		("theme_bright.svg", i18n.msg("theme-bright"))
+	} else {
+		("theme_dark.svg", i18n.msg("theme-dark"))
 	}
 }
 
-#[inline]
-fn ts() -> u64
+#[inline(always)]
+fn get_custom_color_icon(custom_color: bool, i18n: &I18n) -> (&'static str, Cow<str>) {
+	if custom_color {
+		("custom_color_off.svg", i18n.msg("no-custom-color"))
+	} else {
+		("custom_color_on.svg", i18n.msg("with-custom-color"))
+	}
+}
+
+fn toggle_sidebar(sidebar_btn: &Button, paned: &Paned, i18n: &I18n,
+	icons: &IconMap, configuration: &Rc<RefCell<Configuration>>)
 {
-	SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.expect("Time went backwards")
-		.as_secs()
+	let (icon, tooltip, position) = if paned.position() == 0 {
+		("sidebar_off.svg", i18n.msg("sidebar-off"), configuration.borrow().gui.sidebar_size as i32)
+	} else {
+		paned.end_child().unwrap().grab_focus();
+		("sidebar_on.svg", i18n.msg("sidebar-on"), 0)
+	};
+	update_button(sidebar_btn, icon, &tooltip, &icons);
+	paned.set_position(position);
+}
+
+fn switch_render(render_btn: &Button,
+	configuration: &mut Configuration,
+	controller: &mut GuiController,
+	render_context: &mut RenderContext,
+	view: &GuiView,
+	icons: &IconMap,
+	i18n: &I18n,
+)
+{
+	let render_han = !configuration.render_han;
+	configuration.render_han = render_han;
+	let (render_icon, render_tooltip) = get_render_icon(render_han, &i18n);
+	update_button(render_btn, render_icon, &render_tooltip, &icons);
+	view.reload_render(render_han, render_context);
+	controller.redraw(render_context);
+}
+
+fn switch_theme(theme_btn: &Button,
+	configuration: &mut Configuration,
+	controller: &mut GuiController,
+	render_context: &mut RenderContext,
+	dark_colors: &Colors,
+	bright_colors: &Colors,
+	css_provider: &CssProvider,
+	icons: &IconMap,
+	i18n: &I18n,
+)
+{
+	let dark_theme = !configuration.dark_theme;
+	configuration.dark_theme = dark_theme;
+	let (theme_icon, theme_tooltip) = get_theme_icon(dark_theme, i18n);
+	update_button(theme_btn, theme_icon, &theme_tooltip, &icons);
+	render_context.colors = if dark_theme {
+		dark_colors.clone()
+	} else {
+		bright_colors.clone()
+	};
+	controller.redraw(render_context);
+	view::update_css(css_provider, "main", &render_context.colors.background);
+}
+
+fn switch_custom_color(custom_color_btn: &Button,
+	controller: &mut GuiController,
+	render_context: &mut RenderContext,
+	icons: &IconMap,
+	i18n: &I18n,
+)
+{
+	let custom_color = !controller.reading.custom_color;
+	controller.reading.custom_color = custom_color;
+	let (custom_color_icon, custom_color_tooltip) = get_custom_color_icon(custom_color, &i18n);
+	update_button(custom_color_btn, custom_color_icon, &custom_color_tooltip, &icons);
+	render_context.custom_color = custom_color;
+	controller.redraw(render_context);
 }
 
 #[inline]
-fn image(images: &HashMap<String, RetainedImage>, ctx: &egui::Context,
-	name: &str) -> TextureId
+fn setup_toolbar(icons: &Rc<IconMap>, i18n: &Rc<I18n>,
+	cfg: &Rc<RefCell<Configuration>>, ctrl: &Rc<RefCell<GuiController>>,
+	ctx: &Rc<RefCell<RenderContext>>, dm: &Rc<RefCell<DictionaryManager>>, su: &Rc<StatusUpdater>,
+	view: &GuiView, paned: &Paned, window: &ApplicationWindow, lookup_entry: &SearchEntry,
+	dark_colors: &Colors, bright_colors: &Colors, css_provider: &CssProvider,
+	render_icon: &str, render_tooltip: &str,
+	theme_icon: &str, theme_tooltip: &str,
+	custom_color_icon: &str, custom_color_tooltip: &str,
+) -> (gtk4::Box, Button, Button, Button, SearchEntry)
 {
-	let image = images.get(name).unwrap();
-	image.texture_id(ctx)
+	let toolbar = gtk4::Box::builder()
+		.css_classes(vec!["toolbar"])
+		.build();
+
+	let sidebar_button = create_button("sidebar_on.svg", &i18n.msg("sidebar-on"), &icons, false);
+	{
+		let paned = paned.clone();
+		let i18n = i18n.clone();
+		let icons = icons.clone();
+		let configuration = cfg.clone();
+		sidebar_button.connect_clicked(move |sidebar_btn| {
+			toggle_sidebar(sidebar_btn, &paned, &i18n, &icons, &configuration);
+		});
+		toolbar.append(&sidebar_button);
+	}
+
+	{
+		let paned = paned.clone();
+		let i18n = i18n.clone();
+		let icons = icons.clone();
+		let configuration = cfg.clone();
+		let sidebar_button = sidebar_button.clone();
+		lookup_entry.connect_stop_search(move |_| {
+			toggle_sidebar(&sidebar_button, &paned, &i18n, &icons, &configuration);
+		});
+	}
+
+	let action_group = SimpleActionGroup::new();
+	let menu = Menu::new();
+
+	// add file drop support
+	{
+		let drop_target = DropTarget::new(File::static_type(), DragAction::COPY);
+		let window = window.clone();
+		let su = su.clone();
+		let cfg = cfg.clone();
+		let ctrl = ctrl.clone();
+		let ctx = ctx.clone();
+		let menu = menu.clone();
+		let action_group = action_group.clone();
+		drop_target.connect_drop(move |_, value, _, _| {
+			if let Ok(file) = value.get::<File>() {
+				if let Some(path) = file.path() {
+					open_file(&path, &cfg, &ctrl, &ctx, &su, &window, &menu, &action_group);
+					return true;
+				}
+			}
+			false
+		});
+		view.add_controller(drop_target);
+	}
+
+	let file_button = create_button("file_open.svg", &i18n.msg("file-open"), &icons, false);
+	let file_dialog = FileDialog::new();
+	file_dialog.set_title(&i18n.msg("file-open-title"));
+	file_dialog.set_modal(true);
+	let filter = FileFilter::new();
+	for ext in ctrl.borrow().container_manager.book_loader.extension() {
+		filter.add_suffix(&ext[1..]);
+	}
+	file_dialog.set_default_filter(Some(&filter));
+
+	{
+		let win = window.clone();
+		let su = su.clone();
+		let cfg = cfg.clone();
+		let ctrl = ctrl.clone();
+		let ctx = ctx.clone();
+		let su = su.clone();
+		let menu = menu.clone();
+		let action_group = action_group.clone();
+		file_button.connect_clicked(move |_| {
+			let cfg = cfg.clone();
+			let ctrl = ctrl.clone();
+			let ctx = ctx.clone();
+			let su = su.clone();
+			let win2 = win.clone();
+			let menu = menu.clone();
+			let action_group = action_group.clone();
+			file_dialog.open(Some(&win), None::<&Cancellable>, move |result| {
+				if let Ok(file) = result {
+					if let Some(path) = file.path() {
+						open_file(&path, &cfg, &ctrl, &ctx, &su, &win2, &menu, &action_group);
+					}
+				}
+			});
+		});
+		toolbar.append(&file_button);
+	}
+	reload_history(&menu, &action_group, &cfg, &ctrl, &ctx, su, window);
+
+	let history_button = create_button("history.svg", &i18n.msg("history"), &icons, false);
+	history_button.insert_action_group("popup", Some(&action_group));
+	let menu_model = MenuModel::from(menu);
+	let history_menu = PopoverMenu::builder()
+		.menu_model(&menu_model)
+		.build();
+	history_menu.set_parent(&history_button);
+	history_menu.set_has_arrow(false);
+	let bv = view.clone();
+	history_menu.connect_visible_notify(move |_| {
+		bv.grab_focus();
+	});
+	history_button.connect_clicked(move |_| {
+		history_menu.popup();
+	});
+	toolbar.append(&history_button);
+
+	let render_button = create_button(render_icon, render_tooltip, &icons, false);
+	{
+		let configuration = cfg.clone();
+		let controller = ctrl.clone();
+		let bv = view.clone();
+		let render_context = ctx.clone();
+		let icons = icons.clone();
+		let i18n = i18n.clone();
+		render_button.connect_clicked(move |btn| {
+			switch_render(
+				btn,
+				&mut configuration.borrow_mut(),
+				&mut controller.borrow_mut(),
+				&mut render_context.borrow_mut(),
+				&bv,
+				&icons,
+				&i18n,
+			);
+		});
+		toolbar.append(&render_button);
+	}
+
+	let theme_button = create_button(theme_icon, theme_tooltip, &icons, false);
+	{
+		let configuration = cfg.clone();
+		let controller = ctrl.clone();
+		let render_context = ctx.clone();
+		let icons = icons.clone();
+		let i18n = i18n.clone();
+		let dc = dark_colors.clone();
+		let bc = bright_colors.clone();
+		let cp = css_provider.clone();
+		theme_button.connect_clicked(move |btn| {
+			switch_theme(
+				btn,
+				&mut configuration.borrow_mut(),
+				&mut controller.borrow_mut(),
+				&mut render_context.borrow_mut(),
+				&dc,
+				&bc,
+				&cp,
+				&icons,
+				&i18n,
+			);
+		});
+		toolbar.append(&theme_button);
+	}
+
+	let custom_color_button = create_button(custom_color_icon, custom_color_tooltip, &icons, false);
+	{
+		let controller = ctrl.clone();
+		let render_context = ctx.clone();
+		let icons = icons.clone();
+		let i18n = i18n.clone();
+		custom_color_button.connect_clicked(move |btn| {
+			switch_custom_color(
+				btn,
+				&mut controller.borrow_mut(),
+				&mut render_context.borrow_mut(),
+				&icons,
+				&i18n,
+			);
+		});
+		toolbar.append(&custom_color_button);
+	}
+
+	let settings_button = create_button("setting.svg", &i18n.msg("settings-dialog"), &icons, false);
+	{
+		let cfg = cfg.clone();
+		let i18n = i18n.clone();
+		let icons = icons.clone();
+		let window = window.clone();
+		let ctrl = ctrl.clone();
+		let ctx = ctx.clone();
+		let dm = dm.clone();
+		settings_button.connect_clicked(move |_| {
+			settings::show(&cfg, &i18n, &icons, &window, &ctrl, &ctx, &dm);
+		});
+		toolbar.append(&settings_button);
+	}
+
+	let search_box = SearchEntry::builder()
+		.placeholder_text(i18n.msg("search-hint"))
+		.activates_default(true)
+		.enable_undo(true)
+		.build();
+	toolbar.append(&search_box);
+
+	let status_bar = &su.status_bar;
+	status_bar.set_halign(Align::End);
+	status_bar.set_hexpand(true);
+	toolbar.append(status_bar);
+
+	(toolbar, sidebar_button, render_button, theme_button, search_box)
+}
+
+#[inline]
+fn create_button(name: &str, tooltip: &str, icons: &IconMap, inline: bool) -> Button
+{
+	let pixbuf = icons.get(name).unwrap();
+	let image = Image::from_pixbuf(Some(pixbuf));
+	if inline {
+		image.set_width_request(INLINE_ICON_SIZE);
+		image.set_height_request(INLINE_ICON_SIZE);
+	} else {
+		image.set_width_request(ICON_SIZE);
+		image.set_height_request(ICON_SIZE);
+	}
+	let button = Button::builder()
+		.child(&image)
+		.focus_on_click(false)
+		.focusable(false)
+		.tooltip_text(tooltip)
+		.build();
+	if inline {
+		button.add_css_class("inline");
+		button.set_valign(Align::Center);
+	}
+	button
+}
+
+#[inline]
+fn update_button(btn: &Button, name: &str, tooltip: &str, icons: &IconMap)
+{
+	let pixbuf = icons.get(name).unwrap();
+	let image = Image::from_pixbuf(Some(pixbuf));
+	image.set_width_request(ICON_SIZE);
+	image.set_height_request(ICON_SIZE);
+	btn.set_tooltip_text(Some(tooltip));
+	btn.set_child(Some(&image));
+}
+
+#[inline(always)]
+fn update_title(window: &ApplicationWindow, book_name: &str)
+{
+	let title = format!("{} - {}", package_name!(), book_name);
+	window.set_title(Some(&title));
+}
+
+#[inline]
+fn add_history_entry(idx: usize, path_str: &String,
+	menu: &Menu, action_group: &SimpleActionGroup, window: &ApplicationWindow,
+	cfg: &Rc<RefCell<Configuration>>, ctrl: &Rc<RefCell<GuiController>>,
+	ctx: &Rc<RefCell<RenderContext>>, status_updater: &Rc<StatusUpdater>)
+{
+	let path = PathBuf::from(&path_str);
+	if !path.exists() || !path.is_file() {
+		return;
+	}
+	let action_name = format!("a{}", idx);
+	let action = SimpleAction::new(&action_name, None);
+	{
+		let cfg = cfg.clone();
+		let ctrl = ctrl.clone();
+		let ctx = ctx.clone();
+		let status_updater = status_updater.clone();
+		let window = window.clone();
+		let menu = menu.clone();
+		let action_group = action_group.clone();
+		action.connect_activate(move |_, _| {
+			open_file(&path, &cfg, &ctrl, &ctx, &status_updater, &window, &menu, &action_group);
+		});
+	}
+	action_group.add_action(&action);
+	let menu_action_name = format!("popup.{}", action_name);
+	menu.append(Some(&path_str), Some(&menu_action_name));
+}
+
+fn reload_history(menu: &Menu, action_group: &SimpleActionGroup,
+	cfg: &Rc<RefCell<Configuration>>, ctrl: &Rc<RefCell<GuiController>>,
+	ctx: &Rc<RefCell<RenderContext>>, status_updater: &Rc<StatusUpdater>,
+	window: &ApplicationWindow)
+{
+	for a in action_group.list_actions() {
+		action_group.remove_action(&a);
+	}
+	menu.remove_all();
+	for (idx, ri) in cfg.borrow().history.iter().rev().enumerate() {
+		if idx == 20 {
+			break;
+		}
+		add_history_entry(idx, &ri.filename, &menu, &action_group, window, &cfg, &ctrl, &ctx, status_updater);
+	}
+}
+
+fn open_file(path: &PathBuf, cfg: &Rc<RefCell<Configuration>>, ctrl: &Rc<RefCell<GuiController>>,
+	ctx: &Rc<RefCell<RenderContext>>, su: &Rc<StatusUpdater>,
+	window: &ApplicationWindow, menu: &Menu, action_group: &SimpleActionGroup)
+{
+	if let Ok(absolute_path) = path.canonicalize() {
+		if let Some(filepath) = absolute_path.to_str() {
+			let mut controller = ctrl.borrow_mut();
+			if filepath != controller.reading.filename {
+				let mut configuration = cfg.borrow_mut();
+				let mut render_context = ctx.borrow_mut();
+				let reading_now = controller.reading.clone();
+				let (history, new_reading) = reading_info(&mut configuration.history, filepath);
+				let history_entry = if history { Some(new_reading.clone()) } else { None };
+				match controller.switch_container(new_reading, &mut render_context) {
+					Ok(msg) => {
+						configuration.history.push(reading_now);
+						update_title(window, &controller.reading.filename);
+						controller.redraw(&mut render_context);
+						su.update(
+							&msg,
+							usize::MAX,
+							&controller);
+						drop(configuration);
+						drop(controller);
+						drop(render_context);
+						reload_history(&menu, &action_group, &cfg, &ctrl, &ctx, &su, &window);
+					}
+					Err(e) => {
+						if let Some(history_entry) = history_entry {
+							configuration.history.push(history_entry);
+						}
+						su.error(&e.to_string());
+					}
+				}
+			}
+		}
+	}
+}
+
+fn apply_settings(locale: &str, fonts: Vec<PathConfig>, dictionaries: Vec<PathConfig>, i18n: &I18n,
+	configuration: &mut Configuration, controller: &mut GuiController,
+	render_context: &mut RenderContext, dictionary_manager: &mut DictionaryManager)
+	-> Result<(), (String, String)>
+{
+	fn paths_modified(orig: &Vec<PathConfig>, new: &Vec<PathConfig>) -> bool
+	{
+		if new.len() != orig.len() {
+			return true;
+		}
+		for i in 0..new.len() {
+			let orig = orig.get(i).unwrap();
+			let new = new.get(i).unwrap();
+			if orig.enabled != new.enabled || orig.path != new.path {
+				return true;
+			}
+		}
+		false
+	}
+	// need restart
+	configuration.gui.lang = locale.to_owned();
+
+	let new_fonts = if paths_modified(&configuration.gui.fonts, &fonts) {
+		let new_fonts = match setup_fonts(&fonts) {
+			Ok(fonts) => fonts,
+			Err(err) => {
+				let title = i18n.msg("font-files");
+				let t = title.to_string();
+				let message = i18n.args_msg("invalid-path", vec![
+					("title", title),
+					("path", err.to_string().into()),
+				]);
+				return Err((t, message));
+			}
+		};
+		Some(new_fonts)
+	} else {
+		None
+	};
+
+	if paths_modified(&configuration.gui.dictionaries, &dictionaries) {
+		dictionary_manager.reload(&dictionaries);
+		configuration.gui.dictionaries = dictionaries;
+	};
+
+	if let Some(new_fonts) = new_fonts {
+		let fonts_data = Rc::new(new_fonts);
+		dictionary_manager.set_fonts(fonts_data.clone());
+		controller.render.set_fonts(fonts_data, render_context);
+		controller.redraw(render_context);
+		configuration.gui.fonts = fonts;
+	}
+	Ok(())
+}
+
+#[cfg(unix)]
+#[inline]
+fn setup_icon() -> Result<()>
+{
+	use std::fs;
+	use dirs::home_dir;
+
+	let home_dir = home_dir().expect("No home folder");
+	let icon_path = home_dir.join(".local/share/icons/hicolor/256x256/apps");
+	let icon_file = icon_path.join("tbr-icon.png");
+	if !icon_file.exists() {
+		fs::create_dir_all(&icon_path)?;
+		fs::write(&icon_file, include_bytes!("../assets/gui/tbr-icon.png"))?;
+	}
+	Ok(())
+}
+
+pub fn start(configuration: Configuration, themes: Themes) -> Result<()>
+{
+	#[cfg(unix)]
+	setup_icon()?;
+
+	let app = Application::builder()
+		.application_id(APP_ID)
+		.build();
+
+	let co = Rc::new(RefCell::new(configuration));
+	app.connect_activate(move |app| {
+		let css_provider = CssProvider::new();
+		css_provider.load_from_data(&format!("{}:focus-visible {{outline-style: dashed; outline-offset: -3px; outline-width: 3px;}} button.inline {{padding: 0px;min-height: 16px;}} label.{BOOK_NAME_LABEL_CLASS} {{font-size: large;}}", GuiView::WIDGET_NAME));
+		gtk4::style_context_add_provider_for_display(
+			&Display::default().expect("Could not connect to a display."),
+			&css_provider,
+			gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+		);
+		Window::set_default_icon_name("tbr-icon");
+
+		if let Err(err) = build_ui(
+			app,
+			co.clone(),
+			themes.clone(),
+		) {
+			eprintln!("Failed start tbr: {}", err.to_string());
+			app.quit();
+		}
+	});
+
+	// Run the application
+	if app.run() == ExitCode::FAILURE {
+		bail!("Failed start tbr")
+	}
+
+	Ok(())
 }

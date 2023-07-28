@@ -4,8 +4,6 @@ extern crate core;
 #[macro_use]
 extern crate markup5ever;
 
-use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -35,6 +33,7 @@ mod controller;
 mod gui;
 #[cfg(feature = "i18n")]
 mod i18n;
+mod color;
 
 const TBR_BOOK_ENV_KEY: &str = "TBR_BOOK";
 
@@ -72,29 +71,7 @@ struct Cli {
 #[include = "*.ttc"]
 #[include = "*.ftl"]
 #[include = "*.png"]
-pub struct Asset;
-
-pub struct ThemeEntry(String, Theme);
-
-impl Eq for ThemeEntry {}
-
-impl PartialEq<Self> for ThemeEntry {
-	fn eq(&self, other: &Self) -> bool {
-		self.0.eq(&other.0)
-	}
-}
-
-impl PartialOrd<Self> for ThemeEntry {
-	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-		self.0.partial_cmp(&other.0)
-	}
-}
-
-impl Ord for ThemeEntry {
-	fn cmp(&self, other: &Self) -> Ordering {
-		self.0.cmp(&other.0)
-	}
-}
+struct Asset;
 
 #[derive(Serialize, Deserialize)]
 pub struct ReadingInfo {
@@ -109,7 +86,9 @@ pub struct ReadingInfo {
 }
 
 impl ReadingInfo {
-	pub(crate) fn new(filename: &str) -> Self {
+	#[inline]
+	pub(crate) fn new(filename: &str) -> Self
+	{
 		ReadingInfo {
 			filename: String::from(filename),
 			inner_book: 0,
@@ -120,13 +99,28 @@ impl ReadingInfo {
 			ts: 0,
 		}
 	}
-	pub(crate) fn with_last_chapter(mut self) -> Self {
+	#[inline]
+	pub(crate) fn with_last_chapter(mut self) -> Self
+	{
 		self.chapter = usize::MAX;
 		self
 	}
-	pub(crate) fn with_inner_book(mut self, inner_book: usize) -> Self {
+	#[inline]
+	pub(crate) fn with_inner_book(mut self, inner_book: usize) -> Self
+	{
 		self.inner_book = inner_book;
 		self
+	}
+	#[inline]
+	pub(crate) fn no_custom_color(mut self) -> Self
+	{
+		self.custom_color = false;
+		self
+	}
+	#[inline]
+	pub(crate) fn pos(&self) -> Position
+	{
+		Position::new(self.line, self.position)
 	}
 
 	fn now() -> u64 {
@@ -151,15 +145,21 @@ impl Clone for ReadingInfo {
 	}
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+pub struct PathConfig {
+	enabled: bool,
+	path: PathBuf,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 #[cfg(feature = "gui")]
-pub struct GuiConfiguration {
-	fonts: Vec<PathBuf>,
+struct GuiConfiguration {
+	fonts: Vec<PathConfig>,
 	font_size: u8,
+	sidebar_size: u32,
 	#[serde(default = "default_locale")]
 	lang: String,
-	#[serde(default)]
-	dictionary_data_path: Option<PathBuf>,
+	dictionaries: Vec<PathConfig>,
 }
 
 #[cfg(feature = "gui")]
@@ -169,21 +169,19 @@ impl Default for GuiConfiguration
 		GuiConfiguration {
 			fonts: vec![],
 			font_size: 20,
+			sidebar_size: 300,
 			lang: default_locale(),
-			dictionary_data_path: None,
+			dictionaries: vec![],
 		}
 	}
 }
 
-pub type Color32 = egui::Color32;
-
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Configuration {
-	render_type: String,
+	render_han: bool,
 	current: Option<String>,
-	theme_name: String,
 	history: Vec<ReadingInfo>,
-	themes: HashMap<String, PathBuf>,
+	dark_theme: bool,
 	#[cfg(feature = "gui")]
 	#[serde(default)]
 	gui: GuiConfiguration,
@@ -200,30 +198,41 @@ impl Configuration {
 	}
 }
 
+#[derive(Clone)]
+pub struct Themes {
+	bright: Theme,
+	dark: Theme,
+}
+
+impl Themes {
+	fn get(&self, dark: bool) -> &Theme
+	{
+		if dark {
+			&self.dark
+		} else {
+			&self.bright
+		}
+	}
+}
+
 fn main() -> Result<()> {
 	let cli = Cli::parse();
-	let mut config_dir = match config_dir() {
+	let config_dir = match config_dir() {
 		None => return Err(anyhow!("Can not find config dir.")),
-		Some(x) => x,
+		Some(x) => x.join(package_name!()),
 	};
-	config_dir.push("ter");
-	let mut cache_dir = match cache_dir() {
+	let cache_dir = match cache_dir() {
 		None => return Err(anyhow!("Can not find cache dir.")),
-		Some(x) => x,
+		Some(x) => x.join(package_name!()),
 	};
-	let mut config_file = config_dir.clone();
-	config_file.push("ter.toml");
-	cache_dir.push("ter");
-	let mut themes_dir = config_dir.clone();
-	themes_dir.push("themes");
+	let config_file = config_dir.join("tbr.toml");
 	let filename = cli.filename.or(env::var(TBR_BOOK_ENV_KEY).ok());
-	let (configuration, theme_entries) = load_config(filename, config_file, &themes_dir, &cache_dir)?;
+	let (configuration, themes) = load_config(filename, config_file, &config_dir, &cache_dir)?;
 	#[cfg(feature = "gui")]
 	if !cli.terminal {
-		let i18n = I18n::new(&configuration.gui.lang)?;
-		return gui::start(configuration, theme_entries, i18n);
+		return gui::start(configuration, themes);
 	}
-	terminal::start(configuration, theme_entries)?;
+	terminal::start(configuration, themes)?;
 	Ok(())
 }
 
@@ -247,12 +256,14 @@ fn file_path(filename: Option<String>) -> Option<String> {
 	}
 }
 
-fn load_config(filename: Option<String>, config_file: PathBuf, themes_dir: &PathBuf, cache_dir: &PathBuf) -> Result<(Configuration, Vec<ThemeEntry>)> {
-	let (configuration, mut theme_entries) =
+fn load_config(filename: Option<String>, config_file: PathBuf, themes_dir: &PathBuf, cache_dir: &PathBuf) -> Result<(Configuration, Themes)> {
+	let (configuration, themes) =
 		if config_file.as_path().is_file() {
 			let string = fs::read_to_string(&config_file)?;
 			let mut configuration: Configuration = toml::from_str(&string)?;
-			configuration.current = file_path(filename);
+			if filename.is_some() {
+				configuration.current = file_path(filename);
+			}
 			let mut idx = 0 as usize;
 			let mut found_current = false;
 			// remove non-exists history
@@ -276,37 +287,29 @@ fn load_config(filename: Option<String>, config_file: PathBuf, themes_dir: &Path
 				let ri = configuration.history.last().unwrap();
 				configuration.current = Some(ri.filename.clone());
 			}
-			let mut theme_entries = vec![];
-			for (name, path) in &configuration.themes {
-				let mut theme_file = themes_dir.clone();
-				theme_file.push(path);
-				let theme = process_theme_result(load_theme_file(theme_file))?;
-				theme_entries.push(ThemeEntry(name.clone(), theme));
-			}
+			let theme_file = themes_dir.join("dark.toml");
+			let dark = process_theme_result(load_theme_file(theme_file))?;
+			let theme_file = themes_dir.join("bright.toml");
+			let bright = process_theme_result(load_theme_file(theme_file))?;
+			let themes = Themes { dark, bright };
 			configuration.config_file = config_file;
-			(configuration, theme_entries)
+			(configuration, themes)
 		} else {
-			let themes_map = HashMap::from([
-				("dark".to_string(), PathBuf::from("dark.toml")),
-				("bright".to_string(), PathBuf::from("bright.toml")),
-			]);
-			let theme_entries = create_default_theme_files(&themes_map, themes_dir)?;
+			let themes = create_default_theme_files(themes_dir)?;
 			fs::create_dir_all(cache_dir)?;
 			let filepath = file_path(filename);
 
 			(Configuration {
-				render_type: String::from("xi"),
+				render_han: false,
 				current: filepath,
 				history: vec![],
-				theme_name: String::from("bright"),
-				themes: themes_map,
+				dark_theme: false,
 				#[cfg(feature = "gui")]
 				gui: Default::default(),
 				config_file,
-			}, theme_entries)
+			}, themes)
 		};
-	theme_entries.sort();
-	return Ok((configuration, theme_entries));
+	return Ok((configuration, themes));
 }
 
 fn process_theme_result(result: Result<Theme, Error>) -> Result<Theme> {
@@ -319,20 +322,23 @@ fn process_theme_result(result: Result<Theme, Error>) -> Result<Theme> {
 	}
 }
 
-fn create_default_theme_files(themes_map: &HashMap<String, PathBuf>, themes_dir: &PathBuf) -> Result<Vec<ThemeEntry>> {
-	let mut theme_entries: Vec<ThemeEntry> = vec![];
-	for (name, filepath) in themes_map {
-		let filename = filepath.to_str().unwrap();
-		let utf8 = Asset::get(filename).unwrap();
-		let str = std::str::from_utf8(utf8.data.as_ref())?;
-		let theme = process_theme_result(load_toml(str))?;
-		theme_entries.push(ThemeEntry(name.clone(), theme));
-		fs::create_dir_all(themes_dir)?;
-		let mut theme_file = themes_dir.clone();
-		theme_file.push(filename);
-		fs::write(theme_file, str)?;
-	}
-	Ok(theme_entries)
+fn create_default_theme_files(themes_dir: &PathBuf) -> Result<Themes>
+{
+	fs::create_dir_all(themes_dir)?;
+
+	let utf8 = Asset::get("dark.toml").unwrap();
+	let str = std::str::from_utf8(utf8.data.as_ref())?;
+	let dark = process_theme_result(load_toml(str))?;
+	let theme_file = themes_dir.join("dark.toml");
+	fs::write(theme_file, str)?;
+
+	let utf8 = Asset::get("bright.toml").unwrap();
+	let str = std::str::from_utf8(utf8.data.as_ref())?;
+	let bright = process_theme_result(load_toml(str))?;
+	let theme_file = themes_dir.join("bright.toml");
+	fs::write(theme_file, str)?;
+
+	Ok(Themes { dark, bright })
 }
 
 #[inline]
