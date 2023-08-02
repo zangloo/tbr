@@ -1440,7 +1440,7 @@ pub fn start(configuration: Configuration, themes: Themes) -> Result<()>
 	});
 
 	// Run the application
-	if app.run() == ExitCode::FAILURE {
+	if app.run_with_args::<String>(&[]) == ExitCode::FAILURE {
 		bail!("Failed start tbr")
 	}
 
