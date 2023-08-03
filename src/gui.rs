@@ -1450,7 +1450,9 @@ pub fn start(configuration: Configuration, themes: Themes) -> Result<()>
 		let themes = themes.clone();
 		app.connect_activate(move |app| {
 			let gui_context = gui_context.borrow_mut();
-			if gui_context.is_none() {
+			if let Some(gc) = gui_context.as_ref() {
+				gc.win().present();
+			} else {
 				show(app, &cfg, &themes, gui_context);
 			}
 		});
@@ -1464,6 +1466,7 @@ pub fn start(configuration: Configuration, themes: Themes) -> Result<()>
 						gc.open_file(&path)
 					}
 				}
+				gc.win().present();
 			} else {
 				show(app, &cfg, &themes, gui_context);
 			}
