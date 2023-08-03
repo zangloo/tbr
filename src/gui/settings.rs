@@ -1,24 +1,22 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
-use gtk4::{AlertDialog, Align, ApplicationWindow, Button, CheckButton, DropDown, EventControllerKey, FileDialog, FileFilter, glib, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode, Separator, StringList, Window};
+use gtk4::{AlertDialog, Align, Button, CheckButton, DropDown, EventControllerKey, FileDialog, FileFilter, glib, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode, Separator, StringList, Window};
 use gtk4::gdk::{Key, ModifierType};
 use gtk4::gio::{Cancellable, File, ListStore};
 use gtk4::glib::{Cast, Object, StaticType};
 use gtk4::prelude::{BoxExt, ButtonExt, CheckButtonExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, WidgetExt};
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
-use crate::{Configuration, I18n, package_name, PathConfig};
-use crate::gui::{apply_settings, create_button, FONT_FILE_EXTENSIONS, GuiController, IconMap};
+use crate::{I18n, package_name, PathConfig};
+use crate::gui::{apply_settings, create_button, FONT_FILE_EXTENSIONS, GuiContext, IconMap};
 use crate::gui::dict::DictionaryManager;
-use crate::gui::render::RenderContext;
 
-pub(super) fn show(cfg: &Rc<RefCell<Configuration>>, i18n: &Rc<I18n>, icons: &Rc<IconMap>,
-	window: &ApplicationWindow, ctrl: &Rc<RefCell<GuiController>>, ctx: &Rc<RefCell<RenderContext>>,
-	dm: &Rc<RefCell<DictionaryManager>>) -> Window
+pub(super) fn show(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>) -> Window
 {
+	let i18n = gc.i18n();
 	let dialog = Window::builder()
 		.title(i18n.msg("settings-dialog-title"))
-		.transient_for(window)
+		.transient_for(gc.win())
 		.default_width(500)
 		.default_height(500)
 		.resizable(false)
@@ -32,7 +30,7 @@ pub(super) fn show(cfg: &Rc<RefCell<Configuration>>, i18n: &Rc<I18n>, icons: &Rc
 	main.set_margin_end(10);
 	dialog.set_child(Some(&main));
 
-	let configuration = cfg.borrow();
+	let configuration = gc.cfg();
 
 	let locale_dropdown = {
 		let locale_box = gtk4::Box::new(Orientation::Horizontal, 0);
@@ -61,8 +59,7 @@ pub(super) fn show(cfg: &Rc<RefCell<Configuration>>, i18n: &Rc<I18n>, icons: &Rc
 		let (label, view, font_list, font_add_btn) = create_list(
 			&title,
 			&configuration.gui.fonts,
-			i18n,
-			icons,
+			gc,
 		);
 		let font_dialog = FileDialog::new();
 		font_dialog.set_title(&title);
@@ -102,8 +99,7 @@ pub(super) fn show(cfg: &Rc<RefCell<Configuration>>, i18n: &Rc<I18n>, icons: &Rc
 		let (label, view, dict_list, dict_add_btn) = create_list(
 			&title,
 			&configuration.gui.dictionaries,
-			i18n,
-			icons,
+			gc,
 		);
 		let dict_dialog = FileDialog::new();
 		dict_dialog.set_title(&title);
@@ -111,12 +107,12 @@ pub(super) fn show(cfg: &Rc<RefCell<Configuration>>, i18n: &Rc<I18n>, icons: &Rc
 		{
 			let dialog = dialog.clone();
 			let dict_list = dict_list.clone();
-			let i18n = i18n.clone();
+			let gc = gc.clone();
 			let title = title.to_string();
 			dict_add_btn.connect_clicked(move |_| {
 				let dict_list = dict_list.clone();
 				let dialog2 = dialog.clone();
-				let i18n = i18n.clone();
+				let gc = gc.clone();
 				let title = title.clone();
 				dict_dialog.select_folder(Some(&dialog), None::<&Cancellable>, move |result| {
 					if let Ok(file) = result {
@@ -127,7 +123,7 @@ pub(super) fn show(cfg: &Rc<RefCell<Configuration>>, i18n: &Rc<I18n>, icons: &Rc
 								AlertDialog::builder()
 									.modal(true)
 									.message(&title)
-									.detail(&i18n.args_msg("invalid-path", vec![
+									.detail(gc.i18n().args_msg("invalid-path", vec![
 										("title", title),
 										("path", path_str(&path)),
 									]))
@@ -152,15 +148,12 @@ pub(super) fn show(cfg: &Rc<RefCell<Configuration>>, i18n: &Rc<I18n>, icons: &Rc
 			.label(i18n.msg("ok-title"))
 			.build();
 		let locale_dropdown = locale_dropdown.clone();
-		let i18n = i18n.clone();
-		let cfg = cfg.clone();
-		let ctrl = ctrl.clone();
-		let ctx = ctx.clone();
+		let gc = gc.clone();
 		let dm = dm.clone();
 		ok_btn.connect_clicked(move |_| {
 			let locale = {
 				let idx = locale_dropdown.selected();
-				let locales = i18n.locales();
+				let locales = gc.i18n().locales();
 				&locales.get(idx as usize)
 					.unwrap_or(locales.get(0).unwrap())
 					.locale
@@ -171,10 +164,7 @@ pub(super) fn show(cfg: &Rc<RefCell<Configuration>>, i18n: &Rc<I18n>, icons: &Rc
 				stardict::with_sqlite(path, package_name!()).is_ok());
 
 			if let Err((title, message)) = apply_settings(
-				locale, fonts, dictionaries, &i18n,
-				&mut cfg.borrow_mut(),
-				&mut ctrl.borrow_mut(),
-				&mut ctx.borrow_mut(),
+				locale, fonts, dictionaries, &gc,
 				&mut dm.borrow_mut()) {
 				AlertDialog::builder()
 					.modal(true)
@@ -271,7 +261,7 @@ fn check_and_add(path: &PathBuf, list: &ListStore)
 	}
 }
 
-fn create_list(title: &str, paths: &Vec<PathConfig>, i18n: &Rc<I18n>, icons: &Rc<IconMap>)
+fn create_list(title: &str, paths: &Vec<PathConfig>, gc: &GuiContext)
 	-> (gtk4::Box, ScrolledWindow, ListStore, Button)
 {
 	let model = ListStore::new(PathConfigEntry::static_type());
@@ -283,14 +273,13 @@ fn create_list(title: &str, paths: &Vec<PathConfig>, i18n: &Rc<I18n>, icons: &Rc
 		.selection_mode(SelectionMode::None)
 		.build();
 	{
-		let i18n = i18n.clone();
-		let icons = icons.clone();
+		let gc = gc.clone();
 		let model_to_remove = model.clone();
 		list.bind_model(Some(&model), move |obj| {
 			gtk4::Widget::from(create_list_row(
 				obj,
-				&i18n,
-				&icons,
+				gc.i18n(),
+				gc.icons(),
 				&model_to_remove,
 			))
 		});
@@ -302,7 +291,7 @@ fn create_list(title: &str, paths: &Vec<PathConfig>, i18n: &Rc<I18n>, icons: &Rc
 		.min_content_height(120)
 		.build();
 	let list_label = title_label(title);
-	let list_add_btn = create_button("add.svg", &i18n.msg("add-title"), icons, true);
+	let list_add_btn = create_button("add.svg", &gc.i18n().msg("add-title"), gc.icons(), true);
 	let label_box = gtk4::Box::builder()
 		.orientation(Orientation::Horizontal)
 		.spacing(10)

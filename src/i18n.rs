@@ -7,7 +7,6 @@ use crate::Asset;
 
 pub const DEFAULT_LOCALE: &str = "en_US";
 
-#[derive(Clone)]
 pub struct LocaleEntry {
 	pub locale: String,
 	pub name: String,

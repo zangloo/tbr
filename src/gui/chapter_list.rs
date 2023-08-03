@@ -1,13 +1,10 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use gtk4::{Align, Label, ListBox, ListBoxRow, SelectionMode};
 use gtk4::gio::ListStore;
 use gtk4::glib::{Cast, Object, StaticType};
 use gtk4::glib;
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::{ListBoxRowExt, ListModelExt, WidgetExt};
-use crate::gui::{BOOK_NAME_LABEL_CLASS, GuiController, README_TEXT_FILENAME, StatusUpdater, TOC_LABEL_CLASS};
-use crate::gui::render::RenderContext;
+use crate::gui::{BOOK_NAME_LABEL_CLASS, GuiController, README_TEXT_FILENAME, GuiContext, TOC_LABEL_CLASS};
 use crate::ReadingInfo;
 
 pub fn create() -> (ListBox, ListStore)
@@ -21,21 +18,20 @@ pub fn create() -> (ListBox, ListStore)
 	(chapter_list, model)
 }
 
-pub(super) fn init(ctrl: &Rc<RefCell<GuiController>>, ctx: &Rc<RefCell<RenderContext>>,
-	chapter_list: &ListBox, model: &ListStore, su: &Rc<StatusUpdater>)
+pub(super) fn init(gc: &GuiContext)
 {
+	let chapter_list = gc.chapter_list();
+	let model = gc.chapter_model();
 	chapter_list.bind_model(Some(model), move |obj| {
 		gtk4::Widget::from(create_list_row(obj))
 	});
 
-	let controller = ctrl.borrow();
+	let controller = gc.ctrl();
 	load_model(chapter_list, model, &controller);
 
-	let ctrl = ctrl.clone();
-	let ctx = ctx.clone();
-	let su = su.clone();
+	let gc = gc.clone();
 	chapter_list.connect_row_selected(move |_, row| {
-		let mut controller = if let Ok(ctrl) = ctrl.try_borrow_mut() {
+		let mut controller = if let Ok(ctrl) = gc.try_ctrl_mut() {
 			ctrl
 		} else {
 			// row-selected fire when call select_row in program, ignore this
@@ -44,17 +40,17 @@ pub(super) fn init(ctrl: &Rc<RefCell<GuiController>>, ctx: &Rc<RefCell<RenderCon
 		if let Some(row) = row {
 			let row_index = row.index();
 			if row_index >= 0 {
-				let mut render_context = ctx.borrow_mut();
-				if let Some(obj) = su.item(row_index as u32) {
+				let mut render_context = gc.ctx_mut();
+				if let Some(obj) = gc.item(row_index as u32) {
 					let entry = entry_cast(&obj);
 					// let mut controller = ctrl.borrow_mut();
 					if entry.book() {
 						let new_reading = ReadingInfo::new(&controller.reading.filename)
 							.with_inner_book(entry.index() as usize);
 						let msg = controller.switch_book(new_reading, &mut render_context);
-						su.update(&msg, usize::MAX, &controller);
+						gc.update(&msg, usize::MAX, &controller);
 					} else if let Some(msg) = controller.goto_toc(entry.index() as usize, &mut render_context) {
-						su.message(&msg);
+						gc.message(&msg);
 					}
 				}
 			}
