@@ -166,7 +166,7 @@ pub(self) fn load_image(bytes: &[u8]) -> Option<Pixbuf>
 	Some(image)
 }
 
-fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: Themes) -> Result<GuiContext>
+fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Themes>) -> Result<GuiContext>
 {
 	let mut configuration = cfg.borrow_mut();
 	let conf_ref: &mut Configuration = &mut configuration;
@@ -1408,6 +1408,29 @@ impl GuiContext {
 	}
 }
 
+fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>,
+	mut gui_context: RefMut<Option<GuiContext>>)
+{
+	let css_provider = CssProvider::new();
+	css_provider.load_from_data(&format!("{}:focus-visible {{outline-style: dashed; outline-offset: -3px; outline-width: 3px;}} button.inline {{padding: 0px;min-height: 16px;}} label.{BOOK_NAME_LABEL_CLASS} {{font-size: large;}}", GuiView::WIDGET_NAME));
+	gtk4::style_context_add_provider_for_display(
+		&Display::default().expect("Could not connect to a display."),
+		&css_provider,
+		gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+	);
+	Window::set_default_icon_name("tbr-icon");
+
+	match build_ui(app, cfg.clone(), themes) {
+		Ok(context) => {
+			*gui_context = Some(context);
+		}
+		Err(err) => {
+			eprintln!("Failed start tbr: {}", err.to_string());
+			app.quit();
+		}
+	}
+}
+
 pub fn start(configuration: Configuration, themes: Themes) -> Result<()>
 {
 	#[cfg(unix)]
@@ -1420,36 +1443,32 @@ pub fn start(configuration: Configuration, themes: Themes) -> Result<()>
 
 	let gui_context = Rc::new(RefCell::new(None::<GuiContext>));
 	let cfg = Rc::new(RefCell::new(configuration));
-	app.connect_open(move |app, files, _| {
-		let mut gui_context = gui_context.borrow_mut();
-		if let Some(gc) = gui_context.as_ref() {
-			if files.len() > 0 {
-				if let Some(path) = files[0].path() {
-					gc.open_file(&path)
-				}
+	let themes = Rc::new(themes);
+	{
+		let gui_context = gui_context.clone();
+		let cfg = cfg.clone();
+		let themes = themes.clone();
+		app.connect_activate(move |app| {
+			let gui_context = gui_context.borrow_mut();
+			if gui_context.is_none() {
+				show(app, &cfg, &themes, gui_context);
 			}
-		} else {
-			let css_provider = CssProvider::new();
-			css_provider.load_from_data(&format!("{}:focus-visible {{outline-style: dashed; outline-offset: -3px; outline-width: 3px;}} button.inline {{padding: 0px;min-height: 16px;}} label.{BOOK_NAME_LABEL_CLASS} {{font-size: large;}}", GuiView::WIDGET_NAME));
-			gtk4::style_context_add_provider_for_display(
-				&Display::default().expect("Could not connect to a display."),
-				&css_provider,
-				gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-			);
-			Window::set_default_icon_name("tbr-icon");
-
-			match build_ui(app, cfg.clone(), themes.clone()) {
-				Ok(context) => {
-					*gui_context = Some(context);
+		});
+	}
+	{
+		app.connect_open(move |app, files, _| {
+			let gui_context = gui_context.borrow_mut();
+			if let Some(gc) = gui_context.as_ref() {
+				if files.len() > 0 {
+					if let Some(path) = files[0].path() {
+						gc.open_file(&path)
+					}
 				}
-				Err(err) => {
-					eprintln!("Failed start tbr: {}", err.to_string());
-					app.quit();
-				}
+			} else {
+				show(app, &cfg, &themes, gui_context);
 			}
-		}
-	});
-
+		});
+	}
 	// Run the application
 	if app.run() == ExitCode::FAILURE {
 		bail!("Failed start tbr")
