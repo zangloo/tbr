@@ -2966,7 +2966,8 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 [[package]]
 name = "stardict"
 version = "0.1.11"
-source = "git+https://github.com/zangloo/stardict.git#5ce847becd8b835d03f1b099e1586a86fc2fce41"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c654e7d4e734b8debb1b9066634769268e6eb6786d5344f9ddb5d58afd39d34a"
 dependencies = [
  "byteorder",
  "dirs",

@@ -54,6 +54,7 @@ ab_glyph = "0.2"
 image = "0.24"
 resvg = "0.35"
 
-stardict = { git = "https://github.com/zangloo/stardict.git" }
+stardict = { version = "0.1" }
+#stardict = { git = "https://github.com/zangloo/stardict.git" }
 html-escape = "0.2"
 elsa = "1.8"
