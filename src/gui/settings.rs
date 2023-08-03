@@ -4,7 +4,7 @@ use std::rc::Rc;
 use gtk4::{AlertDialog, Align, Button, CheckButton, DropDown, EventControllerKey, FileDialog, FileFilter, glib, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode, Separator, StringList, Window};
 use gtk4::gdk::{Key, ModifierType};
 use gtk4::gio::{Cancellable, File, ListStore};
-use gtk4::glib::{Cast, Object, StaticType};
+use gtk4::glib::{Cast, Object};
 use gtk4::prelude::{BoxExt, ButtonExt, CheckButtonExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, WidgetExt};
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
 use crate::{I18n, package_name, PathConfig};
@@ -211,9 +211,9 @@ pub(super) fn show(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>) -> Wind
 			match (key, modifier) {
 				(Key::Escape, MODIFIER_NONE) => {
 					dialog.close();
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
-				_ => gtk4::Inhibit(false),
+				_ => glib::Propagation::Proceed,
 			}
 		});
 	}
@@ -264,7 +264,7 @@ fn check_and_add(path: &PathBuf, list: &ListStore)
 fn create_list(title: &str, paths: &Vec<PathConfig>, gc: &GuiContext)
 	-> (gtk4::Box, ScrolledWindow, ListStore, Button)
 {
-	let model = ListStore::new(PathConfigEntry::static_type());
+	let model = ListStore::new::<PathConfigEntry>();
 	for config in paths {
 		model.append(&PathConfigEntry::new(config.enabled, &config.path));
 	}

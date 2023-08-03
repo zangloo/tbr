@@ -170,7 +170,7 @@ impl GuiView {
 				view.grab_focus();
 				let delta = if y > 0. { 1 } else { -1 };
 				view.emit_by_name::<()>(GuiView::SCROLL_SIGNAL, &[&delta]);
-				gtk4::Inhibit(true)
+				glib::Propagation::Stop
 			});
 			self.add_controller(scroll_event);
 		}
@@ -242,8 +242,7 @@ mod imp {
 	use gtk4::glib::subclass::Signal;
 	use gtk4::pango::Layout as PangoContext;
 	use gtk4::subclass::drawing_area::DrawingAreaImpl;
-	use gtk4::subclass::prelude::{ObjectImpl, ObjectSubclass, ObjectSubclassExt, WidgetImpl, WidgetImplExt};
-	use gtk4::subclass::widget::WidgetClassSubclassExt;
+	use gtk4::subclass::prelude::{ObjectImpl, ObjectSubclass, ObjectSubclassExt, WidgetClassExt, WidgetImpl, WidgetImplExt};
 	use crate::book::{Book, Line};
 	use crate::common::Position;
 	use crate::controller::HighlightInfo;

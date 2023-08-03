@@ -1,6 +1,6 @@
 use gtk4::{Align, Label, ListBox, ListBoxRow, SelectionMode};
 use gtk4::gio::ListStore;
-use gtk4::glib::{Cast, Object, StaticType};
+use gtk4::glib::{Cast, Object};
 use gtk4::glib;
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::{ListBoxRowExt, ListModelExt, WidgetExt};
@@ -9,7 +9,7 @@ use crate::ReadingInfo;
 
 pub fn create() -> (ListBox, ListStore)
 {
-	let model = ListStore::new(ChapterListEntry::static_type());
+	let model = ListStore::new::<ChapterListEntry>();
 	let chapter_list = ListBox::builder()
 		.selection_mode(SelectionMode::Single)
 		.build();

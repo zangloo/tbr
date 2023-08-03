@@ -266,77 +266,77 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: Themes) 
 				(Key::space | Key::Page_Down, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.next_page(render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::space, ModifierType::SHIFT_MASK) | (Key::Page_Up, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.prev_page(render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::Home, MODIFIER_NONE) => {
 					apply(&gc, |controller, render_context|
 						controller.redraw_at(0, 0, render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::End, MODIFIER_NONE) => {
 					apply(&gc, |controller, render_context|
 						controller.goto_end(render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::Down, MODIFIER_NONE) => {
 					apply(&gc, |controller, render_context|
 						controller.step_next(render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::Up, MODIFIER_NONE) => {
 					apply(&gc, |controller, render_context|
 						controller.step_prev(render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::n, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.search_again(true, render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::N, ModifierType::SHIFT_MASK) => {
 					handle(&gc, |controller, render_context|
 						controller.search_again(false, render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::d, ModifierType::CONTROL_MASK) => {
 					handle(&gc, |controller, render_context|
 						controller.switch_chapter(true, render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::b, ModifierType::CONTROL_MASK) => {
 					handle(&gc, |controller, render_context|
 						controller.switch_chapter(false, render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::Right, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.goto_trace(false, render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::Left, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.goto_trace(true, render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::Tab, MODIFIER_NONE) => {
 					apply(&gc, |controller, render_context|
 						controller.switch_link_next(render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::Tab, ModifierType::SHIFT_MASK) => {
 					apply(&gc, |controller, render_context|
 						controller.switch_link_prev(render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::Return, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.try_goto_link(render_context));
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::equal, ModifierType::CONTROL_MASK) => {
 					apply(&gc, |controller, render_context| {
@@ -348,7 +348,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: Themes) 
 							dm.borrow_mut().set_font_size(configuration.gui.font_size);
 						}
 					});
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::minus, ModifierType::CONTROL_MASK) => {
 					apply(&gc, |controller, render_context| {
@@ -360,7 +360,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: Themes) 
 							dm.borrow_mut().set_font_size(configuration.gui.font_size);
 						}
 					});
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::c, ModifierType::CONTROL_MASK) => {
 					if let Some(selected_text) = ctrl.borrow().selected() {
@@ -368,11 +368,11 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: Themes) 
 							display.clipboard().set_text(selected_text);
 						}
 					}
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				_ => {
 					// println!("view, key: {key}, modifier: {modifier}");
-					gtk4::Inhibit(false)
+					glib::Propagation::Proceed
 				}
 			}
 		});
@@ -700,7 +700,7 @@ fn setup_window(gc: &GuiContext, main: gtk4::Box, view: GuiView, stack: Stack,
 			match (key, modifier) {
 				(Key::c, MODIFIER_NONE) => {
 					switch_stack(SIDEBAR_CHAPTER_LIST_NAME, &stack, &paned, &sidebar_btn, &gc);
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::d, MODIFIER_NONE) => {
 					if switch_stack(SIDEBAR_DICT_NAME, &stack, &paned, &sidebar_btn, &gc) {
@@ -708,31 +708,31 @@ fn setup_window(gc: &GuiContext, main: gtk4::Box, view: GuiView, stack: Stack,
 							dm.borrow_mut().set_lookup(selected_text.to_owned());
 						}
 					}
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::slash, MODIFIER_NONE) | (Key::f, ModifierType::CONTROL_MASK) => {
 					search_box.grab_focus();
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::Escape, MODIFIER_NONE) => {
 					if paned.position() != 0 {
 						toggle_sidebar(&sidebar_btn, &paned, &gc);
-						gtk4::Inhibit(true)
+						glib::Propagation::Stop
 					} else {
-						gtk4::Inhibit(false)
+						glib::Propagation::Proceed
 					}
 				}
 				(Key::x, ModifierType::CONTROL_MASK) => {
 					switch_render(&render_btn, &gc);
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				(Key::t, MODIFIER_NONE) => {
 					switch_theme(&theme_btn, &gc);
-					gtk4::Inhibit(true)
+					glib::Propagation::Stop
 				}
 				_ => {
 					// println!("window, key: {key}, modifier: {modifier}");
-					gtk4::Inhibit(false)
+					glib::Propagation::Proceed
 				}
 			}
 		});
@@ -751,7 +751,7 @@ fn setup_window(gc: &GuiContext, main: gtk4::Box, view: GuiView, stack: Stack,
 			if let Err(e) = configuration.save() {
 				println!("Failed save configuration: {}", e.to_string());
 			}
-			gtk4::Inhibit(false)
+			glib::Propagation::Proceed
 		});
 	}
 
