@@ -20,7 +20,7 @@ use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExt
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
 
-use crate::{Asset, PathConfig, Configuration, I18n, package_name, ReadingInfo, Themes};
+use crate::{Asset, PathConfig, Configuration, I18n, package_name, ReadingInfo, Themes, BookToOpen};
 use crate::book::{Book, Colors, Line};
 use crate::color::Color32;
 use crate::common::{Position, reading_info, txt_lines};
@@ -1431,7 +1431,8 @@ fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>
 	}
 }
 
-pub fn start(configuration: Configuration, themes: Themes) -> Result<()>
+pub fn start(configuration: Configuration, themes: Themes,
+	book_to_open: BookToOpen) -> Result<()>
 {
 	#[cfg(unix)]
 	setup_icon()?;
@@ -1449,6 +1450,7 @@ pub fn start(configuration: Configuration, themes: Themes) -> Result<()>
 		let cfg = cfg.clone();
 		let themes = themes.clone();
 		app.connect_activate(move |app| {
+			println!("connect_activate");
 			let gui_context = gui_context.borrow_mut();
 			if let Some(gc) = gui_context.as_ref() {
 				gc.win().present();
@@ -1459,6 +1461,7 @@ pub fn start(configuration: Configuration, themes: Themes) -> Result<()>
 	}
 	{
 		app.connect_open(move |app, files, _| {
+			println!("connect_open");
 			let gui_context = gui_context.borrow_mut();
 			if let Some(gc) = gui_context.as_ref() {
 				if files.len() > 0 {
@@ -1472,9 +1475,16 @@ pub fn start(configuration: Configuration, themes: Themes) -> Result<()>
 			}
 		});
 	}
-	// Run the application
+	if let BookToOpen::Env(filename) = book_to_open {
+		if let Err(err) = app.register(None::<&Cancellable>) {
+			bail!("Failed start tbr: {}", err);
+		} else {
+			app.open(&[File::for_path(filename.clone())], "");
+		}
+	}
+
 	if app.run() == ExitCode::FAILURE {
-		bail!("Failed start tbr")
+		bail!("Failed start tbr");
 	}
 
 	Ok(())

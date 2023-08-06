@@ -215,6 +215,24 @@ impl Themes {
 	}
 }
 
+pub enum BookToOpen {
+	None,
+	Cmd(String),
+	Env(String),
+}
+
+impl BookToOpen {
+	#[inline]
+	fn name(&self) -> Option<&str>
+	{
+		match self {
+			BookToOpen::None => None,
+			BookToOpen::Cmd(name) => Some(name),
+			BookToOpen::Env(name) => Some(name)
+		}
+	}
+}
+
 fn main() -> Result<()> {
 	let cli = Cli::parse();
 	let config_dir = match config_dir() {
@@ -226,21 +244,22 @@ fn main() -> Result<()> {
 		Some(x) => x.join(package_name!()),
 	};
 	let config_file = config_dir.join("tbr.toml");
-	let filename = cli.filename.or(env::var(TBR_BOOK_ENV_KEY).ok());
-	let (configuration, themes) = load_config(filename, config_file, &config_dir, &cache_dir)?;
+	let filename = cli.filename
+		.map_or_else(
+			|| env::var(TBR_BOOK_ENV_KEY).map_or(BookToOpen::None, |name| {
+				BookToOpen::Env(name)
+			}),
+			|name| BookToOpen::Cmd(name));
+	let (configuration, themes) = load_config(&filename, config_file, &config_dir, &cache_dir)?;
 	#[cfg(feature = "gui")]
 	if !cli.terminal {
-		return gui::start(configuration, themes);
+		return gui::start(configuration, themes, filename);
 	}
 	terminal::start(configuration, themes)?;
 	Ok(())
 }
 
-fn file_path(filename: Option<String>) -> Option<String> {
-	if filename.is_none() {
-		return None;
-	}
-	let filename = filename.unwrap();
+fn file_path(filename: &str) -> Option<String> {
 	let filepath = PathBuf::from(filename);
 	if !filepath.exists() {
 		return None;
@@ -256,12 +275,12 @@ fn file_path(filename: Option<String>) -> Option<String> {
 	}
 }
 
-fn load_config(filename: Option<String>, config_file: PathBuf, themes_dir: &PathBuf, cache_dir: &PathBuf) -> Result<(Configuration, Themes)> {
+fn load_config(filename: &BookToOpen, config_file: PathBuf, themes_dir: &PathBuf, cache_dir: &PathBuf) -> Result<(Configuration, Themes)> {
 	let (configuration, themes) =
 		if config_file.as_path().is_file() {
 			let string = fs::read_to_string(&config_file)?;
 			let mut configuration: Configuration = toml::from_str(&string)?;
-			if filename.is_some() {
+			if let Some(filename) = filename.name() {
 				configuration.current = file_path(filename);
 			}
 			let mut idx = 0 as usize;
@@ -297,7 +316,8 @@ fn load_config(filename: Option<String>, config_file: PathBuf, themes_dir: &Path
 		} else {
 			let themes = create_default_theme_files(themes_dir)?;
 			fs::create_dir_all(cache_dir)?;
-			let filepath = file_path(filename);
+			let filepath = filename.name()
+				.map_or(None, |filename| file_path(filename));
 
 			(Configuration {
 				render_han: false,
