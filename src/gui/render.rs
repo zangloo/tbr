@@ -386,7 +386,6 @@ pub(super) trait GuiRender {
 					} else {
 						Some(Position::new(index, 0))
 					};
-					render_lines.push(wrapped_line);
 					return (render_lines, next);
 				}
 				drawn_size += wrapped_line.line_space;

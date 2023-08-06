@@ -235,7 +235,7 @@ mod imp {
 	use std::cell::RefCell;
 	use std::rc::Rc;
 	use ab_glyph::FontVec;
-	use gtk4::prelude::SnapshotExt;
+	use gtk4::prelude::{SnapshotExt, WidgetExt};
 	use gtk4::{glib, graphene, Orientation, Snapshot};
 	use gtk4::glib::once_cell::sync::Lazy;
 	use gtk4::glib::StaticType;
@@ -347,10 +347,10 @@ mod imp {
 		fn snapshot(&self, snapshot: &Snapshot)
 		{
 			let data = self.data.borrow();
-			let render_text = &data.render_rect;
-			let rect = graphene::Rect::new(
-				render_text.min.x, render_text.min.y,
-				render_text.width(), render_text.height());
+			let obj = self.obj();
+			let width = obj.width() as f32;
+			let height = obj.height() as f32;
+			let rect = graphene::Rect::new(0.0, 0.0, width, height);
 			let cairo = snapshot.append_cairo(&rect);
 			self.render.borrow_mut().draw(
 				&data.render_lines,
