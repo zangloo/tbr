@@ -90,6 +90,7 @@ impl GuiRender for GuiHanRender
 		let max_top = context.render_rect.max.y;
 		let mut line_size = 0.0;
 		let mut line_space = 0.0;
+		let default_size = context.default_font_measure.x;
 
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, context.custom_color, &context.colors);
@@ -167,11 +168,14 @@ impl GuiRender for GuiHanRender
 			if line_size < rect_width {
 				line_size = rect_width;
 				if matches!(cell, RenderCell::Image(_)) {
-					let default_space = context.default_font_measure.x / 2.0;
+					let default_space = default_size / 2.0;
 					if line_space < default_space {
 						line_space = default_space;
 					}
 				} else {
+					if line_size < default_size {
+						line_size = default_size;
+					}
 					line_space = line_size / 2.0
 				}
 			}

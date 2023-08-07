@@ -74,16 +74,20 @@ impl GuiRender for GuiXiRender
 		{
 			let mut line_size = 0.0;
 			let mut line_space = 0.0;
+			let default_size = context.default_font_measure.y;
 			for (dc, _) in &draw_chars {
 				let this_height = dc.rect.height();
 				if this_height > line_size {
 					line_size = this_height;
 					if matches!(dc.cell, RenderCell::Image(_)) {
-						let default_space = context.default_font_measure.y / 2.0;
+						let default_space = default_size / 2.0;
 						if line_space < default_space {
 							line_space = default_space;
 						}
 					} else {
+						if line_size < default_size {
+							line_size = default_size;
+						}
 						line_space = line_size / 2.0
 					}
 				}
