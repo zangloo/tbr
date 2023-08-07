@@ -16,7 +16,7 @@ use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, ListStore, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
 use gtk4::glib;
 use gtk4::glib::{Bytes, closure_local, ExitCode, Object, ObjectExt, StaticType};
-use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, PopoverExt, WidgetExt};
+use gtk4::prelude::{ActionGroupExt, ActionMapExt, AdjustmentExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, PopoverExt, WidgetExt};
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
 
@@ -699,7 +699,9 @@ fn setup_window(gc: &GuiContext, main: gtk4::Box, view: GuiView, stack: Stack,
 			const MODIFIER_NONE: ModifierType = ModifierType::empty();
 			match (key, modifier) {
 				(Key::c, MODIFIER_NONE) => {
-					switch_stack(SIDEBAR_CHAPTER_LIST_NAME, &stack, &paned, &sidebar_btn, &gc);
+					if switch_stack(SIDEBAR_CHAPTER_LIST_NAME, &stack, &paned, &sidebar_btn, &gc) {
+						gc.scroll_to_current_chapter();
+					}
 					glib::Propagation::Stop
 				}
 				(Key::d, MODIFIER_NONE) => {
@@ -1405,6 +1407,18 @@ impl GuiContext {
 		} else {
 			self.inner.status_bar.set_text(msg);
 		};
+	}
+
+	fn scroll_to_current_chapter(&self)
+	{
+		if let Some(row) = self.chapter_list().selected_row() {
+			if let Some((_, y)) = row.translate_coordinates(self.chapter_list(), 0., 0.) {
+				if let Some(adj) = self.chapter_list().adjustment() {
+					let (_, height) = row.preferred_size();
+					adj.set_value(y - (adj.page_size() - height.height() as f64) / 2.);
+				}
+			}
+		}
 	}
 }
 
