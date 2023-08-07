@@ -280,8 +280,8 @@ impl ReadingView {
 			Event::Key(Key::PageUp) => self.controller.prev_page(&mut self.render_context)?,
 			Event::Key(Key::Home) => self.controller.redraw_at(0, 0, &mut self.render_context),
 			Event::Key(Key::End) => self.controller.goto_end(&mut self.render_context),
-			Event::Key(Key::Down) => self.controller.step_next(&mut self.render_context),
-			Event::Key(Key::Up) => self.controller.step_prev(&mut self.render_context),
+			Event::Key(Key::Down) => self.controller.step_next(&mut self.render_context)?,
+			Event::Key(Key::Up) => self.controller.step_prev(&mut self.render_context)?,
 			Event::Char('n') => self.controller.search_again(true, &mut self.render_context)?,
 			Event::Char('N') => self.controller.search_again(false, &mut self.render_context)?,
 			Event::CtrlChar('d') => { self.controller.switch_chapter(true, &mut self.render_context)?; }

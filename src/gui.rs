@@ -284,12 +284,12 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 					glib::Propagation::Stop
 				}
 				(Key::Down, MODIFIER_NONE) => {
-					apply(&gc, |controller, render_context|
+					handle(&gc, |controller, render_context|
 						controller.step_next(render_context));
 					glib::Propagation::Stop
 				}
 				(Key::Up, MODIFIER_NONE) => {
-					apply(&gc, |controller, render_context|
+					handle(&gc, |controller, render_context|
 						controller.step_prev(render_context));
 					glib::Propagation::Stop
 				}
@@ -601,10 +601,10 @@ fn setup_view(gc: &GuiContext, view: &GuiView, stack: &Stack,
 			false,
 			closure_local!(move |_: GuiView, delta: i32| {
 				if delta > 0 {
-					apply(&gc, |controller, render_context|
+					handle(&gc, |controller, render_context|
 						controller.step_next(render_context));
 				} else {
-					apply(&gc, |controller, render_context|
+					handle(&gc, |controller, render_context|
 						controller.step_prev(render_context));
 				}
 	        }),

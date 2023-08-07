@@ -306,10 +306,14 @@ impl DictionaryManager {
 	#[inline]
 	fn scroll(&mut self, forward: bool)
 	{
-		if forward {
-			self.controller.step_next(&mut self.render_context);
+		let result = if forward {
+			self.controller.step_next(&mut self.render_context)
 		} else {
-			self.controller.step_prev(&mut self.render_context);
+			self.controller.step_prev(&mut self.render_context)
+		};
+
+		if let Err(err) = result {
+			eprintln!("Error: {}", err.to_string());
 		}
 	}
 

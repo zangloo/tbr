@@ -274,7 +274,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		self.redraw_at(position.line, position.offset, context);
 	}
 
-	pub fn step_prev(&mut self, context: &mut C)
+	pub fn step_prev(&mut self, context: &mut C) -> Result<()>
 	{
 		let lines = self.book.lines();
 		let reading = &self.reading;
@@ -282,21 +282,22 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		let offset = reading.position;
 		if offset == 0 {
 			if line == 0 {
-				return;
+				return self.prev_page(context);
 			} else {
 				let new_line = line - 1;
 				let text = &lines[new_line];
 				if text.len() == 0 {
 					self.redraw_at(new_line, 0, context);
-					return;
+					return Ok(());
 				}
 			}
 		}
 		let position = self.render.prev_line(self.book.as_ref(), lines, line, offset, context);
 		self.redraw_at(position.line, position.offset, context);
+		Ok(())
 	}
 
-	pub fn step_next(&mut self, context: &mut C)
+	pub fn step_next(&mut self, context: &mut C) -> Result<()>
 	{
 		if self.next.is_some() {
 			let lines = self.book.lines();
@@ -308,13 +309,16 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				let new_line = line + 1;
 				if line < lines.len() {
 					self.redraw_at(new_line, 0, context);
-					return;
+					return Ok(());
 				}
 			}
 
 			let position = self.render.next_line(self.book.as_ref(), lines, line, reading.position, context);
 			self.redraw_at(position.line, position.offset, context);
+		} else {
+			self.switch_chapter(true, context)?;
 		}
+		Ok(())
 	}
 
 	pub fn goto_toc(&mut self, toc_index: usize, context: &mut C) -> Option<String> {
@@ -581,7 +585,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				self.push_trace(true);
 				self.redraw(context);
 			} else {
-				self.step_prev(context);
+				self.step_prev(context)?;
 			}
 		}
 		Ok(())
