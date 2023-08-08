@@ -1,11 +1,17 @@
-use gtk4::{Align, Label, ListBox, ListBoxRow, SelectionMode};
+use gtk4::{Align, Image, Label, ListBox, ListBoxRow, Orientation, SelectionMode};
 use gtk4::gio::ListStore;
 use gtk4::glib::{Cast, Object};
 use gtk4::glib;
 use gtk4::pango::EllipsizeMode;
-use gtk4::prelude::{ListBoxRowExt, ListModelExt, WidgetExt};
-use crate::gui::{BOOK_NAME_LABEL_CLASS, GuiController, README_TEXT_FILENAME, GuiContext, TOC_LABEL_CLASS};
+use gtk4::prelude::{BoxExt, ListBoxRowExt, ListModelExt, WidgetExt};
+use crate::gui::{GuiController, README_TEXT_FILENAME, GuiContext};
 use crate::ReadingInfo;
+
+pub const BOOK_NAME_LABEL_CLASS: &str = "book-name";
+pub const TOC_LABEL_CLASS: &str = "toc";
+pub const ICON_BOOK_CLOSED_NAME: &str = "book_closed.png";
+pub const ICON_BOOK_READING_NAME: &str = "book_reading.png";
+pub const ICON_CHAPTER_NAME: &str = "chapter.png";
 
 pub fn create() -> (ListBox, ListStore)
 {
@@ -70,17 +76,18 @@ pub fn load_model(chapter_list: &ListBox, model: &ListStore, controller: &GuiCon
 		}
 		if index == controller.reading.inner_book {
 			current_book_idx = model.n_items() as i32;
-			model.append(&ChapterListEntry::new(bookname, index, true));
+			model.append(&ChapterListEntry::new(bookname, index, true, true));
 			if let Some(toc) = controller.book.toc_iterator() {
 				for (title, value) in toc {
-					if value == current_toc {
+					let reading = value == current_toc;
+					if reading {
 						current_toc_idx = model.n_items() as i32;
 					}
-					model.append(&ChapterListEntry::new(title, value, false));
+					model.append(&ChapterListEntry::new(title, value, false, reading));
 				}
 			}
 		} else {
-			model.append(&ChapterListEntry::new(bookname, index, true));
+			model.append(&ChapterListEntry::new(bookname, index, true, false));
 		}
 	}
 	if let Some(row) = chapter_list.row_at_index(current_toc_idx) {
@@ -101,17 +108,29 @@ fn create_list_row(obj: &Object) -> ListBoxRow
 		.tooltip_text(&title)
 		.build();
 
-	let row = ListBoxRow::new();
-	row.set_child(Some(&label));
-
 	let is_book = entry.book();
-	if is_book {
+	let icon = if is_book {
 		label.add_css_class(BOOK_NAME_LABEL_CLASS);
 		label.set_label(&title);
+		let icon_name = if entry.reading() {
+			"book_reading"
+		} else {
+			"book_closed"
+		};
+		Image::builder().icon_name(icon_name).build()
 	} else {
 		label.add_css_class(TOC_LABEL_CLASS);
 		label.set_label(&format!("    {}", title));
-	}
+		Image::builder().icon_name("chapter").build()
+	};
+
+	let view = gtk4::Box::new(Orientation::Horizontal, 4);
+	view.append(&icon);
+	view.append(&label);
+
+	let row = ListBoxRow::new();
+	row.set_child(Some(&view));
+
 	row
 }
 
@@ -126,11 +145,12 @@ glib::wrapper! {
 }
 
 impl ChapterListEntry {
-	pub fn new(title: &str, index: usize, book: bool) -> Self {
+	pub fn new(title: &str, index: usize, book: bool, reading: bool) -> Self {
 		Object::builder()
 			.property("title", title)
 			.property("index", index as u64)
 			.property("book", book)
+			.property("reading", reading)
 			.build()
 	}
 }
@@ -152,6 +172,8 @@ mod imp {
 		index: Cell<u64>,
 		#[property(get, set)]
 		book: Cell<bool>,
+		#[property(get, set)]
+		reading: Cell<bool>,
 	}
 
 	#[glib::object_subclass]

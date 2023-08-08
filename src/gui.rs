@@ -22,6 +22,7 @@ use resvg::usvg::TreeParsing;
 
 use crate::{Asset, PathConfig, Configuration, I18n, package_name, ReadingInfo, Themes, BookToOpen};
 use crate::book::{Book, Colors, Line};
+use crate::gui::chapter_list::BOOK_NAME_LABEL_CLASS;
 use crate::color::Color32;
 use crate::common::{Position, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
@@ -45,8 +46,6 @@ const MAX_FONT_SIZE: u8 = 50;
 const FONT_FILE_EXTENSIONS: [&str; 3] = ["ttf", "otf", "ttc"];
 const SIDEBAR_CHAPTER_LIST_NAME: &str = "chapter_list";
 const SIDEBAR_DICT_NAME: &str = "dictionary_list";
-const BOOK_NAME_LABEL_CLASS: &str = "book-name";
-const TOC_LABEL_CLASS: &str = "toc";
 const COPY_CONTENT_KEY: &str = "copy-content";
 const DICT_LOOKUP_KEY: &str = "lookup-dictionary";
 
@@ -1100,6 +1099,18 @@ fn setup_icon() -> Result<()>
 	if !icon_file.exists() {
 		fs::create_dir_all(&icon_path)?;
 		fs::write(&icon_file, include_bytes!("../assets/gui/tbr-icon.png"))?;
+	}
+	let icon_file = icon_path.join(chapter_list::ICON_BOOK_CLOSED_NAME);
+	if !icon_file.exists() {
+		fs::write(&icon_file, include_bytes!("../assets/gui/icons/book_closed.svg"))?;
+	}
+	let icon_file = icon_path.join(chapter_list::ICON_BOOK_READING_NAME);
+	if !icon_file.exists() {
+		fs::write(&icon_file, include_bytes!("../assets/gui/icons/book_reading.svg"))?;
+	}
+	let icon_file = icon_path.join(chapter_list::ICON_CHAPTER_NAME);
+	if !icon_file.exists() {
+		fs::write(&icon_file, include_bytes!("../assets/gui/icons/chapter.svg"))?;
 	}
 	Ok(())
 }
