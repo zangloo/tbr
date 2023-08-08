@@ -9,9 +9,9 @@ use crate::ReadingInfo;
 
 pub const BOOK_NAME_LABEL_CLASS: &str = "book-name";
 pub const TOC_LABEL_CLASS: &str = "toc";
-pub const ICON_BOOK_CLOSED_NAME: &str = "book_closed.png";
-pub const ICON_BOOK_READING_NAME: &str = "book_reading.png";
-pub const ICON_CHAPTER_NAME: &str = "chapter.png";
+pub const ICON_BOOK_CLOSED_NAME: &str = "book_closed.svg";
+pub const ICON_BOOK_READING_NAME: &str = "book_reading.svg";
+pub const ICON_CHAPTER_NAME: &str = "chapter.svg";
 
 pub fn create() -> (ListBox, ListStore)
 {
