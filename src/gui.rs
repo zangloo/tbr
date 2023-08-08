@@ -1464,7 +1464,6 @@ pub fn start(configuration: Configuration, themes: Themes,
 		let cfg = cfg.clone();
 		let themes = themes.clone();
 		app.connect_activate(move |app| {
-			println!("connect_activate");
 			let gui_context = gui_context.borrow_mut();
 			if let Some(gc) = gui_context.as_ref() {
 				gc.win().present();
