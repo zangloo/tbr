@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::cell::{BorrowMutError, Ref, RefCell, RefMut};
+use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Read;
@@ -10,10 +10,10 @@ use ab_glyph::FontVec;
 
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
-use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, SearchEntry, Stack, Window};
+use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, FilterListModel, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, SearchEntry, Stack, Window};
 use gtk4::gdk::{Display, DragAction, Key, ModifierType};
 use gtk4::gdk_pixbuf::Pixbuf;
-use gtk4::gio::{ApplicationFlags, Cancellable, File, ListStore, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
+use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
 use gtk4::glib;
 use gtk4::glib::{Bytes, closure_local, ExitCode, Object, ObjectExt, StaticType};
 use gtk4::prelude::{ActionGroupExt, ActionMapExt, AdjustmentExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, PopoverExt, WidgetExt};
@@ -394,7 +394,7 @@ fn apply<F>(gc: &GuiContext, f: F)
 	let mut controller = gc.ctrl_mut();
 	let orig_inner_book = controller.reading.inner_book;
 	f(&mut controller, &mut gc.ctx_mut());
-	gc.update(&controller.status_msg(), orig_inner_book, &controller);
+	gc.update(&controller.status_msg(), ChapterListSyncMode::ReloadIfNeeded(orig_inner_book), &controller);
 }
 
 #[inline]
@@ -411,7 +411,7 @@ fn handle<T, F>(gc: &GuiContext, f: F)
 		Ok(_) => {
 			let controller = gc.ctrl();
 			let msg = controller.status_msg();
-			gc.update(&msg, orig_inner_book, &controller);
+			gc.update(&msg, ChapterListSyncMode::ReloadIfNeeded(orig_inner_book), &controller);
 		}
 		Err(err) => gc.error(&err.to_string()),
 	}
@@ -1119,12 +1119,13 @@ struct GuiContextInner {
 	cfg: Rc<RefCell<Configuration>>,
 	ctrl: Rc<RefCell<GuiController>>,
 	ctx: Rc<RefCell<RenderContext>>,
+	chapter_syncing: Rc<Cell<bool>>,
 	window: ApplicationWindow,
 	menu: Menu,
 	action_group: SimpleActionGroup,
 	status_bar: Label,
 	chapter_list: ListBox,
-	chapter_model: ListStore,
+	chapter_model: FilterListModel,
 	icons: Rc<IconMap>,
 	i18n: Rc<I18n>,
 	dark_colors: Colors,
@@ -1132,8 +1133,14 @@ struct GuiContextInner {
 	css_provider: CssProvider,
 }
 
+enum ChapterListSyncMode {
+	NoReload,
+	Reload,
+	ReloadIfNeeded(usize),
+}
+
 #[derive(Clone)]
-struct GuiContext {
+pub struct GuiContext {
 	inner: Rc<GuiContextInner>,
 }
 
@@ -1160,6 +1167,7 @@ impl GuiContext {
 			cfg: cfg.clone(),
 			ctrl: ctrl.clone(),
 			ctx: ctx.clone(),
+			chapter_syncing: Rc::new(Cell::new(false)),
 			window,
 			menu: Menu::new(),
 			action_group: SimpleActionGroup::new(),
@@ -1197,12 +1205,6 @@ impl GuiContext {
 	fn ctrl_mut(&self) -> RefMut<GuiController>
 	{
 		self.inner.ctrl.borrow_mut()
-	}
-
-	#[inline]
-	fn try_ctrl_mut(&self) -> Result<RefMut<GuiController>, BorrowMutError>
-	{
-		self.inner.ctrl.try_borrow_mut()
 	}
 
 	#[inline]
@@ -1248,7 +1250,7 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn chapter_model(&self) -> &ListStore
+	fn chapter_model(&self) -> &FilterListModel
 	{
 		&self.inner.chapter_model
 	}
@@ -1295,7 +1297,7 @@ impl GuiContext {
 							controller.redraw(&mut render_context);
 							self.update(
 								&msg,
-								usize::MAX,
+								ChapterListSyncMode::Reload,
 								&controller);
 							drop(configuration);
 							drop(controller);
@@ -1349,10 +1351,10 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn update(&self, msg: &str, orig_inner_book: usize, controller: &GuiController)
+	fn update(&self, msg: &str, chapter_list_sync_mode: ChapterListSyncMode, controller: &GuiController)
 	{
 		self.message(msg);
-		self.sync_chapter_list(orig_inner_book, controller);
+		self.sync_chapter_list(chapter_list_sync_mode, controller);
 	}
 
 	#[inline]
@@ -1367,41 +1369,57 @@ impl GuiContext {
 		self.inner.chapter_model.item(position)
 	}
 
-	fn sync_chapter_list(&self, orig_inner_book: usize, controller: &GuiController)
+	#[inline]
+	fn is_chapter_syncing(&self) -> bool
 	{
-		let chapter_list = &self.inner.chapter_list;
-		let chapter_model = &self.inner.chapter_model;
+		self.inner.chapter_syncing.get()
+	}
 
-		let inner_book = controller.reading.inner_book;
-		if orig_inner_book != inner_book {
-			chapter_model.remove_all();
-			chapter_list::load_model(chapter_list, chapter_model, controller);
-			return;
-		}
+	fn sync_chapter_list(&self, sync_mode: ChapterListSyncMode, controller: &GuiController)
+	{
+		#[inline]
+		fn do_sync(gc: &GuiContext, sync_mode: ChapterListSyncMode, controller: &GuiController)
+		{
+			let chapter_list = &gc.inner.chapter_list;
+			let chapter_model = &gc.inner.chapter_model;
 
-		let toc_index = controller.toc_index() as u64;
-		if let Some(row) = chapter_list.selected_row() {
-			let index = row.index();
-			if index >= 0 {
-				if let Some(obj) = chapter_model.item(index as u32) {
+			let inner_book = controller.reading.inner_book;
+			if match sync_mode {
+				ChapterListSyncMode::NoReload => false,
+				ChapterListSyncMode::Reload => true,
+				ChapterListSyncMode::ReloadIfNeeded(orig_inner_book) => orig_inner_book != inner_book,
+			} {
+				chapter_list::load_model(chapter_list, chapter_model, controller, gc);
+				return;
+			}
+
+			let toc_index = controller.toc_index() as u64;
+			if let Some(row) = chapter_list.selected_row() {
+				let index = row.index();
+				if index >= 0 {
+					if let Some(obj) = chapter_model.item(index as u32) {
+						let entry = chapter_list::entry_cast(&obj);
+						if entry.index() == toc_index {
+							return;
+						}
+					}
+				}
+			}
+
+			for i in 0..chapter_model.n_items() {
+				if let Some(obj) = chapter_model.item(i) {
 					let entry = chapter_list::entry_cast(&obj);
-					if entry.index() == toc_index {
-						return;
+					if !entry.book() && entry.index() == toc_index {
+						if let Some(row) = chapter_list.row_at_index(i as i32) {
+							chapter_list.select_row(Some(&row));
+						}
 					}
 				}
 			}
 		}
-
-		for i in 0..chapter_model.n_items() {
-			if let Some(obj) = chapter_model.item(i) {
-				let entry = chapter_list::entry_cast(&obj);
-				if !entry.book() && entry.index() == toc_index {
-					if let Some(row) = chapter_list.row_at_index(i as i32) {
-						chapter_list.select_row(Some(&row));
-					}
-				}
-			}
-		}
+		self.inner.chapter_syncing.replace(true);
+		do_sync(self, sync_mode, controller);
+		self.inner.chapter_syncing.replace(false);
 	}
 
 	#[inline]
@@ -1437,7 +1455,7 @@ fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>
 	mut gui_context: RefMut<Option<GuiContext>>)
 {
 	let css_provider = CssProvider::new();
-	css_provider.load_from_data(&format!("{}:focus-visible {{outline-style: dashed; outline-offset: -3px; outline-width: 3px;}} button.inline {{padding: 0px;min-height: 16px;}} label.{BOOK_NAME_LABEL_CLASS} {{font-size: large;}}", GuiView::WIDGET_NAME));
+	css_provider.load_from_data(&format!("{}:focus-visible {{outline-style: dashed; outline-offset: -3px; outline-width: 3px;}} button.inline {{padding: 0px;min-height: 16px;}} box.{BOOK_NAME_LABEL_CLASS} {{font-size: large;}}", GuiView::WIDGET_NAME));
 	gtk4::style_context_add_provider_for_display(
 		&Display::default().expect("Could not connect to a display."),
 		&css_provider,

@@ -1,10 +1,10 @@
-use gtk4::{Align, Image, Label, ListBox, ListBoxRow, Orientation, SelectionMode};
+use gtk4::{Align, CustomFilter, Filter, FilterListModel, gdk, GestureClick, Image, Label, ListBox, ListBoxRow, Orientation, SelectionMode};
 use gtk4::gio::ListStore;
 use gtk4::glib::{Cast, Object};
 use gtk4::glib;
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::{BoxExt, ListBoxRowExt, ListModelExt, WidgetExt};
-use crate::gui::{GuiController, README_TEXT_FILENAME, GuiContext};
+use crate::gui::{GuiController, README_TEXT_FILENAME, GuiContext, ChapterListSyncMode};
 use crate::ReadingInfo;
 
 pub const BOOK_NAME_LABEL_CLASS: &str = "book-name";
@@ -13,7 +13,7 @@ pub const ICON_BOOK_CLOSED_NAME: &str = "book_closed.svg";
 pub const ICON_BOOK_READING_NAME: &str = "book_reading.svg";
 pub const ICON_CHAPTER_NAME: &str = "chapter.svg";
 
-pub fn create() -> (ListBox, ListStore)
+pub fn create() -> (ListBox, FilterListModel)
 {
 	let model = ListStore::new::<ChapterListEntry>();
 	let chapter_list = ListBox::builder()
@@ -21,7 +21,7 @@ pub fn create() -> (ListBox, ListStore)
 		.build();
 	chapter_list.add_css_class("navigation-sidebar");
 	chapter_list.add_css_class("boxed-list");
-	(chapter_list, model)
+	(chapter_list, FilterListModel::new(Some(model), None::<Filter>))
 }
 
 pub(super) fn init(gc: &GuiContext)
@@ -33,28 +33,26 @@ pub(super) fn init(gc: &GuiContext)
 	});
 
 	let controller = gc.ctrl();
-	load_model(chapter_list, model, &controller);
+	load_model(chapter_list, model, &controller, gc);
 
 	let gc = gc.clone();
 	chapter_list.connect_row_selected(move |_, row| {
-		let mut controller = if let Ok(ctrl) = gc.try_ctrl_mut() {
-			ctrl
-		} else {
-			// row-selected fire when call select_row in program, ignore this
+		if gc.is_chapter_syncing() {
 			return;
-		};
+		}
 		if let Some(row) = row {
 			let row_index = row.index();
 			if row_index >= 0 {
 				let mut render_context = gc.ctx_mut();
 				if let Some(obj) = gc.item(row_index as u32) {
 					let entry = entry_cast(&obj);
-					// let mut controller = ctrl.borrow_mut();
+					let mut controller = gc.ctrl_mut();
 					if entry.book() {
+						gc.chapter_model().set_filter(None::<&Filter>);
 						let new_reading = ReadingInfo::new(&controller.reading.filename)
 							.with_inner_book(entry.index() as usize);
 						let msg = controller.switch_book(new_reading, &mut render_context);
-						gc.update(&msg, usize::MAX, &controller);
+						gc.update(&msg, ChapterListSyncMode::Reload, &controller);
 					} else if let Some(msg) = controller.goto_toc(entry.index() as usize, &mut render_context) {
 						gc.message(&msg);
 					}
@@ -64,8 +62,13 @@ pub(super) fn init(gc: &GuiContext)
 	});
 }
 
-pub fn load_model(chapter_list: &ListBox, model: &ListStore, controller: &GuiController)
+pub fn load_model(chapter_list: &ListBox, chapter_model: &FilterListModel,
+	controller: &GuiController, gc: &GuiContext)
 {
+	let model = chapter_model.model().unwrap();
+	let model = model.downcast_ref::<ListStore>().unwrap();
+	model.remove_all();
+
 	let current_toc = controller.toc_index();
 	let mut current_book_idx = -1;
 	let mut current_toc_idx = -1;
@@ -95,6 +98,21 @@ pub fn load_model(chapter_list: &ListBox, model: &ListStore, controller: &GuiCon
 	}
 	if let Some(row) = chapter_list.row_at_index(current_book_idx) {
 		row.set_selectable(false);
+		let click = GestureClick::builder().button(gdk::BUTTON_PRIMARY).build();
+		let gc = gc.clone();
+		click.connect_released(move |_, _, _, _, | {
+			let chapter_model = gc.chapter_model();
+			if chapter_model.filter().is_some() {
+				chapter_model.set_filter(None::<&Filter>);
+				gc.sync_chapter_list(ChapterListSyncMode::NoReload, &gc.ctrl());
+			} else {
+				let filter = CustomFilter::new(|obj| {
+					obj.downcast_ref::<ChapterListEntry>().unwrap().book()
+				});
+				chapter_model.set_filter(Some(&filter));
+			}
+		});
+		row.add_controller(click);
 	}
 }
 
@@ -108,9 +126,10 @@ fn create_list_row(obj: &Object) -> ListBoxRow
 		.tooltip_text(&title)
 		.build();
 
+	let view = gtk4::Box::new(Orientation::Horizontal, 4);
 	let is_book = entry.book();
 	let icon = if is_book {
-		label.add_css_class(BOOK_NAME_LABEL_CLASS);
+		view.add_css_class(BOOK_NAME_LABEL_CLASS);
 		label.set_label(&title);
 		let icon_name = if entry.reading() {
 			"book_reading"
@@ -119,12 +138,11 @@ fn create_list_row(obj: &Object) -> ListBoxRow
 		};
 		Image::builder().icon_name(icon_name).build()
 	} else {
-		label.add_css_class(TOC_LABEL_CLASS);
+		view.add_css_class(TOC_LABEL_CLASS);
 		label.set_label(&format!("    {}", title));
 		Image::builder().icon_name("chapter").build()
 	};
 
-	let view = gtk4::Box::new(Orientation::Horizontal, 4);
 	view.append(&icon);
 	view.append(&label);
 
