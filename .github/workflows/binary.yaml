@@ -92,10 +92,28 @@ jobs:
         with:
           fallback: 1.0.0
 
+      - name: Copy
+        run: copy target/release/tbr.exe c:/gnome
+
+      - name: Zip
+        uses: thedoctor0/zip-release@0.7.1
+        with:
+          type: 'zip'
+          filename: 'release.zip'
+          directory: 'c:/gnome'
+
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{steps.previous_tag.outputs.tag}}
-          files: target/release/tbr.exe
+          files: 'release.zip'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # - name: Release
+      #   uses: softprops/action-gh-release@v1
+      #   with:
+      #     tag_name: ${{steps.previous_tag.outputs.tag}}
+      #     files: target/release/tbr.exe
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
