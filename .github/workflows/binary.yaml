@@ -87,12 +87,10 @@ jobs:
           args: --release
 
       - name: Copy
-        env:
-          DIST: "tbr-${{github.ref_name}}"
         run: |
-          mkdir ${{DIST}}
-          cp target/release/tbr.exe ${{DIST}}
-          cp -r c:/gnome ${{DIST}}
+          mkdir "tbr-${{github.ref_name}}"
+          cp target/release/tbr.exe "tbr-${{github.ref_name}}"
+          cp -r c:/gnome "tbr-${{github.ref_name}}"
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.1
