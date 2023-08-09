@@ -1086,7 +1086,6 @@ fn apply_settings(locale: &str, fonts: Vec<PathConfig>, dictionaries: Vec<PathCo
 	Ok(())
 }
 
-#[cfg(unix)]
 #[inline]
 fn setup_icon() -> Result<()>
 {
@@ -1095,10 +1094,15 @@ fn setup_icon() -> Result<()>
 
 	let home_dir = home_dir().expect("No home folder");
 	let icon_path = home_dir.join(".local/share/icons/hicolor/256x256/apps");
-	let icon_file = icon_path.join("tbr-icon.png");
-	if !icon_file.exists() {
+	if !icon_path.exists() {
 		fs::create_dir_all(&icon_path)?;
-		fs::write(&icon_file, include_bytes!("../assets/gui/tbr-icon.png"))?;
+	}
+	#[cfg(unix)]
+	{
+		let icon_file = icon_path.join("tbr-icon.png");
+		if !icon_file.exists() {
+			fs::write(&icon_file, include_bytes!("../assets/gui/tbr-icon.png"))?;
+		}
 	}
 	let icon_file = icon_path.join(chapter_list::ICON_BOOK_CLOSED_NAME);
 	if !icon_file.exists() {
@@ -1477,7 +1481,6 @@ fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>
 pub fn start(configuration: Configuration, themes: Themes,
 	book_to_open: BookToOpen) -> Result<()>
 {
-	#[cfg(unix)]
 	setup_icon()?;
 
 	let app = Application::builder()
