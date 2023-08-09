@@ -86,9 +86,16 @@ jobs:
           command: build
           args: --release
 
+      - name: 'Get Previous tag'
+        id: previous_tag
+        uses: "WyriHaximus/github-action-get-previous-tag@v1"
+        with:
+          fallback: 1.0.0
+
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{steps.previous_tag.outputs.tag}}
           files: target/release/tbr.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
