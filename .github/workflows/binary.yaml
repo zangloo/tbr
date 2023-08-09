@@ -103,12 +103,10 @@ jobs:
           directory: 'c:/gnome'
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: ncipollo/release-action@v1.12.0
         with:
-          tag_name: ${{steps.previous_tag.outputs.tag}}
-          files: 'release.zip'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: 'release.zip'
 
       # - name: Release
       #   uses: softprops/action-gh-release@v1
