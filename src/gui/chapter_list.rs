@@ -68,6 +68,7 @@ pub fn load_model(chapter_list: &ListBox, chapter_model: &FilterListModel,
 	let model = chapter_model.model().unwrap();
 	let model = model.downcast_ref::<ListStore>().unwrap();
 	model.remove_all();
+	chapter_model.set_filter(None::<&Filter>);
 
 	let current_toc = controller.toc_index();
 	let mut current_book_idx = -1;
