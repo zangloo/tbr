@@ -91,6 +91,8 @@ jobs:
           mkdir "tbr-${{github.ref_name}}"
           cp target/release/tbr.exe "tbr-${{github.ref_name}}"
           cp -r c:/gnome "tbr-${{github.ref_name}}"
+          pwd
+          ls "tbr-${{github.ref_name}}"
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.1
@@ -103,6 +105,7 @@ jobs:
         uses: ncipollo/release-action@v1.12.0
         with:
           tag: '1.0.0'
+          allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
           artifacts: "tbr-${{github.ref_name}}.zip"
 
