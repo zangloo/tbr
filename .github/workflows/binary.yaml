@@ -4,16 +4,12 @@ on:
   push:
     tags:
       - "v*.*.*"
-    paths:
-      - '.github/workflows/binary.yaml'
   workflow_dispatch:
     inputs:
       logLevel:
         description: 'Log level'
         required: true
         default: 'warning'
-      tags:
-        description: 'Test scenario tags'
 
 jobs:
   build-win:

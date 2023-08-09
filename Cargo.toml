@@ -51,7 +51,6 @@ sys-locale = "0.3"
 gtk4 = { version = "0.7", features = ["v4_10"] }
 pangocairo = "0.18"
 ab_glyph = "0.2"
-image = "0.24"
 resvg = "0.35"
 
 stardict = { version = "0.1" }
