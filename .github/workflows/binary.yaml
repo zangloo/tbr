@@ -90,19 +90,19 @@ jobs:
         id: version
         shell: bash
         run: |
-          if [ "${{github.event.inputs.version}}" == "" ]; then
-            echo "ver=${{github.event.inputs.version}}" >> "$GITHUB_OUTPUT"
-            echo "name=tbr-windows-amd64-${{github.event.inputs.version}}" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event.inputs.version }}" == "" ]; then
+            echo "ver=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "name=tbr-windows-amd64-${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
           else
-            echo "ver=${{github.ref_name}}" >> "$GITHUB_OUTPUT"
-            echo "name=tbr-windows-amd64-${{github.ref_name}}" >> "$GITHUB_OUTPUT"
+            echo "ver=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "name=tbr-windows-amd64-${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Copy
         run: |
           mkdir "${{ steps.version.outputs.name }}"
-          cp target/release/tbr.exe "{{ steps.version.outputs.name }}"
-          cp -r c:/gnome/bin/*.dll "{{ steps.version.outputs.name }}"
+          cp target/release/tbr.exe "${{ steps.version.outputs.name }}"
+          cp -r c:/gnome/bin/*.dll "${{ steps.version.outputs.name }}"
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.1
