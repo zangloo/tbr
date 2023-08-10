@@ -86,38 +86,37 @@ jobs:
           command: build
           args: --release
 
-      - name: Get version from inputs
-        if: "${{ github.event.inputs.version != '' }}"
+      - name: Get version
+        id: version
         run: |
-          echo "RELEASE_VERSION=${{github.event.inputs.version}}" >> $GITHUB_ENV
-          echo "RELEASE_NAME=tbr-windows-amd64-${{github.event.inputs.version}}" >> $GITHUB_ENV
-
-      - name: Get version from tag
-        if: "${{ github.event.inputs.version == '' }}"
-        run: |
-          echo "RELEASE_VERSION=${github.ref_name}" >> $GITHUB_ENV
-          echo "RELEASE_NAME=tbr-windows-amd64-${{github.ref_name}}" >> $GITHUB_ENV
+          if [ "${{github.event.inputs.version}}" == "" ]; then
+            echo "ver=${{github.event.inputs.version}}" >> "$GITHUB_OUTPUT"
+            echo "name=tbr-windows-amd64-${{github.event.inputs.version}}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ver=${{github.ref_name}}" >> "$GITHUB_OUTPUT"
+            echo "name=tbr-windows-amd64-${{github.ref_name}}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Copy
         run: |
-          mkdir "$RELEASE_NAME"
-          cp target/release/tbr.exe "$RELEASE_NAME"
-          cp -r c:/gnome/bin/*.dll "$RELEASE_NAME"
+          mkdir "${{ steps.version.outputs.name }}"
+          cp target/release/tbr.exe "{{ steps.version.outputs.name }}"
+          cp -r c:/gnome/bin/*.dll "{{ steps.version.outputs.name }}"
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.1
         with:
           type: 'zip'
-          filename: "${{env.RELEASE_NAME}}.zip"
-          path: "${{env.RELEASE_NAME}}"
+          filename: "${{ steps.version.outputs.name }}.zip"
+          path: "${{ steps.version.outputs.name }}"
 
       - name: Release
         uses: ncipollo/release-action@v1.12.0
         with:
-          tag: "${{env.RELEASE_VERSION}}"
+          tag: "${{ steps.version.outputs.ver }}"
           allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: "${{env.RELEASE_NAME}}.zip"
+          artifacts: "${{ steps.version.outputs.name }}.zip"
 
       # - name: Release
       #   uses: softprops/action-gh-release@v1
