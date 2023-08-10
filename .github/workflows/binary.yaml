@@ -48,32 +48,32 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           git clone https://gitlab.gnome.org/GNOME/gtk.git --depth 1
-          
+
       - name: Setup Python
         uses: actions/setup-python@v2
         with:
           python-version: '3.x'
-          
+
       - name: Install Python Dependencies
         run: pip install meson ninja
-        
+
       - name: Setup MSVC
         uses: bus1/cabuild/action/msdevshell@v1
         with:
           architecture: x64
-          
+
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
-          
+
       - name: Prepare GTK build
         working-directory: /gtk
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           meson setup builddir --prefix=C:/gnome -Dbackend_max_links=1 -Ddemos=false -Dbuild-tests=false -Dmedia-gstreamer=disabled -Dbuild-examples=false -Dglib:tests=false -Dharfbuzz:tests=disabled -Dharfbuzz:docs=disabled -Dgraphene:tests=false -Dgdk-pixbuf:tests=false -Dcairo:tests=disabled
-          
+
       - name: Build and install GTK
         working-directory: /gtk
         if: steps.cache.outputs.cache-hit != 'true'
@@ -88,6 +88,7 @@ jobs:
 
       - name: Get version
         id: version
+        shell: bash
         run: |
           if [ "${{github.event.inputs.version}}" == "" ]; then
             echo "ver=${{github.event.inputs.version}}" >> "$GITHUB_OUTPUT"
