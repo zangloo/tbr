@@ -27,6 +27,7 @@ mod haodoo;
 
 pub const EMPTY_CHAPTER_CONTENT: &str = "No content.";
 pub const IMAGE_CHAR: char = '🖼';
+#[allow(unused)]
 pub const HAN_CHAR: char = '漢';
 
 type TextDecorationLine = lightningcss::properties::text::TextDecorationLine;
@@ -65,6 +66,7 @@ pub struct Colors
 	pub link: Color32,
 }
 
+#[cfg(feature = "gui")]
 impl Default for Colors {
 	fn default() -> Self {
 		Colors {
@@ -411,6 +413,7 @@ pub(crate) trait Loader {
 }
 
 impl BookLoader {
+	#[allow(unused)]
 	pub fn extension(&self) -> Vec<&'static str>
 	{
 		let mut vec = vec![];

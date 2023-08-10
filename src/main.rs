@@ -112,12 +112,14 @@ impl ReadingInfo {
 		self
 	}
 	#[inline]
+	#[allow(unused)]
 	pub(crate) fn no_custom_color(mut self) -> Self
 	{
 		self.custom_color = false;
 		self
 	}
 	#[inline]
+	#[allow(unused)]
 	pub(crate) fn pos(&self) -> Position
 	{
 		Position::new(self.line, self.position)

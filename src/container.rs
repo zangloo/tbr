@@ -71,7 +71,6 @@ impl AsRef<str> for BookName {
 }
 
 impl BookName {
-	#[cfg(feature = "gui")]
 	pub fn new(name: String, index: usize) -> Self
 	{
 		BookName { name, index }

@@ -30,6 +30,7 @@ pub enum HighlightMode {
 	// link index for current line
 	Link(usize),
 	// selected text, line index for HighlightInfo.end
+	#[allow(unused)]
 	Selection(String, usize),
 }
 
@@ -591,7 +592,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		Ok(())
 	}
 
-	#[cfg(feature = "gui")]
+	#[allow(unused)]
 	pub fn select_text(&mut self, from: Position, to: Position, context: &mut C)
 	{
 		self.highlight = self.book.range_highlight(from, to);
@@ -627,14 +628,14 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		self.redraw(context);
 	}
 
-	#[cfg(feature = "gui")]
+	#[allow(unused)]
 	pub fn clear_highlight(&mut self, context: &mut C)
 	{
 		self.highlight = None;
 		self.redraw(context);
 	}
 
-	#[cfg(feature = "gui")]
+	#[allow(unused)]
 	pub fn clear_highlight_at(&mut self, line: usize, offset: usize, context: &mut C)
 	{
 		self.highlight = None;
@@ -648,6 +649,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	}
 
 	#[inline]
+	#[allow(unused)]
 	pub fn selected(&self) -> Option<&str>
 	{
 		highlight_selection(&self.highlight)
@@ -662,6 +664,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 }
 
 #[inline]
+#[allow(unused)]
 pub fn highlight_selection(highlight: &Option<HighlightInfo>) -> Option<&str>
 {
 	if let Some(HighlightInfo { mode: HighlightMode::Selection(selected_text, ..), .. }) = highlight {

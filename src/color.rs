@@ -6,6 +6,7 @@ use gtk4::cairo::Context as CairoContext;
 #[derive(Clone, Debug)]
 pub struct Color32(pub(crate) [u8; 4]);
 
+#[allow(unused)]
 impl Color32 {
 	// Mostly follows CSS names:
 
