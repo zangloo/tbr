@@ -1087,6 +1087,7 @@ fn apply_settings(locale: &str, fonts: Vec<PathConfig>, dictionaries: Vec<PathCo
 }
 
 #[inline]
+#[cfg(unix)]
 fn setup_icon() -> Result<()>
 {
 	use std::fs;
@@ -1097,24 +1098,11 @@ fn setup_icon() -> Result<()>
 	if !icon_path.exists() {
 		fs::create_dir_all(&icon_path)?;
 	}
-	#[cfg(unix)]
 	{
 		let icon_file = icon_path.join("tbr-icon.png");
 		if !icon_file.exists() {
 			fs::write(&icon_file, include_bytes!("../assets/gui/tbr-icon.png"))?;
 		}
-	}
-	let icon_file = icon_path.join(chapter_list::ICON_BOOK_CLOSED_NAME);
-	if !icon_file.exists() {
-		fs::write(&icon_file, include_bytes!("../assets/gui/icons/book_closed.svg"))?;
-	}
-	let icon_file = icon_path.join(chapter_list::ICON_BOOK_READING_NAME);
-	if !icon_file.exists() {
-		fs::write(&icon_file, include_bytes!("../assets/gui/icons/book_reading.svg"))?;
-	}
-	let icon_file = icon_path.join(chapter_list::ICON_CHAPTER_NAME);
-	if !icon_file.exists() {
-		fs::write(&icon_file, include_bytes!("../assets/gui/icons/chapter.svg"))?;
 	}
 	Ok(())
 }
@@ -1481,6 +1469,7 @@ fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>
 pub fn start(configuration: Configuration, themes: Themes,
 	book_to_open: BookToOpen) -> Result<()>
 {
+	#[cfg(unix)]
 	setup_icon()?;
 
 	let app = Application::builder()

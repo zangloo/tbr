@@ -9,9 +9,6 @@ use crate::ReadingInfo;
 
 pub const BOOK_NAME_LABEL_CLASS: &str = "book-name";
 pub const TOC_LABEL_CLASS: &str = "toc";
-pub const ICON_BOOK_CLOSED_NAME: &str = "book_closed.svg";
-pub const ICON_BOOK_READING_NAME: &str = "book_reading.svg";
-pub const ICON_CHAPTER_NAME: &str = "chapter.svg";
 
 pub fn create() -> (ListBox, FilterListModel)
 {
@@ -28,10 +25,12 @@ pub(super) fn init(gc: &GuiContext)
 {
 	let chapter_list = gc.chapter_list();
 	let model = gc.chapter_model();
-	chapter_list.bind_model(Some(model), move |obj| {
-		gtk4::Widget::from(create_list_row(obj))
-	});
-
+	{
+		let gc = gc.clone();
+		chapter_list.bind_model(Some(model), move |obj| {
+			gtk4::Widget::from(create_list_row(obj, &gc))
+		});
+	}
 	let controller = gc.ctrl();
 	load_model(chapter_list, model, &controller, gc);
 
@@ -117,7 +116,7 @@ pub fn load_model(chapter_list: &ListBox, chapter_model: &FilterListModel,
 	}
 }
 
-fn create_list_row(obj: &Object) -> ListBoxRow
+fn create_list_row(obj: &Object, gc: &GuiContext) -> ListBoxRow
 {
 	let entry = entry_cast(obj);
 	let title = entry.title();
@@ -133,15 +132,15 @@ fn create_list_row(obj: &Object) -> ListBoxRow
 		view.add_css_class(BOOK_NAME_LABEL_CLASS);
 		label.set_label(&title);
 		let icon_name = if entry.reading() {
-			"book_reading"
+			"book_reading.svg"
 		} else {
-			"book_closed"
+			"book_closed.svg"
 		};
-		Image::builder().icon_name(icon_name).build()
+		Image::from_pixbuf(gc.icons().get(icon_name))
 	} else {
 		view.add_css_class(TOC_LABEL_CLASS);
 		label.set_label(&format!("    {}", title));
-		Image::builder().icon_name("chapter").build()
+		Image::from_pixbuf(gc.icons().get("chapter.svg"))
 	};
 
 	view.append(&icon);
