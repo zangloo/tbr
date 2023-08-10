@@ -97,7 +97,7 @@ jobs:
         with:
           type: 'zip'
           filename: "tbr-${{github.ref_name}}.zip"
-          directory: "tbr-${{github.ref_name}}"
+          path: "tbr-${{github.ref_name}}"
 
       - name: list
         run: |
