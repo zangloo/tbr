@@ -86,32 +86,29 @@ jobs:
           command: build
           args: --release
 
+      - name: Get version
+        run: echo "RELEASE_NAME=tbr-windows-amd64-${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+
       - name: Copy
         run: |
-          mkdir "tbr-${{github.ref_name}}"
-          cp target/release/tbr.exe "tbr-${{github.ref_name}}"
-          cp -r c:/gnome "tbr-${{github.ref_name}}"
+          mkdir "${{RELEASE_NAME}}"
+          cp target/release/tbr.exe "${{RELEASE_NAME}}"
+          cp -r c:/gnome/bin/*.dll "${{RELEASE_NAME}}"
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.1
         with:
           type: 'zip'
-          filename: "tbr-${{github.ref_name}}.zip"
-          path: "tbr-${{github.ref_name}}"
-
-      - name: list
-        run: |
-          pwd
-          ls
-          ls "tbr-${{github.ref_name}}"
+          filename: "${{RELEASE_NAME}}.zip"
+          path: "${{RELEASE_NAME}}"
 
       - name: Release
         uses: ncipollo/release-action@v1.12.0
         with:
-          tag: '1.0.0'
+#          tag: '1.0.0'
           allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: "tbr-${{github.ref_name}}.zip"
+          artifacts: "${{RELEASE_NAME}}.zip"
 
       # - name: Release
       #   uses: softprops/action-gh-release@v1
