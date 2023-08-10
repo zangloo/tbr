@@ -100,9 +100,9 @@ jobs:
 
       - name: Copy
         run: |
-          mkdir "${{env.RELEASE_NAME}}"
-          cp target/release/tbr.exe "${{env.RELEASE_NAME}}"
-          cp -r c:/gnome/bin/*.dll "${{env.RELEASE_NAME}}"
+          mkdir "$RELEASE_NAME"
+          cp target/release/tbr.exe "$RELEASE_NAME"
+          cp -r c:/gnome/bin/*.dll "$RELEASE_NAME"
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.1
