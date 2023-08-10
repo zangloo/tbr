@@ -111,7 +111,7 @@ jobs:
           filename: "${{ steps.version.outputs.name }}.zip"
           path: "${{ steps.version.outputs.name }}"
 
-      - name: Release
+      - name: Release bundle
         uses: ncipollo/release-action@v1.12.0
         with:
           tag: "${{ steps.version.outputs.ver }}"
@@ -119,10 +119,10 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           artifacts: "${{ steps.version.outputs.name }}.zip"
 
-      # - name: Release
-      #   uses: softprops/action-gh-release@v1
-      #   with:
-      #     tag_name: ${{steps.previous_tag.outputs.tag}}
-      #     files: target/release/tbr.exe
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "${{ steps.version.outputs.ver }}"
+          files: target/release/tbr.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
