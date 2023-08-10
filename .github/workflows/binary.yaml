@@ -100,24 +100,24 @@ jobs:
 
       - name: Copy
         run: |
-          mkdir "${{RELEASE_NAME}}"
-          cp target/release/tbr.exe "${{RELEASE_NAME}}"
-          cp -r c:/gnome/bin/*.dll "${{RELEASE_NAME}}"
+          mkdir "${{env.RELEASE_NAME}}"
+          cp target/release/tbr.exe "${{env.RELEASE_NAME}}"
+          cp -r c:/gnome/bin/*.dll "${{env.RELEASE_NAME}}"
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.1
         with:
           type: 'zip'
-          filename: "${{RELEASE_NAME}}.zip"
-          path: "${{RELEASE_NAME}}"
+          filename: "${{env.RELEASE_NAME}}.zip"
+          path: "${{env.RELEASE_NAME}}"
 
       - name: Release
         uses: ncipollo/release-action@v1.12.0
         with:
-          tag: "${{RELEASE_VERSION}}"
+          tag: "${{env.RELEASE_VERSION}}"
           allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: "${{RELEASE_NAME}}.zip"
+          artifacts: "${{env.RELEASE_NAME}}.zip"
 
       # - name: Release
       #   uses: softprops/action-gh-release@v1
