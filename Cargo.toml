@@ -2,7 +2,7 @@
 name = "tbr"
 description = "Terminal and GUI ebook reader"
 authors = ["zang.loo"]
-version = "2.3.1"
+version = "2.3.2"
 homepage = "https://github.com/zangloo/tbr"
 repository = "https://github.com/zangloo/tbr.git"
 keywords = ["terminal", "gui", "ebook", "epub"]
