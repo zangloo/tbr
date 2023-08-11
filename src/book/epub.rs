@@ -216,8 +216,8 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 		if target_file.is_empty() {
 			self.target_position(None, target_anchor)
 		} else {
-			let path = concat_path(cwd, target_file);
-			self.target_position(Some(path.to_str()?), target_anchor)
+			let path = concat_path(cwd, target_file)?;
+			self.target_position(Some(&path), target_anchor)
 		}
 	}
 
@@ -386,8 +386,6 @@ fn zip_string<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Str
 #[inline]
 fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Vec<u8>>
 {
-	#[cfg(windows)]
-		let name = &name.replace("\\", "/");
 	match zip.by_name(name) {
 		Ok(mut file) => {
 			let mut buf = vec![];
@@ -433,7 +431,7 @@ fn parse_nav_points(nav_points_element: &Element, level: usize, nav_points: &mut
 		let src = el.get_child("content")?.attributes.get("src")?.to_string();
 		let mut src_split = src.split('#');
 		let src_file = src_split.next()?;
-		let src_file = concat_path(cwd.clone(), src_file).to_str()?.to_string();
+		let src_file = concat_path(cwd.clone(), src_file)?;
 		let src_file = Some(src_file);
 		let src_anchor = src_split.next().and_then(|str| Some(String::from(str)));
 		let label = el
@@ -532,7 +530,6 @@ fn parse_nav_doc(text: &str, cwd: &PathBuf) -> Result<Vec<NavPoint>>
 							.map(|a| a.to_string())
 							.ok_or(anyhow!("Navigation document entry href not resolve to an Top-level Content Document or fragment therein"))?;
 						let src_file = concat_path(cwd.clone(), &src_file);
-						let src_file = Some(src_file.to_str().unwrap().to_string());
 						let src_anchor = parts.next().map(|a| a.to_string());
 						(src_file, src_anchor)
 					} else {
@@ -591,12 +588,7 @@ fn parse_manifest(manifest: &Element, path: &PathBuf) -> Manifest {
 				if el.name == "item" {
 					let id = el.attributes.get("id")?.to_string();
 					let href = el.attributes.get("href")?;
-					let href = concat_path(path.clone(), href);
-					let href = href.to_str()?;
-					#[cfg(windows)]
-						let href = href.replace("\\", "/");
-					#[cfg(not(windows))]
-						let href = href.to_string();
+					let href = concat_path(path.clone(), href)?;
 					return Some((
 						id.clone(),
 						ManifestItem {
@@ -678,10 +670,9 @@ fn toc_title(nav_point: &NavPoint) -> &str {
 
 fn resolve<'a, T>(cwd: &PathBuf, path: &str, cache: &'a HashMap<String, T>) -> Option<(String, &'a T)>
 {
-	let full_path = concat_path(cwd.clone(), path);
-	let path_str = full_path.to_str()?;
-	let content = cache.get(path_str)?;
-	Some((path_str.to_string(), content))
+	let full_path = concat_path(cwd.clone(), path)?;
+	let content = cache.get(&full_path)?;
+	Some((full_path, content))
 }
 
 fn chapter_path(chapter_index: usize, content_opf: &ContentOPF) -> Result<&str>
@@ -698,7 +689,7 @@ fn chapter_path(chapter_index: usize, content_opf: &ContentOPF) -> Result<&str>
 	Ok(&item.href)
 }
 
-fn concat_path(mut path: PathBuf, mut sub_path: &str) -> PathBuf
+fn concat_path(mut path: PathBuf, mut sub_path: &str) -> Option<String>
 {
 	while sub_path.starts_with("../") {
 		path.pop();
@@ -707,7 +698,11 @@ fn concat_path(mut path: PathBuf, mut sub_path: &str) -> PathBuf
 	#[cfg(windows)]
 		let sub_path = &sub_path.replace("/", "\\");
 	path.push(sub_path);
-	path
+	let str = path.to_str()?;
+	#[cfg(windows)]
+	return Some(str.replace("\\", "/"));
+	#[cfg(not(windows))]
+	Some(str.to_owned())
 }
 
 #[inline]
