@@ -1,6 +1,7 @@
 // copy from egui/ecolor
 
 use std::fmt::{Display, Formatter};
+#[cfg(feature = "gui")]
 use gtk4::cairo::Context as CairoContext;
 
 #[derive(Clone, Debug)]
@@ -120,6 +121,7 @@ impl Color32 {
 	}
 
 	#[inline(always)]
+	#[cfg(feature = "gui")]
 	pub fn apply(&self, cairo: &CairoContext)
 	{
 		cairo.set_source_rgba(

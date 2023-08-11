@@ -13,8 +13,9 @@ edition = "2021"
 
 [features]
 default = ["gui"]
-gui = ["i18n"]
-i18n = []
+gui = ["i18n", "dict", "dep:gtk4", "dep:pangocairo", "dep:ab_glyph", "dep:resvg"]
+i18n = ["dep:fluent","dep:unic-langid","dep:sys-locale"]
+dict = ["dep:stardict", "dep:html-escape", "dep:elsa"]
 
 [target.'cfg(windows)'.dependencies]
 cursive = { version = "0.20", default-features = false, features = ["crossterm-backend", "toml"] }
@@ -47,16 +48,16 @@ scraper = "0.17"
 lightningcss = "=1.0.0-alpha.41"
 ego-tree = "0.6"
 
-fluent = "0.16"
-unic-langid = "0.9"
-sys-locale = "0.3"
+fluent = { version = "0.16", optional = true }
+unic-langid = { version = "0.9", optional = true }
+sys-locale = { version = "0.3", optional = true }
 
-gtk4 = { version = "0.7", features = ["v4_10"] }
-pangocairo = "0.18"
-ab_glyph = "0.2"
-resvg = "0.35"
+gtk4 = { version = "0.7", features = ["v4_10"], optional = true }
+pangocairo = { version = "0.18", optional = true }
+ab_glyph = { version = "0.2", optional = true }
+resvg = { version = "0.35", optional = true }
 
-stardict = { version = "0.1" }
+stardict = { version = "0.1", optional = true }
 #stardict = { git = "https://github.com/zangloo/stardict.git" }
-html-escape = "0.2"
-elsa = "1.8"
+html-escape = { version = "0.2", optional = true }
+elsa = { version = "1.8", optional = true }
