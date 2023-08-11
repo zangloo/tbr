@@ -104,6 +104,7 @@ impl Container for DummyContainer {
 impl DummyContainer {
 	pub fn new(filename: &str) -> Self
 	{
+		// remove windows path prefix "\\?\"
 		#[cfg(windows)]
 			let filename = &filename[4..];
 		let filename = filename.to_owned();
