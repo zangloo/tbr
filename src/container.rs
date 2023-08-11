@@ -104,14 +104,31 @@ impl Container for DummyContainer {
 impl DummyContainer {
 	pub fn new(filename: &str) -> Self
 	{
-		// remove windows path prefix "\\?\"
-		#[cfg(windows)]
-			let filename = &filename[4..];
+		let filename = title_for_filename(filename);
 		let filename = filename.to_owned();
 		DummyContainer {
 			filenames: vec![BookName::new(filename, 0)]
 		}
 	}
+}
+
+#[inline]
+#[cfg(windows)]
+pub fn title_for_filename(filename: &str) -> &str
+{
+	// remove windows path prefix "\\?\"
+	if filename.starts_with(r#"\\?\"#) {
+		&filename[4..]
+	} else {
+		filename
+	}
+}
+
+#[inline]
+#[cfg(not(windows))]
+pub fn title_for_filename(filename: &str) -> &str
+{
+	filename
 }
 
 pub enum BookContent {
