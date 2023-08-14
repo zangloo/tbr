@@ -25,7 +25,7 @@ use crate::book::{Book, Colors, Line};
 use crate::gui::chapter_list::BOOK_NAME_LABEL_CLASS;
 use crate::color::Color32;
 use crate::common::{Position, reading_info, txt_lines};
-use crate::container::{BookContent, BookName, Container, load_book, load_container};
+use crate::container::{BookContent, BookName, Container, load_book, load_container, title_for_filename};
 use crate::controller::Controller;
 use crate::gui::render::RenderContext;
 use crate::gui::dict::DictionaryManager;
@@ -185,11 +185,11 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let fonts = Rc::new(fonts);
 	let container_manager = Default::default();
 	let i18n = I18n::new(&configuration.gui.lang).unwrap();
-	let (container, book, reading, book_name) = if let Some(mut reading) = reading {
+	let (container, book, reading, filename) = if let Some(mut reading) = reading {
 		let mut container = load_container(&container_manager, &reading)?;
 		let book = load_book(&container_manager, &mut container, &mut reading)?;
-		let title = reading.filename.clone();
-		(container, book, reading, title)
+		let filename = reading.filename.clone();
+		(container, book, reading, filename)
 	} else {
 		let readme = i18n.msg("readme");
 		let container: Box<dyn Container> = Box::new(ReadmeContainer::new(readme.as_ref()));
@@ -384,7 +384,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	main.append(&paned);
 
 	setup_window(&gc, main, view, stack, paned, sidebar_btn, render_btn, theme_btn,
-		search_box, dm, book_name);
+		search_box, dm, filename);
 	Ok(gc)
 }
 
@@ -663,7 +663,7 @@ fn setup_sidebar(gc: &GuiContext, view: &GuiView,
 fn setup_window(gc: &GuiContext, main: gtk4::Box, view: GuiView, stack: Stack,
 	paned: Paned, sidebar_btn: Button, render_btn: Button, theme_btn: Button,
 	search_box: SearchEntry, dm: Rc<RefCell<DictionaryManager>>,
-	book_name: String)
+	filename: String)
 {
 	fn switch_stack(tab_name: &str, stack: &Stack, paned: &Paned,
 		sidebar_btn: &Button, gc: &GuiContext) -> bool
@@ -690,7 +690,7 @@ fn setup_window(gc: &GuiContext, main: gtk4::Box, view: GuiView, stack: Stack,
 	window.set_child(Some(&main));
 	window.set_default_widget(Some(&view));
 	window.set_focus(Some(&view));
-	update_title(window, &book_name);
+	update_title(window, &filename);
 
 	{
 		let window_key_event = EventControllerKey::new();
@@ -1024,9 +1024,10 @@ fn update_button(btn: &Button, name: &str, tooltip: &str, icons: &IconMap)
 }
 
 #[inline(always)]
-fn update_title(window: &ApplicationWindow, book_name: &str)
+fn update_title(window: &ApplicationWindow, filename: &str)
 {
-	let title = format!("{} - {}", package_name!(), book_name);
+	let filename = title_for_filename(filename);
+	let title = format!("{} - {}", package_name!(), filename);
 	window.set_title(Some(&title));
 }
 
