@@ -10,7 +10,7 @@ use gtk4::gdk::Display;
 use gtk4::glib::{closure_local, ObjectExt};
 use gtk4::glib;
 use gtk4::prelude::{BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, WidgetExt};
-use stardict::{StarDict, StarDictCachedSqlite, WordDefinition};
+use stardict::{StarDict, WordDefinition};
 use crate::book::{Book, Colors, Line};
 use crate::{package_name, PathConfig, ReadingInfo};
 use crate::color::Color32;
@@ -55,7 +55,7 @@ pub(super) struct LookupResult {
 }
 
 struct DictionaryBook {
-	dictionaries: Vec<StarDictCachedSqlite>,
+	dictionaries: Vec<Box<dyn StarDict>>,
 	cache: HashMap<String, Vec<LookupResult>>,
 	resources: FrozenMap<String, Vec<u8>>,
 	replacer: Regex,
@@ -118,15 +118,21 @@ impl Default for DictionaryBook {
 }
 
 impl DictionaryBook {
-	fn reload(&mut self, dictionary_paths: &Vec<PathConfig>)
+	fn reload(&mut self, dictionary_paths: &Vec<PathConfig>, cache_dict: bool)
 	{
 		self.dictionaries.clear();
 		self.cache.clear();
 		for config in dictionary_paths {
 			if config.enabled {
-				if let Ok(dict) = stardict::with_sqlite(
-					&config.path, package_name!()) {
-					self.dictionaries.push(dict);
+				if cache_dict {
+					if let Ok(dict) = stardict::with_sqlite(
+						&config.path, package_name!()) {
+						self.dictionaries.push(Box::new(dict));
+						continue;
+					}
+				}
+				if let Ok(dict) = stardict::no_cache(&config.path) {
+					self.dictionaries.push(Box::new(dict));
 				}
 			}
 		}
@@ -184,7 +190,7 @@ impl DictionaryBook {
 }
 
 impl DictionaryManager {
-	pub fn new(dictionary_paths: &Vec<PathConfig>, font_size: u8,
+	pub fn new(dictionary_paths: &Vec<PathConfig>, cache_dict: bool, font_size: u8,
 		fonts: Rc<Option<Vec<FontVec>>>, i18n: &Rc<I18n>, icons: &Rc<IconMap>)
 		-> (Rc<RefCell<Self>>, gtk4::Box, SearchEntry)
 	{
@@ -225,7 +231,7 @@ impl DictionaryManager {
 			words: vec![],
 			current_index: None,
 		};
-		dm.reload(dictionary_paths);
+		dm.reload(dictionary_paths, cache_dict);
 		let dm = Rc::new(RefCell::new(dm));
 
 		setup_ui(&dm, &backward_btn, &forward_btn);
@@ -234,13 +240,13 @@ impl DictionaryManager {
 	}
 
 	#[inline]
-	pub fn reload(&mut self, dictionary_paths: &Vec<PathConfig>)
+	pub fn reload(&mut self, dictionary_paths: &Vec<PathConfig>, cache_dict: bool)
 	{
 		if let Some(book) = self.controller.book
 			.as_mut()
 			.as_any()
 			.downcast_mut::<DictionaryBook>() {
-			book.reload(dictionary_paths);
+			book.reload(dictionary_paths, cache_dict);
 			if let Some(current_index) = self.current_index {
 				self.lookup(current_index);
 			}

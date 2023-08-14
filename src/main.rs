@@ -162,6 +162,8 @@ struct GuiConfiguration {
 	#[serde(default = "default_locale")]
 	lang: String,
 	dictionaries: Vec<PathConfig>,
+	#[serde(default)]
+	cache_dict: bool,
 }
 
 #[cfg(feature = "gui")]
@@ -174,6 +176,7 @@ impl Default for GuiConfiguration
 			sidebar_size: 300,
 			lang: default_locale(),
 			dictionaries: vec![],
+			cache_dict: false,
 		}
 	}
 }

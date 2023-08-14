@@ -20,6 +20,7 @@ tab-chapter = chapter
 tab-dictionary = dictionary
 font-files = font files
 dictionary-folders = dictionary folders
+cache-dictionary = cache dictionaries data
 settings-dialog-title = settings
 settings-dialog = show settings dialog
 ok-title = Ok

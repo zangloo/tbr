@@ -211,6 +211,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let css_provider = view::init_css("main", &render_context.colors.background);
 	let (dm, dict_view, lookup_entry) = DictionaryManager::new(
 		&configuration.gui.dictionaries,
+		configuration.gui.cache_dict,
 		configuration.gui.font_size,
 		fonts,
 		&i18n,
@@ -1029,7 +1030,8 @@ fn update_title(window: &ApplicationWindow, book_name: &str)
 	window.set_title(Some(&title));
 }
 
-fn apply_settings(locale: &str, fonts: Vec<PathConfig>, dictionaries: Vec<PathConfig>, gc: &GuiContext,
+fn apply_settings(locale: &str, fonts: Vec<PathConfig>,
+	dictionaries: Vec<PathConfig>, cache_dict: bool, gc: &GuiContext,
 	dictionary_manager: &mut DictionaryManager) -> Result<(), (String, String)>
 {
 	fn paths_modified(orig: &Vec<PathConfig>, new: &Vec<PathConfig>) -> bool
@@ -1069,9 +1071,11 @@ fn apply_settings(locale: &str, fonts: Vec<PathConfig>, dictionaries: Vec<PathCo
 		None
 	};
 
-	if paths_modified(&configuration.gui.dictionaries, &dictionaries) {
-		dictionary_manager.reload(&dictionaries);
+	if paths_modified(&configuration.gui.dictionaries, &dictionaries)
+		|| configuration.gui.cache_dict != cache_dict {
+		dictionary_manager.reload(&dictionaries, cache_dict);
 		configuration.gui.dictionaries = dictionaries;
+		configuration.gui.cache_dict = cache_dict;
 	};
 
 	if let Some(new_fonts) = new_fonts {

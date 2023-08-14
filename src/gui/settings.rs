@@ -140,6 +140,15 @@ pub(super) fn show(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>) -> Wind
 		dict_list
 	};
 
+	let cache_dict_cb = {
+		let cb = CheckButton::builder()
+			.label(i18n.msg("cache-dictionary"))
+			.active(configuration.gui.cache_dict)
+			.build();
+		main.append(&cb);
+		cb
+	};
+
 	let button_box = gtk4::Box::new(Orientation::Horizontal, 10);
 	button_box.set_halign(Align::End);
 	{
@@ -161,10 +170,11 @@ pub(super) fn show(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>) -> Wind
 			let fonts = collect_path_list(&font_list, |path|
 				path.exists() && path.is_file());
 			let dictionaries = collect_path_list(&dict_list, |path|
-				stardict::with_sqlite(path, package_name!()).is_ok());
+				stardict::no_cache(path).is_ok());
+			let cache_dict = cache_dict_cb.activate();
 
 			if let Err((title, message)) = apply_settings(
-				locale, fonts, dictionaries, &gc,
+				locale, fonts, dictionaries, cache_dict, &gc,
 				&mut dm.borrow_mut()) {
 				AlertDialog::builder()
 					.modal(true)

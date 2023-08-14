@@ -20,6 +20,7 @@ tab-chapter = 章节
 tab-dictionary = 字典
 font-files = 字体文件
 dictionary-folders = 字典目录
+cache-dictionary = 缓存字典数据
 settings-dialog-title = 设置
 settings-dialog = 参数设置
 ok-title = 确定
