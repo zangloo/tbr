@@ -7,8 +7,8 @@ use gtk4::gio::{Cancellable, File, ListStore};
 use gtk4::glib::{Cast, Object};
 use gtk4::prelude::{BoxExt, ButtonExt, CheckButtonExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, WidgetExt};
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
-use crate::{I18n, package_name, PathConfig};
-use crate::gui::{apply_settings, create_button, FONT_FILE_EXTENSIONS, GuiContext, IconMap};
+use crate::{I18n, PathConfig};
+use crate::gui::{apply_settings, create_button, DICT_FILE_EXTENSIONS, FONT_FILE_EXTENSIONS, GuiContext, IconMap};
 use crate::gui::dict::DictionaryManager;
 
 pub(super) fn show(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>) -> Window
@@ -95,7 +95,7 @@ pub(super) fn show(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>) -> Wind
 	};
 
 	let dict_list = {
-		let title = i18n.msg("dictionary-folders");
+		let title = i18n.msg("dictionary-file");
 		let (label, view, dict_list, dict_add_btn) = create_list(
 			&title,
 			&configuration.gui.dictionaries,
@@ -104,6 +104,11 @@ pub(super) fn show(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>) -> Wind
 		let dict_dialog = FileDialog::new();
 		dict_dialog.set_title(&title);
 		dict_dialog.set_modal(true);
+		let filter = FileFilter::new();
+		for ext in DICT_FILE_EXTENSIONS {
+			filter.add_suffix(ext);
+		}
+		dict_dialog.set_default_filter(Some(&filter));
 		{
 			let dialog = dialog.clone();
 			let dict_list = dict_list.clone();
@@ -114,10 +119,10 @@ pub(super) fn show(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>) -> Wind
 				let dialog2 = dialog.clone();
 				let gc = gc.clone();
 				let title = title.clone();
-				dict_dialog.select_folder(Some(&dialog), None::<&Cancellable>, move |result| {
+				dict_dialog.open(Some(&dialog), None::<&Cancellable>, move |result| {
 					if let Ok(file) = result {
 						if let Some(path) = file.path() {
-							if stardict::with_sqlite(&path, package_name!()).is_ok() {
+							if stardict::no_cache(&path).is_ok() {
 								check_and_add(&path, &dict_list);
 							} else {
 								AlertDialog::builder()

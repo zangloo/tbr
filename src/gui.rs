@@ -44,6 +44,7 @@ const INLINE_ICON_SIZE: i32 = 16;
 const MIN_FONT_SIZE: u8 = 20;
 const MAX_FONT_SIZE: u8 = 50;
 const FONT_FILE_EXTENSIONS: [&str; 3] = ["ttf", "otf", "ttc"];
+const DICT_FILE_EXTENSIONS: [&str; 1] = ["ifo"];
 const SIDEBAR_CHAPTER_LIST_NAME: &str = "chapter_list";
 const SIDEBAR_DICT_NAME: &str = "dictionary_list";
 const COPY_CONTENT_KEY: &str = "copy-content";
