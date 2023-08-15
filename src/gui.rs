@@ -453,7 +453,6 @@ fn load_icons() -> IconMap
 	map
 }
 
-#[allow(unused)]
 fn setup_popup_menu(gc: &GuiContext, view: &GuiView) -> PopoverMenu
 {
 	let action_group = SimpleActionGroup::new();
@@ -467,9 +466,7 @@ fn setup_popup_menu(gc: &GuiContext, view: &GuiView) -> PopoverMenu
 		let gc = gc.clone();
 		copy_action.connect_activate(move |_, _| {
 			let ctrl = gc.ctrl();
-			if let Some(selected_text) = ctrl.selected() {
-				copy_selection(&ctrl);
-			}
+			copy_selection(&ctrl);
 		});
 	}
 	action_group.add_action(&copy_action);
@@ -481,10 +478,8 @@ fn setup_popup_menu(gc: &GuiContext, view: &GuiView) -> PopoverMenu
 	{
 		let gc = gc.clone();
 		lookup_action.connect_activate(move |_, _| {
-			if let Some(selected_text) = gc.ctrl().selected() {
-				switch_stack(SIDEBAR_DICT_NAME, &gc, false);
-				lookup_selection(&gc);
-			}
+			switch_stack(SIDEBAR_DICT_NAME, &gc, false);
+			lookup_selection(&gc);
 		});
 	}
 	action_group.add_action(&lookup_action);
