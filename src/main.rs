@@ -255,10 +255,15 @@ fn main() -> Result<()> {
 				BookToOpen::Env(name)
 			}),
 			|name| BookToOpen::Cmd(name));
-	let (configuration, themes) = load_config(&filename, config_file, &config_dir, &cache_dir)?;
+	let (mut configuration, mut themes) = load_config(&filename, config_file, &config_dir, &cache_dir)?;
 	#[cfg(feature = "gui")]
 	if !cli.terminal {
-		return gui::start(configuration, themes, filename);
+		if let Some((c, t)) = gui::start(configuration, themes, filename)? {
+			configuration = c;
+			themes = t;
+		} else {
+			return Ok(());
+		}
 	}
 	terminal::start(configuration, themes)?;
 	Ok(())

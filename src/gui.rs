@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::collections::HashMap;
+use std::env;
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::ops::Index;
@@ -1094,10 +1095,19 @@ fn apply_settings(locale: &str, fonts: Vec<PathConfig>,
 
 #[inline]
 #[cfg(unix)]
-fn setup_icon() -> Result<()>
+fn setup_env() -> Result<bool>
 {
 	use std::fs;
 	use dirs::home_dir;
+
+	// any better way to know if a usable backend for gtk4 available?
+	if !env::var("WAYLAND_DISPLAY")
+		.map_or_else(|_|
+			env::var("DISPLAY")
+				.map_or(false, |_| true),
+			|_| true) {
+		return Ok(false);
+	}
 
 	let home_dir = home_dir().expect("No home folder");
 	let icon_path = home_dir.join(".local/share/icons/hicolor/256x256/apps");
@@ -1110,7 +1120,7 @@ fn setup_icon() -> Result<()>
 			fs::write(&icon_file, include_bytes!("../assets/gui/tbr-icon.png"))?;
 		}
 	}
-	Ok(())
+	Ok(true)
 }
 
 struct GuiContextInner {
@@ -1473,10 +1483,12 @@ fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>
 }
 
 pub fn start(configuration: Configuration, themes: Themes,
-	book_to_open: BookToOpen) -> Result<()>
+	book_to_open: BookToOpen) -> Result<Option<(Configuration, Themes)>>
 {
 	#[cfg(unix)]
-	setup_icon()?;
+	if !setup_env()? {
+		return Ok(Some((configuration, themes)));
+	};
 
 	let app = Application::builder()
 		.application_id(APP_ID)
@@ -1526,5 +1538,5 @@ pub fn start(configuration: Configuration, themes: Themes,
 		bail!("Failed start tbr");
 	}
 
-	Ok(())
+	Ok(None)
 }
