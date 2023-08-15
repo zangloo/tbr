@@ -22,7 +22,6 @@ use resvg::usvg::TreeParsing;
 
 use crate::{Asset, PathConfig, Configuration, I18n, package_name, ReadingInfo, Themes, BookToOpen};
 use crate::book::{Book, Colors, Line};
-use crate::gui::chapter_list::BOOK_NAME_LABEL_CLASS;
 use crate::color::Color32;
 use crate::common::{Position, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container, title_for_filename};
@@ -684,6 +683,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, paned: Paned,
 	}
 
 	let header_bar = HeaderBar::new();
+	header_bar.set_height_request(32);
 	header_bar.pack_start(&toolbar);
 	header_bar.pack_end(gc.status_bar());
 	let window = gc.win();
@@ -1452,7 +1452,7 @@ fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>
 	mut gui_context: RefMut<Option<GuiContext>>)
 {
 	let css_provider = CssProvider::new();
-	css_provider.load_from_data(&format!("{}:focus-visible {{outline-style: dashed; outline-offset: -3px; outline-width: 3px;}} button.inline {{padding: 0px;min-height: 16px;}} box.{BOOK_NAME_LABEL_CLASS} {{font-size: large;}}", GuiView::WIDGET_NAME));
+	css_provider.load_from_data(include_str!("../assets/gui/gtk.css"));
 	gtk4::style_context_add_provider_for_display(
 		&Display::default().expect("Could not connect to a display."),
 		&css_provider,

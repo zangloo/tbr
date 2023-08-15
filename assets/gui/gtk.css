@@ -1,0 +1,46 @@
+book-view:focus-visible {
+	outline-style: dashed;
+	outline-offset: -3px;
+	outline-width: 3px;
+}
+
+button.inline {
+	padding: 0;
+	min-height: 16px;
+}
+
+box.book-name {
+	font-size: large;
+}
+
+headerbar entry,
+headerbar spinbutton,
+headerbar button,
+headerbar separator {
+	margin-top: 0; /* same as headerbar side padding for nicer proportions */
+	margin-bottom: 0;
+}
+
+headerbar {
+	min-height: 24px;
+	padding-top: 0;
+	padding-bottom: 0;
+	padding-left: 2px; /* same as childrens vertical margins for nicer proportions */
+	padding-right: 2px;
+	margin: 0; /* same as headerbar side padding for nicer proportions */
+}
+
+headerbar button {
+	padding-top: 0;
+	padding-bottom: 0;
+	padding-left: 0;
+	padding-right: 0;
+}
+
+
+headerbar box {
+	padding-top: 0;
+	padding-bottom: 0;
+	padding-left: 0;
+	padding-right: 0;
+}
