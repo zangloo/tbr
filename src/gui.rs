@@ -691,6 +691,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, paned: Paned,
 	window.set_child(Some(&paned));
 	window.set_default_widget(Some(&view));
 	window.set_focus(Some(&view));
+	window.add_css_class("main-window");
 	update_title(window, &filename);
 
 	{

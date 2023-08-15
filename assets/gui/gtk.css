@@ -13,6 +13,10 @@ box.book-name {
 	font-size: large;
 }
 
+window.main-window {
+	padding: 0;
+}
+
 headerbar entry,
 headerbar spinbutton,
 headerbar button,
