@@ -449,7 +449,7 @@ fn setup_popup_menu(gc: &GuiContext) -> PopoverMenu
 	let label = gc.status_bar();
 	let i18n = gc.i18n();
 
-	label.insert_action_group("popup", Some(gc.action_group()));
+	label.insert_action_group("popup", Some(&action_group));
 
 	let copy_action = SimpleAction::new(COPY_CONTENT_KEY, None);
 	{
