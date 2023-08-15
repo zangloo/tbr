@@ -10,7 +10,7 @@ use ab_glyph::FontVec;
 
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
-use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, FilterListModel, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, SearchEntry, Stack, Window};
+use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, FilterListModel, HeaderBar, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, SearchEntry, Stack, Window};
 use gtk4::gdk::{Display, DragAction, Key, ModifierType};
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
@@ -380,12 +380,8 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		view.add_controller(key_event);
 	}
 
-	let main = gtk4::Box::new(Orientation::Vertical, 0);
-	main.append(&toolbar);
-	main.append(&paned);
-
-	setup_window(&gc, main, view, stack, paned, sidebar_btn, render_btn, theme_btn,
-		search_box, dm, filename);
+	setup_window(&gc, toolbar, paned, view, stack, sidebar_btn, render_btn,
+		theme_btn, search_box, dm, filename);
 	Ok(gc)
 }
 
@@ -661,10 +657,10 @@ fn setup_sidebar(gc: &GuiContext, view: &GuiView,
 }
 
 #[inline]
-fn setup_window(gc: &GuiContext, main: gtk4::Box, view: GuiView, stack: Stack,
-	paned: Paned, sidebar_btn: Button, render_btn: Button, theme_btn: Button,
-	search_box: SearchEntry, dm: Rc<RefCell<DictionaryManager>>,
-	filename: String)
+fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, paned: Paned,
+	view: GuiView, stack: Stack, sidebar_btn: Button, render_btn: Button,
+	theme_btn: Button, search_box: SearchEntry,
+	dm: Rc<RefCell<DictionaryManager>>, filename: String)
 {
 	fn switch_stack(tab_name: &str, stack: &Stack, paned: &Paned,
 		sidebar_btn: &Button, gc: &GuiContext) -> bool
@@ -687,8 +683,12 @@ fn setup_window(gc: &GuiContext, main: gtk4::Box, view: GuiView, stack: Stack,
 		}
 	}
 
+	let header_bar = HeaderBar::new();
+	header_bar.pack_start(&toolbar);
+	header_bar.pack_end(gc.status_bar());
 	let window = gc.win();
-	window.set_child(Some(&main));
+	window.set_titlebar(Some(&header_bar));
+	window.set_child(Some(&paned));
 	window.set_default_widget(Some(&view));
 	window.set_focus(Some(&view));
 	update_title(window, &filename);
@@ -983,7 +983,6 @@ fn setup_toolbar(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>,
 	let status_bar = gc.status_bar();
 	status_bar.set_halign(Align::End);
 	status_bar.set_hexpand(true);
-	toolbar.append(status_bar);
 
 	(toolbar, sidebar_button, render_button, theme_button, search_box)
 }

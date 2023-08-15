@@ -141,18 +141,26 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 
 	pub fn status_msg(&self) -> String
 	{
-		let title = match self.book.title(self.reading.line, self.reading.position) {
-			Some(t) => t,
-			None => {
+		const SPLITTER: char = std::path::MAIN_SEPARATOR;
+		let title = self.book
+			.title(self.reading.line, self.reading.position)
+			.map_or_else(|| {
 				let names = self.container.inner_book_names();
-				if names.len() == 1 {
+				let filename = if names.len() == 1 {
 					&self.reading.filename
 				} else {
 					let name = &names[self.reading.inner_book];
 					name.name()
-				}
-			}
-		};
+				};
+				filename.rfind(SPLITTER)
+					.map_or_else(|| {
+						filename.as_str()
+					}, |idx| {
+						&filename[idx + 1..]
+					})
+			}, |name| {
+				name
+			});
 		format!("{}({}:{})", title, self.book.lines().len(), self.reading.line)
 	}
 
