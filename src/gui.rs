@@ -11,8 +11,8 @@ use ab_glyph::FontVec;
 
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
-use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, FilterListModel, HeaderBar, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, SearchEntry, Stack, Window};
-use gtk4::gdk::{Display, DragAction, Key, ModifierType};
+use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, FilterListModel, gdk, GestureClick, HeaderBar, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, PositionType, SearchEntry, Stack, Window};
+use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle};
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
 use gtk4::glib;
@@ -228,17 +228,17 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 
 	let ctx = Rc::new(RefCell::new(render_context));
 	let ctrl = Rc::new(RefCell::new(controller));
-	let gc = GuiContext::new(app, &cfg, &ctrl, &ctx, icons, i18n.clone(),
+	let gc = GuiContext::new(app, &cfg, &ctrl, &ctx, dm, icons, i18n.clone(),
 		dark_colors, bright_colors, css_provider);
 
 	// now setup ui
-	let (paned, stack) = setup_sidebar(&gc, &view, &dm, &dict_view);
-	setup_view(&gc, &view, &stack, &dm);
+	setup_sidebar(&gc, &view, &dict_view);
+	setup_view(&gc, &view);
 
 	chapter_list::init(&gc);
 
-	let (toolbar, sidebar_btn, render_btn, theme_btn, search_box)
-		= setup_toolbar(&gc, &dm, &view, &paned, &lookup_entry,
+	let (toolbar, render_btn, theme_btn, search_box)
+		= setup_toolbar(&gc, &view, &lookup_entry,
 		render_icon, &render_tooltip, theme_icon, &theme_tooltip,
 		custom_color_icon, &custom_color_tooltip);
 
@@ -259,7 +259,6 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	}
 	{
 		let gc = gc.clone();
-		let dm = dm.clone();
 		let key_event = EventControllerKey::new();
 		key_event.connect_key_pressed(move |_, key, _, modifier| {
 			const MODIFIER_NONE: ModifierType = ModifierType::empty();
@@ -346,7 +345,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 							configuration.gui.font_size += 2;
 							controller.render.set_font_size(configuration.gui.font_size, render_context);
 							controller.redraw(render_context);
-							dm.borrow_mut().set_font_size(configuration.gui.font_size);
+							gc.dm_mut().set_font_size(configuration.gui.font_size);
 						}
 					});
 					glib::Propagation::Stop
@@ -358,17 +357,13 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 							configuration.gui.font_size -= 2;
 							controller.render.set_font_size(configuration.gui.font_size, render_context);
 							controller.redraw(render_context);
-							dm.borrow_mut().set_font_size(configuration.gui.font_size);
+							gc.dm_mut().set_font_size(configuration.gui.font_size);
 						}
 					});
 					glib::Propagation::Stop
 				}
 				(Key::c, ModifierType::CONTROL_MASK) => {
-					if let Some(selected_text) = ctrl.borrow().selected() {
-						if let Some(display) = Display::default() {
-							display.clipboard().set_text(selected_text);
-						}
-					}
+					copy_selection(&ctrl.borrow());
 					glib::Propagation::Stop
 				}
 				_ => {
@@ -380,9 +375,26 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		view.add_controller(key_event);
 	}
 
-	setup_window(&gc, toolbar, paned, view, stack, sidebar_btn, render_btn,
-		theme_btn, search_box, dm, filename);
+	setup_window(&gc, toolbar, view, render_btn, theme_btn, search_box, filename);
 	Ok(gc)
+}
+
+#[inline]
+fn copy_selection(ctrl: &GuiController)
+{
+	if let Some(selected_text) = ctrl.selected() {
+		if let Some(display) = Display::default() {
+			display.clipboard().set_text(selected_text);
+		}
+	}
+}
+
+#[inline]
+fn lookup_selection(gc: &GuiContext)
+{
+	if let Some(selected_text) = gc.ctrl().selected() {
+		gc.dm_mut().set_lookup(selected_text.to_owned());
+	}
 }
 
 #[inline]
@@ -442,21 +454,21 @@ fn load_icons() -> IconMap
 }
 
 #[allow(unused)]
-fn setup_popup_menu(gc: &GuiContext) -> PopoverMenu
+fn setup_popup_menu(gc: &GuiContext, view: &GuiView) -> PopoverMenu
 {
 	let action_group = SimpleActionGroup::new();
 	let menu = Menu::new();
-	let label = gc.status_bar();
 	let i18n = gc.i18n();
 
-	label.insert_action_group("popup", Some(&action_group));
+	view.insert_action_group("popup", Some(&action_group));
 
 	let copy_action = SimpleAction::new(COPY_CONTENT_KEY, None);
 	{
 		let gc = gc.clone();
 		copy_action.connect_activate(move |_, _| {
-			if let Some(selected_text) = gc.ctrl().selected() {
-				println!("copy {}", selected_text);
+			let ctrl = gc.ctrl();
+			if let Some(selected_text) = ctrl.selected() {
+				copy_selection(&ctrl);
 			}
 		});
 	}
@@ -470,7 +482,8 @@ fn setup_popup_menu(gc: &GuiContext) -> PopoverMenu
 		let gc = gc.clone();
 		lookup_action.connect_activate(move |_, _| {
 			if let Some(selected_text) = gc.ctrl().selected() {
-				println!("lookup {}", selected_text);
+				switch_stack(SIDEBAR_DICT_NAME, &gc, false);
+				lookup_selection(&gc);
 			}
 		});
 	}
@@ -481,14 +494,14 @@ fn setup_popup_menu(gc: &GuiContext) -> PopoverMenu
 
 	let pm = PopoverMenu::builder()
 		.has_arrow(false)
+		.position(PositionType::Bottom)
 		.menu_model(&MenuModel::from(menu))
 		.build();
-	pm.set_parent(label);
+	pm.set_parent(view);
 	pm
 }
 
-fn setup_view(gc: &GuiContext, view: &GuiView, stack: &Stack,
-	dm: &Rc<RefCell<DictionaryManager>>)
+fn setup_view(gc: &GuiContext, view: &GuiView)
 {
 	#[inline]
 	fn select_text(gc: &GuiContext, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64)
@@ -516,22 +529,29 @@ fn setup_view(gc: &GuiContext, view: &GuiView, stack: &Stack,
 		});
 	}
 
-	/* no way to position popup menu next to mouse...
 	{
 		// right click
 		let right_click = GestureClick::builder()
 			.button(gdk::BUTTON_SECONDARY)
 			.build();
-		let popup_menu = setup_popup_menu(gc);
+		let popup_menu = setup_popup_menu(gc, view);
 		let gc = gc.clone();
-		right_click.connect_pressed(move |_, _, _, _| {
+		right_click.connect_pressed(move |_, _, x, y| {
 			if gc.ctrl().has_selection() {
 				popup_menu.popup();
+				let (_, width, _, _) = popup_menu.measure(Orientation::Horizontal, -1);
+				let x = x as i32 + width / 2;
+				popup_menu.set_pointing_to(Some(&Rectangle::new(
+					x,
+					y as i32,
+					-1,
+					-1,
+				)));
 			}
 		});
 		view.add_controller(right_click);
 	}
-	*/
+
 	{
 		// open link signal
 		let gc = gc.clone();
@@ -560,17 +580,15 @@ fn setup_view(gc: &GuiContext, view: &GuiView, stack: &Stack,
 	// text selected signal
 	{
 		let gc = gc.clone();
-		let stack = stack.clone();
-		let dm = dm.clone();
 		view.connect_closure(
 			GuiView::TEXT_SELECTED_SIGNAL,
 			false,
 			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
 				select_text(&gc, from_line, from_offset, to_line, to_offset);
 				if let Some(selected_text) = gc.ctrl().selected() {
-					if let Some(current_tab) = stack.visible_child_name() {
+					if let Some(current_tab) = gc.sidebar_stack().visible_child_name() {
 						if current_tab == SIDEBAR_DICT_NAME {
-							dm.borrow_mut().set_lookup(selected_text.to_owned());
+							gc.dm_mut().set_lookup(selected_text.to_owned());
 						}
 					}
 				}
@@ -609,9 +627,7 @@ fn setup_view(gc: &GuiContext, view: &GuiView, stack: &Stack,
 	}
 }
 
-fn setup_sidebar(gc: &GuiContext, view: &GuiView,
-	dm: &Rc<RefCell<DictionaryManager>>, dict_view: &gtk4::Box)
-	-> (Paned, Stack)
+fn setup_sidebar(gc: &GuiContext, view: &GuiView, dict_view: &gtk4::Box)
 {
 	let chapter_list_view = gtk4::ScrolledWindow::builder()
 		.child(gc.chapter_list())
@@ -619,9 +635,7 @@ fn setup_sidebar(gc: &GuiContext, view: &GuiView,
 		.build();
 
 	let i18n = gc.i18n();
-	let stack = Stack::builder()
-		.vexpand(true)
-		.build();
+	let stack = gc.sidebar_stack();
 	stack.add_titled(
 		&chapter_list_view,
 		Some(SIDEBAR_CHAPTER_LIST_NAME), &i18n.msg("tab-chapter"));
@@ -635,61 +649,61 @@ fn setup_sidebar(gc: &GuiContext, view: &GuiView,
 		.build();
 	let sidebar = gtk4::Box::new(Orientation::Vertical, 0);
 	sidebar.append(&sidebar_tab_switch);
-	sidebar.append(&stack);
+	sidebar.append(gc.sidebar_stack());
 
-	let paned = Paned::builder()
-		.orientation(Orientation::Horizontal)
-		.start_child(&sidebar)
-		.end_child(view)
-		.position(0)
-		.build();
+	let paned = gc.paned();
+	paned.set_start_child(Some(&sidebar));
+	paned.set_end_child(Some(view));
+	paned.set_position(0);
+
 	let gc = gc.clone();
-	let dm = dm.clone();
 	paned.connect_position_notify(move |p| {
 		let position = p.position();
 		if position > 0 {
 			gc.cfg_mut().gui.sidebar_size = position as u32;
-			dm.borrow_mut().resize(position, None);
+			gc.dm_mut().resize(position, None);
 		}
 	});
-
-	(paned, stack)
 }
 
-#[inline]
-fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, paned: Paned,
-	view: GuiView, stack: Stack, sidebar_btn: Button, render_btn: Button,
-	theme_btn: Button, search_box: SearchEntry,
-	dm: Rc<RefCell<DictionaryManager>>, filename: String)
+fn switch_stack(tab_name: &str, gc: &GuiContext, toggle: bool) -> bool
 {
-	fn switch_stack(tab_name: &str, stack: &Stack, paned: &Paned,
-		sidebar_btn: &Button, gc: &GuiContext) -> bool
-	{
-		if paned.position() == 0 {
-			stack.set_visible_child_name(tab_name);
-			toggle_sidebar(sidebar_btn, paned, gc);
-			true
-		} else if let Some(current_tab_name) = stack.visible_child_name() {
-			if current_tab_name == tab_name {
-				toggle_sidebar(sidebar_btn, paned, gc);
+	let paned = gc.paned();
+	let stack = gc.sidebar_stack();
+	if paned.position() == 0 {
+		stack.set_visible_child_name(tab_name);
+		toggle_sidebar(gc);
+		true
+	} else if let Some(current_tab_name) = stack.visible_child_name() {
+		if current_tab_name == tab_name {
+			if toggle {
+				toggle_sidebar(gc);
 				false
 			} else {
-				stack.set_visible_child_name(tab_name);
 				true
 			}
 		} else {
 			stack.set_visible_child_name(tab_name);
 			true
 		}
+	} else {
+		stack.set_visible_child_name(tab_name);
+		true
 	}
+}
 
+#[inline]
+fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
+	render_btn: Button, theme_btn: Button, search_box: SearchEntry,
+	filename: String)
+{
 	let header_bar = HeaderBar::new();
 	header_bar.set_height_request(32);
 	header_bar.pack_start(&toolbar);
 	header_bar.pack_end(gc.status_bar());
 	let window = gc.win();
 	window.set_titlebar(Some(&header_bar));
-	window.set_child(Some(&paned));
+	window.set_child(Some(gc.paned()));
 	window.set_default_widget(Some(&view));
 	window.set_focus(Some(&view));
 	window.add_css_class("main-window");
@@ -702,16 +716,14 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, paned: Paned,
 			const MODIFIER_NONE: ModifierType = ModifierType::empty();
 			match (key, modifier) {
 				(Key::c, MODIFIER_NONE) => {
-					if switch_stack(SIDEBAR_CHAPTER_LIST_NAME, &stack, &paned, &sidebar_btn, &gc) {
+					if switch_stack(SIDEBAR_CHAPTER_LIST_NAME, &gc, true) {
 						gc.scroll_to_current_chapter();
 					}
 					glib::Propagation::Stop
 				}
 				(Key::d, MODIFIER_NONE) => {
-					if switch_stack(SIDEBAR_DICT_NAME, &stack, &paned, &sidebar_btn, &gc) {
-						if let Some(selected_text) = gc.ctrl().selected() {
-							dm.borrow_mut().set_lookup(selected_text.to_owned());
-						}
+					if switch_stack(SIDEBAR_DICT_NAME, &gc, true) {
+						lookup_selection(&gc);
 					}
 					glib::Propagation::Stop
 				}
@@ -720,8 +732,8 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, paned: Paned,
 					glib::Propagation::Stop
 				}
 				(Key::Escape, MODIFIER_NONE) => {
-					if paned.position() != 0 {
-						toggle_sidebar(&sidebar_btn, &paned, &gc);
+					if gc.paned().position() != 0 {
+						toggle_sidebar(&gc);
 						glib::Propagation::Stop
 					} else {
 						glib::Propagation::Proceed
@@ -790,8 +802,10 @@ fn get_custom_color_icon(custom_color: bool, i18n: &I18n) -> (&'static str, Cow<
 	}
 }
 
-fn toggle_sidebar(sidebar_btn: &Button, paned: &Paned, gc: &GuiContext)
+fn toggle_sidebar(gc: &GuiContext)
 {
+	let paned = gc.paned();
+	let sidebar_btn = gc.sidebar_btn();
 	let (icon, tooltip, position) = if paned.position() == 0 {
 		("sidebar_off.svg", gc.i18n().msg("sidebar-off"), gc.cfg().gui.sidebar_size as i32)
 	} else {
@@ -846,12 +860,11 @@ fn switch_custom_color(custom_color_btn: &Button, gc: &GuiContext)
 }
 
 #[inline]
-fn setup_toolbar(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>,
-	view: &GuiView, paned: &Paned, lookup_entry: &SearchEntry,
+fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	render_icon: &str, render_tooltip: &str,
 	theme_icon: &str, theme_tooltip: &str,
 	custom_color_icon: &str, custom_color_tooltip: &str,
-) -> (gtk4::Box, Button, Button, Button, SearchEntry)
+) -> (gtk4::Box, Button, Button, SearchEntry)
 {
 	let i18n = gc.i18n();
 	let icons = gc.icons();
@@ -860,22 +873,19 @@ fn setup_toolbar(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>,
 		.css_classes(vec!["toolbar"])
 		.build();
 
-	let sidebar_button = create_button("sidebar_on.svg", &i18n.msg("sidebar-on"), &icons, false);
+	let sidebar_button = gc.sidebar_btn();
 	{
-		let paned = paned.clone();
 		let gc = gc.clone();
-		sidebar_button.connect_clicked(move |sidebar_btn| {
-			toggle_sidebar(sidebar_btn, &paned, &gc);
+		sidebar_button.connect_clicked(move |_| {
+			toggle_sidebar(&gc);
 		});
-		toolbar.append(&sidebar_button);
+		toolbar.append(sidebar_button);
 	}
 
 	{
-		let paned = paned.clone();
 		let gc = gc.clone();
-		let sidebar_button = sidebar_button.clone();
 		lookup_entry.connect_stop_search(move |_| {
-			toggle_sidebar(&sidebar_button, &paned, &gc);
+			toggle_sidebar(&gc);
 		});
 	}
 
@@ -968,9 +978,8 @@ fn setup_toolbar(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>,
 	let settings_button = create_button("setting.svg", &i18n.msg("settings-dialog"), &icons, false);
 	{
 		let gc = gc.clone();
-		let dm = dm.clone();
 		settings_button.connect_clicked(move |_| {
-			settings::show(&gc, &dm);
+			settings::show(&gc);
 		});
 		toolbar.append(&settings_button);
 	}
@@ -986,7 +995,7 @@ fn setup_toolbar(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>,
 	status_bar.set_halign(Align::End);
 	status_bar.set_hexpand(true);
 
-	(toolbar, sidebar_button, render_button, theme_button, search_box)
+	(toolbar, render_button, theme_button, search_box)
 }
 
 #[inline]
@@ -1127,11 +1136,15 @@ struct GuiContextInner {
 	cfg: Rc<RefCell<Configuration>>,
 	ctrl: Rc<RefCell<GuiController>>,
 	ctx: Rc<RefCell<RenderContext>>,
+	dm: Rc<RefCell<DictionaryManager>>,
 	chapter_syncing: Rc<Cell<bool>>,
 	window: ApplicationWindow,
 	menu: Menu,
 	action_group: SimpleActionGroup,
 	status_bar: Label,
+	paned: Paned,
+	sidebar_stack: Stack,
+	sidebar_btn: Button,
 	chapter_list: ListBox,
 	chapter_model: FilterListModel,
 	icons: Rc<IconMap>,
@@ -1155,7 +1168,8 @@ pub struct GuiContext {
 impl GuiContext {
 	fn new(app: &Application,
 		cfg: &Rc<RefCell<Configuration>>, ctrl: &Rc<RefCell<GuiController>>,
-		ctx: &Rc<RefCell<RenderContext>>, icons: Rc<IconMap>, i18n: Rc<I18n>,
+		ctx: &Rc<RefCell<RenderContext>>, dm: Rc<RefCell<DictionaryManager>>,
+		icons: Rc<IconMap>, i18n: Rc<I18n>,
 		dark_colors: Colors, bright_colors: Colors, css_provider: CssProvider) -> Self
 	{
 		let window = ApplicationWindow::builder()
@@ -1170,16 +1184,25 @@ impl GuiContext {
 
 		let status_bar = Label::new(None);
 		status_bar.set_label(&ctrl.borrow().status_msg());
+		let paned = Paned::new(Orientation::Horizontal);
+		let sidebar_stack = Stack::builder()
+			.vexpand(true)
+			.build();
+		let sidebar_btn = create_button("sidebar_on.svg", &i18n.msg("sidebar-on"), &icons, false);
 
 		let inner = GuiContextInner {
 			cfg: cfg.clone(),
 			ctrl: ctrl.clone(),
 			ctx: ctx.clone(),
+			dm,
 			chapter_syncing: Rc::new(Cell::new(false)),
 			window,
 			menu: Menu::new(),
 			action_group: SimpleActionGroup::new(),
 			status_bar,
+			paned,
+			sidebar_stack,
+			sidebar_btn,
 			chapter_list,
 			chapter_model,
 			icons,
@@ -1219,6 +1242,30 @@ impl GuiContext {
 	fn ctx_mut(&self) -> RefMut<RenderContext>
 	{
 		self.inner.ctx.borrow_mut()
+	}
+
+	#[inline]
+	fn paned(&self) -> &Paned
+	{
+		&self.inner.paned
+	}
+
+	#[inline]
+	fn sidebar_stack(&self) -> &Stack
+	{
+		&self.inner.sidebar_stack
+	}
+
+	#[inline]
+	fn sidebar_btn(&self) -> &Button
+	{
+		&self.inner.sidebar_btn
+	}
+
+	#[inline]
+	fn dm_mut(&self) -> RefMut<DictionaryManager>
+	{
+		self.inner.dm.borrow_mut()
 	}
 
 	#[inline]

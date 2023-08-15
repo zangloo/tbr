@@ -662,13 +662,12 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	{
 		highlight_selection(&self.highlight)
 	}
-	/*
+
 	#[inline]
 	pub fn has_selection(&self) -> bool
 	{
 		self.highlight.is_some()
 	}
-	*/
 }
 
 #[inline]

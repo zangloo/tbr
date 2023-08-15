@@ -1,6 +1,4 @@
-use std::cell::RefCell;
 use std::path::PathBuf;
-use std::rc::Rc;
 use gtk4::{AlertDialog, Align, Button, CheckButton, DropDown, EventControllerKey, FileDialog, FileFilter, glib, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode, Separator, StringList, Window};
 use gtk4::gdk::{Key, ModifierType};
 use gtk4::gio::{Cancellable, File, ListStore};
@@ -9,9 +7,8 @@ use gtk4::prelude::{BoxExt, ButtonExt, CheckButtonExt, FileExt, GtkWindowExt, Li
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
 use crate::{I18n, PathConfig};
 use crate::gui::{apply_settings, create_button, DICT_FILE_EXTENSIONS, FONT_FILE_EXTENSIONS, GuiContext, IconMap};
-use crate::gui::dict::DictionaryManager;
 
-pub(super) fn show(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>) -> Window
+pub(super) fn show(gc: &GuiContext) -> Window
 {
 	let i18n = gc.i18n();
 	let dialog = Window::builder()
@@ -163,7 +160,6 @@ pub(super) fn show(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>) -> Wind
 			.build();
 		let locale_dropdown = locale_dropdown.clone();
 		let gc = gc.clone();
-		let dm = dm.clone();
 		ok_btn.connect_clicked(move |_| {
 			let locale = {
 				let idx = locale_dropdown.selected();
@@ -180,7 +176,7 @@ pub(super) fn show(gc: &GuiContext, dm: &Rc<RefCell<DictionaryManager>>) -> Wind
 
 			if let Err((title, message)) = apply_settings(
 				locale, fonts, dictionaries, cache_dict, &gc,
-				&mut dm.borrow_mut()) {
+				&mut gc.dm_mut()) {
 				AlertDialog::builder()
 					.modal(true)
 					.message(&title)
