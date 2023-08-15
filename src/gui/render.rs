@@ -717,7 +717,7 @@ pub(super) fn draw_rect(cairo: &CairoContext, rect: &Rect, stroke_width: f32, co
 pub(super) fn handle_cairo<T>(result: Result<T, cairo::Error>)
 {
 	if let Err(err) = result {
-		println!("Failed cairo call: {}", err.to_string());
+		eprintln!("Failed cairo call: {}", err.to_string());
 	}
 }
 

@@ -753,7 +753,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, paned: Paned,
 			}
 			let configuration = gc.cfg();
 			if let Err(e) = configuration.save() {
-				println!("Failed save configuration: {}", e.to_string());
+				eprintln!("Failed save configuration: {}", e.to_string());
 			}
 			glib::Propagation::Proceed
 		});
@@ -1501,7 +1501,6 @@ pub fn start(configuration: Configuration, themes: Themes,
 	}
 	{
 		app.connect_open(move |app, files, _| {
-			println!("connect_open");
 			let gui_context = gui_context.borrow_mut();
 			if let Some(gc) = gui_context.as_ref() {
 				if files.len() > 0 {
