@@ -470,7 +470,7 @@ fn length(length: &Length) -> f32
 fn length_value(value: &LengthValue, default_size: f32) -> (f32, bool)
 {
 	match value {
-		LengthValue::Px(v) => (v / default_size as f32, false),
+		LengthValue::Px(v) => (v / default_size, false),
 		LengthValue::Em(v) => (*v, true),
 		LengthValue::Rem(v) => (*v, false),
 		// 没见过，无视之
