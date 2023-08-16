@@ -34,13 +34,12 @@ headerbar {
 	margin: 0; /* same as headerbar side padding for nicer proportions */
 }
 
-headerbar button {
+headerbar box.start button {
 	padding-top: 0;
 	padding-bottom: 0;
 	padding-left: 0;
 	padding-right: 0;
 }
-
 
 headerbar box {
 	padding-top: 0;
