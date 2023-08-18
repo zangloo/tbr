@@ -579,6 +579,7 @@ mod imp {
 		#[inline(always)]
 		pub(super) fn set_render_type(&self, render_han: bool, render_context: &mut RenderContext)
 		{
+			self.adjustment(|adjustment| adjustment.configure(0., 0., 0., 0., 0., 0.));
 			let mut render = self.render.borrow_mut();
 			if render.render_han() != render_han {
 				*render = create_render(render_han);
