@@ -3,6 +3,7 @@
 ## About
 
 `tbr` is a simple e-book reader in terminal and gtk4(>4.10).By now, support txt, html, haodoo and epub.
+it can also render text as chinese tradition style(top to bottom and right to left).
 
 ## Build
 
