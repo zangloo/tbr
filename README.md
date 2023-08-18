@@ -14,7 +14,7 @@
 
 ## Configuration
 
-Config files store in .config/ter/ter.toml. Themes configuration files store in ~/.config/ter/themes/. Files will auto
+Config files store in .config/tbr/tbr.toml. Themes configuration files store in ~/.config/ter/themes/. Files will auto
 generated if not exists.
 
 ## Key binding for terminal
