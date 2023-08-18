@@ -182,11 +182,14 @@ impl GuiView {
 			let mut pos = pos2(x as f32, y as f32);
 			let imp = view.imp();
 			imp.translate(&mut pos);
-			if let Some(_) = lr(&view, &pos) {
-				view.set_cursor_from_name(Some("pointer"))
+			let cursor_name = if let Some(_) = lr(&view, &pos) {
+				"pointer"
+			} else if imp.is_han_render() {
+				"vertical-text"
 			} else {
-				view.set_cursor_from_name(None);
-			}
+				"text"
+			};
+			view.set_cursor_from_name(Some(cursor_name))
 		});
 		self.add_controller(mouse_event);
 
@@ -574,6 +577,12 @@ mod imp {
 					ScrollPosition::Position(value) => adjustment.set_value(value),
 				}
 			});
+		}
+
+		#[inline(always)]
+		pub(super) fn is_han_render(&self) -> bool
+		{
+			self.render.borrow().render_han()
 		}
 
 		#[inline(always)]
