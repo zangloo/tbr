@@ -30,7 +30,6 @@ pub enum HighlightMode {
 	// link index for current line
 	Link(usize),
 	// selected text, line index for HighlightInfo.end
-	#[allow(unused)]
 	Selection(String, usize),
 }
 
@@ -658,6 +657,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	}
 
 	#[inline]
+	#[allow(unused)]
 	pub fn has_selection(&self) -> bool
 	{
 		self.highlight.is_some()

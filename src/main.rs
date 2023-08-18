@@ -255,7 +255,8 @@ fn main() -> Result<()> {
 				BookToOpen::Env(name)
 			}),
 			|name| BookToOpen::Cmd(name));
-	let (mut configuration, mut themes) = load_config(&filename, config_file, &config_dir, &cache_dir)?;
+	#[allow(unused_mut)]
+		let (mut configuration, mut themes) = load_config(&filename, config_file, &config_dir, &cache_dir)?;
 	#[cfg(feature = "gui")]
 	if !cli.terminal {
 		if let Some((c, t)) = gui::start(configuration, themes, filename)? {
