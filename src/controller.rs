@@ -637,17 +637,11 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	}
 
 	#[allow(unused)]
+	#[inline]
 	pub fn clear_highlight(&mut self, context: &mut C)
 	{
 		self.highlight = None;
 		self.redraw(context);
-	}
-
-	#[allow(unused)]
-	pub fn clear_highlight_at(&mut self, line: usize, offset: usize, context: &mut C)
-	{
-		self.highlight = None;
-		self.redraw_at(line, offset, context);
 	}
 
 	#[inline]

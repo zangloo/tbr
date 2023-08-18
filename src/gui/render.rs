@@ -99,6 +99,11 @@ impl RenderLine
 	{
 		self.decorations.push(decoration)
 	}
+
+	pub fn size(&self) -> f32
+	{
+		self.line_size + self.line_space
+	}
 }
 
 pub(super) enum CharDrawData {
@@ -264,6 +269,9 @@ pub struct RenderContext
 	pub leading_space: f32,
 	// for calculate chars in single line
 	pub max_page_size: f32,
+
+	// mode for redraw with scrolling
+	pub redraw_mode: RedrawMode,
 }
 
 impl RenderContext {
@@ -280,6 +288,7 @@ impl RenderContext {
 			leading_chars,
 			leading_space: 0.0,
 			max_page_size: 0.0,
+			redraw_mode: Default::default(),
 		}
 	}
 }
@@ -303,6 +312,35 @@ pub(super) enum PointerPosition {
 	Tail,
 }
 
+#[derive(PartialEq)]
+pub enum GuiViewScrollDirection {
+	Horizontal,
+	Vertical,
+	None,
+}
+
+pub enum RedrawMode {
+	NoScroll,
+	NoResetScroll,
+	ResetScroll,
+	ScrollTo(f64),
+}
+
+impl Default for RedrawMode {
+	fn default() -> Self
+	{
+		RedrawMode::NoScroll
+	}
+}
+
+pub struct GuiViewScrollSizing {
+	pub direction: GuiViewScrollDirection,
+	pub init_scroll_value: f32,
+	pub full_size: f32,
+	pub step_size: f32,
+	pub page_size: f32,
+}
+
 #[inline(always)]
 fn cache_key(char: char, font_size: u32) -> u64
 {
@@ -320,14 +358,25 @@ pub(super) trait GuiRender {
 		start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>,
 		pango: &PangoContext, context: &mut RenderContext) -> Vec<RenderLine>;
 	fn draw_decoration(&self, decoration: &TextDecoration, cairo: &CairoContext);
-	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData>;
+	fn image_cache(&self) -> &HashMap<String, ImageDrawingData>;
+	fn image_cache_mut(&mut self) -> &mut HashMap<String, ImageDrawingData>;
 	// return (line, offset) position
 	fn pointer_pos(&self, pointer_pos: &Pos2, render_lines: &Vec<RenderLine>,
 		rect: &Rect) -> (PointerPosition, PointerPosition);
 	fn cache(&self) -> &HashMap<u64, CharDrawData>;
 	fn cache_mut(&mut self) -> &mut HashMap<u64, CharDrawData>;
-	// get redraw lines size for scrollable size measure
-	fn drawn_size(&self, context: &mut RenderContext) -> Vec2;
+
+	/// for scrolling view
+	/// get redraw lines size for scrollable size measure
+	fn scroll_size(&self, context: &mut RenderContext) -> GuiViewScrollSizing;
+	/// for scrolling view
+	/// calc the visible lines in viewport
+	fn visible_scrolling<'a>(&self, position: f32, size: f32, render_rect: &Rect,
+		render_lines: &'a [RenderLine]) -> (Pos2, &'a [RenderLine]);
+	/// for scrolling view
+	/// translate mouse position in viewport
+	fn translate_mouse_pos(&self, mouse_pos: &mut Pos2, render_rect: &Rect,
+		scroll_value: f32, scroll_size: f32);
 
 	fn cache_get(&self, char: char, font_size: f32) -> Option<&CharDrawData>
 	{
@@ -364,7 +413,7 @@ pub(super) trait GuiRender {
 		}
 	}
 
-	fn gui_redraw(&mut self, book: &dyn Book, lines: &Vec<Line>,
+	fn gui_redraw(&mut self, book: &dyn Book, lines: &[Line],
 		reading_line: usize, reading_offset: usize,
 		highlight: &Option<HighlightInfo>, pango: &PangoContext,
 		context: &mut RenderContext) -> (Vec<RenderLine>, Option<Position>)
@@ -395,7 +444,7 @@ pub(super) trait GuiRender {
 		(render_lines, None)
 	}
 
-	fn draw(&mut self, render_lines: &Vec<RenderLine>, cairo: &CairoContext, layout: &PangoContext)
+	fn draw(&self, render_lines: &[RenderLine], cairo: &CairoContext, layout: &PangoContext)
 	{
 		cairo.set_line_width(1.0);
 		for render_line in render_lines {
@@ -524,7 +573,7 @@ pub(super) trait GuiRender {
 	{
 		if let Some(href) = &char_style.image {
 			if let Some((path, bytes)) = book.image(href) {
-				let cache = self.image_cache();
+				let cache = self.image_cache_mut();
 				let (image_data, mut size) = match cache.entry(path.clone()) {
 					Entry::Occupied(o) => {
 						let data = o.into_mut();
@@ -556,7 +605,7 @@ pub(super) trait GuiRender {
 		}
 	}
 
-	fn draw_image(&mut self, name: &str, rect: &Rect, cairo: &CairoContext)
+	fn draw_image(&self, name: &str, rect: &Rect, cairo: &CairoContext)
 	{
 		if let Some(image_data) = self.image_cache().get(name) {
 			cairo.set_source_pixbuf(&image_data.texture, rect.min.x as f64, rect.min.y as f64);

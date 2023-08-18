@@ -9,8 +9,8 @@ use crate::book::{Book, CharStyle, Line};
 use crate::color::Color32;
 use crate::common::with_leading;
 use crate::controller::HighlightInfo;
-use crate::gui::math::{Pos2, Rect, Vec2, vec2};
-use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, RenderChar, update_for_highlight, ImageDrawingData, PointerPosition, TextDecoration, RenderCell, CharCell, hline, vline, CharDrawData};
+use crate::gui::math::{Pos2, pos2, Rect, Vec2};
+use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, RenderChar, update_for_highlight, ImageDrawingData, PointerPosition, TextDecoration, RenderCell, CharCell, hline, vline, CharDrawData, GuiViewScrollDirection, GuiViewScrollSizing};
 
 pub(super) struct GuiXiRender {
 	images: HashMap<String, ImageDrawingData>,
@@ -260,7 +260,11 @@ impl GuiRender for GuiXiRender
 		}
 	}
 
-	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData> {
+	fn image_cache(&self) -> &HashMap<String, ImageDrawingData> {
+		&self.images
+	}
+
+	fn image_cache_mut(&mut self) -> &mut HashMap<String, ImageDrawingData> {
 		&mut self.images
 	}
 
@@ -304,11 +308,45 @@ impl GuiRender for GuiXiRender
 		&mut self.outline_draw_cache
 	}
 
-	fn drawn_size(&self, context: &mut RenderContext) -> Vec2
+	fn scroll_size(&self, context: &mut RenderContext) -> GuiViewScrollSizing
 	{
 		let height = self.baseline - context.render_rect.min.y
 			+ context.default_font_measure.y / 2.;
-		vec2(context.render_rect.width(), height)
+		GuiViewScrollSizing {
+			direction: GuiViewScrollDirection::Vertical,
+			init_scroll_value: 0.,
+			full_size: height,
+			step_size: context.default_font_measure.y,
+			page_size: context.render_rect.height(),
+		}
+	}
+
+	fn visible_scrolling<'a>(&self, position: f32, _: f32, render_rect: &Rect,
+		render_lines: &'a [RenderLine]) -> (Pos2, &'a [RenderLine])
+	{
+		let mut start = 0;
+		let mut end = None;
+		let mut total = 0.;
+		let max = render_rect.height() + position;
+		for (index, line) in render_lines.iter().enumerate() {
+			if total < position {
+				start = index;
+			}
+			total += line.size();
+			if total > max {
+				end = Some(index + 1);
+				break;
+			}
+		}
+		let end = end.unwrap_or_else(|| render_lines.len());
+		(pos2(0., -position), &render_lines[start..end])
+	}
+
+	#[inline]
+	fn translate_mouse_pos(&self, mouse_pos: &mut Pos2, _render_rect: &Rect,
+		scroll_value: f32, _scroll_size: f32)
+	{
+		mouse_pos.y += scroll_value;
 	}
 }
 

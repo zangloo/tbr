@@ -2,6 +2,7 @@ use std::rc::Rc;
 use ab_glyph::FontVec;
 use gtk4::{CssProvider, EventControllerMotion, EventControllerScroll, EventControllerScrollFlags, gdk, GestureDrag, glib};
 use glib::Object;
+use gtk4::Scrollable;
 use gtk4::gdk::Display;
 use gtk4::glib::ObjectExt;
 use gtk4::pango::Layout as PangoContext;
@@ -12,13 +13,24 @@ use crate::color::Color32;
 use crate::common::Position;
 use crate::controller::{HighlightInfo, Render};
 use crate::gui::math::{Pos2, pos2};
-use crate::gui::render::RenderContext;
+use crate::gui::render::{RedrawMode, RenderContext};
 
 const MIN_TEXT_SELECT_DISTANCE: f32 = 4.0;
 
+pub enum ScrollPosition {
+	LineNext,
+	LinePrev,
+	PageNext,
+	PagePrev,
+	Begin,
+	End,
+	Position(f64),
+}
+
 glib::wrapper! {
     pub struct GuiView(ObjectSubclass<imp::GuiView>)
-        @extends gtk4::Widget,  gtk4::DrawingArea
+        @extends gtk4::Widget, gtk4::DrawingArea,
+		@implements Scrollable
 	;
 }
 
@@ -33,7 +45,13 @@ impl Render<RenderContext> for GuiView {
 		offset: usize, highlight: &Option<HighlightInfo>, context: &mut RenderContext)
 		-> Option<Position>
 	{
-		let position = self.imp().redraw(book, lines, line, offset, highlight, context, &self.get_pango());
+		let position = match &context.redraw_mode {
+			RedrawMode::NoScroll => self.imp().redraw(book, lines, line, offset, highlight, context, &self.get_pango()),
+			_ => {
+				self.imp().full_redraw(book, lines, highlight, context, &self.get_pango());
+				None
+			}
+		};
 		self.queue_draw();
 		position
 	}
@@ -102,8 +120,11 @@ impl GuiView {
 		drag_gesture.connect_update(move |drag, seq| {
 			if let Some(bp) = drag.start_point() {
 				if let Some(ep) = drag.point(seq) {
-					let from = pos2(bp.0 as f32, bp.1 as f32);
-					let to = pos2(ep.0 as f32, ep.1 as f32);
+					let imp = view.imp();
+					let mut from = pos2(bp.0 as f32, bp.1 as f32);
+					let mut to = pos2(ep.0 as f32, ep.1 as f32);
+					imp.translate(&mut from);
+					imp.translate(&mut to);
 					if let Some((from, to)) = view.calc_selection(from, to) {
 						view.emit_by_name::<()>(GuiView::SELECTING_TEXT_SIGNAL, &[
 							&(from.line as u64),
@@ -123,8 +144,10 @@ impl GuiView {
 			if let Some(bp) = drag.start_point() {
 				if let Some(ep) = drag.point(seq) {
 					view.grab_focus();
+					let imp = view.imp();
 					if bp == ep {
-						let pos = pos2(bp.0 as f32, bp.1 as f32);
+						let mut pos = pos2(bp.0 as f32, bp.1 as f32);
+						imp.translate(&mut pos);
 						if let Some((line, link_index)) = lr(&view, &pos) {
 							view.emit_by_name::<()>(GuiView::OPEN_LINK_SIGNAL, &[
 								&(line as u64),
@@ -134,8 +157,10 @@ impl GuiView {
 							view.emit_by_name::<()>(GuiView::CLEAR_SELECTION_SIGNAL, &[]);
 						}
 					} else {
-						let from = pos2(bp.0 as f32, bp.1 as f32);
-						let to = pos2(ep.0 as f32, ep.1 as f32);
+						let mut from = pos2(bp.0 as f32, bp.1 as f32);
+						let mut to = pos2(ep.0 as f32, ep.1 as f32);
+						imp.translate(&mut from);
+						imp.translate(&mut to);
 						if let Some((from, to)) = view.calc_selection(from, to) {
 							view.emit_by_name::<()>(GuiView::TEXT_SELECTED_SIGNAL, &[
 								&(from.line as u64),
@@ -154,7 +179,9 @@ impl GuiView {
 		let view = self.clone();
 		let lr = link_resolver.clone();
 		mouse_event.connect_motion(move |_, x, y| {
-			let pos = pos2(x as f32, y as f32);
+			let mut pos = pos2(x as f32, y as f32);
+			let imp = view.imp();
+			imp.translate(&mut pos);
 			if let Some(_) = lr(&view, &pos) {
 				view.set_cursor_from_name(Some("pointer"))
 			} else {
@@ -208,13 +235,17 @@ impl GuiView {
 		self.imp().set_fonts(fonts, &self.get_pango(), render_context);
 	}
 
-	pub fn full_redraw(&mut self, book: &dyn Book, highlight: &Option<HighlightInfo>, render_context: &mut RenderContext)
+	#[inline(always)]
+	pub fn scroll_pos(&self) -> f64
 	{
-		let size = self.imp().full_redraw(book, highlight, render_context,
-			&self.get_pango());
-		let width = size.x as i32;
-		let height = size.y as i32;
-		self.set_size_request(width, height);
+		self.imp().scroll_pos().unwrap_or(0.)
+	}
+
+	#[inline(always)]
+	pub fn scroll_to(&self, position: ScrollPosition)
+	{
+		self.imp().scroll_to(position);
+		self.queue_draw();
 	}
 
 	#[inline(always)]
@@ -232,25 +263,36 @@ impl GuiView {
 }
 
 mod imp {
-	use std::cell::RefCell;
+	use std::cell::{Cell, RefCell};
 	use std::rc::Rc;
 	use ab_glyph::FontVec;
-	use gtk4::prelude::{SnapshotExt, WidgetExt};
-	use gtk4::{glib, graphene, Orientation, Snapshot};
+	use glib::Properties;
+	use gtk4::prelude::*;
+	use gtk4::{Adjustment, glib, graphene, Scrollable, ScrollablePolicy, Snapshot};
 	use gtk4::glib::once_cell::sync::Lazy;
 	use gtk4::glib::StaticType;
 	use gtk4::glib::subclass::Signal;
 	use gtk4::pango::Layout as PangoContext;
 	use gtk4::subclass::drawing_area::DrawingAreaImpl;
-	use gtk4::subclass::prelude::{ObjectImpl, ObjectSubclass, ObjectSubclassExt, WidgetClassExt, WidgetImpl, WidgetImplExt};
+	use gtk4::subclass::prelude::*;
 	use crate::book::{Book, Line};
 	use crate::common::Position;
 	use crate::controller::HighlightInfo;
-	use crate::gui::math::{Pos2, Rect, Vec2};
-	use crate::gui::render::{create_render, GuiRender, PointerPosition, RenderContext, RenderLine};
-	use crate::gui::view::MIN_TEXT_SELECT_DISTANCE;
+	use crate::gui::math::{Pos2, Rect};
+	use crate::gui::render::{create_render, GuiRender, GuiViewScrollDirection, PointerPosition, RedrawMode, RenderContext, RenderLine};
+	use crate::gui::view::{MIN_TEXT_SELECT_DISTANCE, ScrollPosition};
 
+	#[derive(Properties)]
+	#[properties(wrapper_type = super::GuiView)]
 	pub struct GuiView {
+		#[property(override_interface = Scrollable, nullable, get, set = Self::set_vadjustment)]
+		vadjustment: RefCell<Option<Adjustment>>,
+		#[property(override_interface = Scrollable, nullable, get, set = Self::set_hadjustment)]
+		hadjustment: RefCell<Option<Adjustment>>,
+		#[property(override_interface = Scrollable, get, set, builder(ScrollablePolicy::Minimum))]
+		hscroll_policy: Cell<ScrollablePolicy>,
+		#[property(override_interface = Scrollable, get, set, builder(ScrollablePolicy::Minimum))]
+		vscroll_policy: Cell<ScrollablePolicy>,
 		data: RefCell<GuiViewData>,
 		render: RefCell<Box<dyn GuiRender>>,
 	}
@@ -258,20 +300,26 @@ mod imp {
 	impl Default for GuiView {
 		fn default() -> Self {
 			GuiView {
+				vadjustment: RefCell::new(None),
+				hadjustment: RefCell::new(None),
+				hscroll_policy: Cell::new(ScrollablePolicy::Minimum),
+				vscroll_policy: Cell::new(ScrollablePolicy::Minimum),
 				data: RefCell::new(GuiViewData {
 					render_rect: Rect::NOTHING,
 					render_lines: vec![],
-					scroll_size: None,
+					direction: GuiViewScrollDirection::None,
+					scroll_size: 0.,
 				}),
 				render: RefCell::new(create_render(false)),
 			}
 		}
 	}
 
-	pub struct GuiViewData {
+	struct GuiViewData {
 		render_rect: Rect,
 		render_lines: Vec<RenderLine>,
-		scroll_size: Option<Vec2>,
+		direction: GuiViewScrollDirection,
+		scroll_size: f32,
 	}
 
 	#[glib::object_subclass]
@@ -279,12 +327,14 @@ mod imp {
 		const NAME: &'static str = "BookView";
 		type Type = super::GuiView;
 		type ParentType = gtk4::DrawingArea;
+		type Interfaces = (Scrollable, );
 
 		fn class_init(clazz: &mut Self::Class) {
 			clazz.set_css_name(super::GuiView::WIDGET_NAME);
 		}
 	}
 
+	#[glib::derived_properties]
 	impl ObjectImpl for GuiView {
 		fn signals() -> &'static [Signal]
 		{
@@ -331,19 +381,6 @@ mod imp {
 	}
 
 	impl WidgetImpl for GuiView {
-		fn measure(&self, orientation: Orientation, for_size: i32) -> (i32, i32, i32, i32)
-		{
-			if let Some(size) = self.data.borrow().scroll_size {
-				match orientation {
-					Orientation::Horizontal => (size.x as i32, size.x as i32, -1, -1),
-					Orientation::Vertical => (size.y as i32, size.y as i32, -1, -1),
-					_ => self.parent_measure(orientation, for_size),
-				}
-			} else {
-				self.parent_measure(orientation, for_size)
-			}
-		}
-
 		fn snapshot(&self, snapshot: &Snapshot)
 		{
 			let data = self.data.borrow();
@@ -352,8 +389,20 @@ mod imp {
 			let height = obj.height() as f32;
 			let rect = graphene::Rect::new(0.0, 0.0, width, height);
 			let cairo = snapshot.append_cairo(&rect);
-			self.render.borrow_mut().draw(
-				&data.render_lines,
+			let render = self.render.borrow();
+			let render_lines = self.adjustment(
+				|adjustment| {
+					let (pos, lines) = render.visible_scrolling(
+						adjustment.value() as f32,
+						adjustment.upper() as f32,
+						&data.render_rect,
+						&data.render_lines);
+					cairo.translate(pos.x as f64, pos.y as f64);
+					lines
+				}
+			).unwrap_or(&data.render_lines);
+			render.draw(
+				render_lines,
 				&cairo,
 				&self.obj().get_pango());
 		}
@@ -361,7 +410,65 @@ mod imp {
 
 	impl DrawingAreaImpl for GuiView {}
 
+	impl ScrollableImpl for GuiView {}
+
 	impl GuiView {
+		pub fn set_hadjustment(&self, adjustment: Option<Adjustment>)
+		{
+			if let Some(adjustment) = &adjustment {
+				let bv = self.obj().clone();
+				adjustment.connect_value_changed(move |_| bv.queue_draw());
+			}
+			self.hadjustment.replace(adjustment);
+		}
+		pub fn set_vadjustment(&self, adjustment: Option<Adjustment>)
+		{
+			if let Some(adjustment) = &adjustment {
+				let bv = self.obj().clone();
+				adjustment.connect_value_changed(move |_| bv.queue_draw());
+			}
+			self.vadjustment.replace(adjustment);
+		}
+
+		#[inline]
+		fn adjustment<F, T>(&self, f: F) -> Option<T>
+			where F: FnOnce(&Adjustment) -> T
+		{
+			let direction = &self.data.borrow().direction;
+			let adjustment = match direction {
+				GuiViewScrollDirection::Horizontal => &self.hadjustment,
+				GuiViewScrollDirection::Vertical => &self.vadjustment,
+				GuiViewScrollDirection::None => return None,
+			};
+			if let Some(adjustment) = adjustment.borrow().as_ref() {
+				Some(f(adjustment))
+			} else {
+				None
+			}
+		}
+
+		#[inline]
+		pub(super) fn translate(&self, mouse_pos: &mut Pos2)
+		{
+			match self.data.borrow().direction {
+				GuiViewScrollDirection::Horizontal => if let Some(adjustment) = &self.hadjustment.borrow().as_ref() {
+					self.render.borrow().translate_mouse_pos(
+						mouse_pos,
+						&self.data.borrow().render_rect,
+						adjustment.value() as f32,
+						adjustment.upper() as f32);
+				}
+				GuiViewScrollDirection::Vertical => if let Some(adjustment) = &self.vadjustment.borrow().as_ref() {
+					self.render.borrow().translate_mouse_pos(
+						mouse_pos,
+						&self.data.borrow().render_rect,
+						adjustment.value() as f32,
+						adjustment.upper() as f32);
+				}
+				GuiViewScrollDirection::None => {}
+			};
+		}
+
 		pub(super) fn book_loaded(&self, book: &dyn Book, context: &mut RenderContext)
 		{
 			context.leading_chars = book.leading_space();
@@ -413,23 +520,60 @@ mod imp {
 			render.gui_setup_highlight(book, lines, line, start, pango, context)
 		}
 
-		pub(super) fn full_redraw(&self, book: &dyn Book,
+		pub(super) fn full_redraw(&self, book: &dyn Book, lines: &[Line],
 			highlight: &Option<HighlightInfo>,
-			render_context: &mut RenderContext, pango: &PangoContext) -> Vec2
+			render_context: &mut RenderContext, pango: &PangoContext)
 		{
 			let orig_size = render_context.max_page_size;
 			render_context.max_page_size = f32::INFINITY;
 			let mut render = self.render.borrow_mut();
 			let (lines, _) = render.gui_redraw(
-				book, book.lines(), 0, 0,
+				book, lines, 0, 0,
 				highlight, pango, render_context);
-			let size = render.drawn_size(render_context);
+			let sizing = render.scroll_size(render_context);
 			render_context.max_page_size = orig_size;
 
 			let mut data = self.data.borrow_mut();
+			data.direction = sizing.direction;
+			data.scroll_size = sizing.full_size;
 			data.render_lines = lines;
-			data.scroll_size = Some(size);
-			size
+			drop(data);
+			self.adjustment(|adjustment| {
+				let value = match render_context.redraw_mode {
+					RedrawMode::ResetScroll => sizing.init_scroll_value as f64,
+					RedrawMode::NoResetScroll => adjustment.value(),
+					RedrawMode::ScrollTo(value) => value,
+					RedrawMode::NoScroll => panic!("should not be here"),
+				};
+				adjustment.configure(
+					value,
+					0.,
+					sizing.full_size as f64,
+					sizing.step_size as f64,
+					sizing.page_size as f64,
+					sizing.page_size as f64,
+				);
+			});
+		}
+
+		pub(super) fn scroll_pos(&self) -> Option<f64>
+		{
+			self.adjustment(|adjustment| adjustment.value())
+		}
+
+		pub(super) fn scroll_to(&self, position: ScrollPosition)
+		{
+			self.adjustment(|adjustment| {
+				match position {
+					ScrollPosition::LineNext => adjustment.set_value(adjustment.value() + adjustment.step_increment()),
+					ScrollPosition::LinePrev => adjustment.set_value(adjustment.value() - adjustment.step_increment()),
+					ScrollPosition::PageNext => adjustment.set_value(adjustment.value() + adjustment.page_increment()),
+					ScrollPosition::PagePrev => adjustment.set_value(adjustment.value() - adjustment.page_increment()),
+					ScrollPosition::Begin => adjustment.set_value(0.),
+					ScrollPosition::End => adjustment.set_value(adjustment.upper()),
+					ScrollPosition::Position(value) => adjustment.set_value(value),
+				}
+			});
 		}
 
 		#[inline(always)]

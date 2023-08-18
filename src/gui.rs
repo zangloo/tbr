@@ -383,9 +383,15 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 fn copy_selection(ctrl: &GuiController)
 {
 	if let Some(selected_text) = ctrl.selected() {
-		if let Some(display) = Display::default() {
-			display.clipboard().set_text(selected_text);
-		}
+		copy_to_clipboard(selected_text);
+	}
+}
+
+#[inline]
+fn copy_to_clipboard(selected_text: &str)
+{
+	if let Some(display) = Display::default() {
+		display.clipboard().set_text(selected_text);
 	}
 }
 

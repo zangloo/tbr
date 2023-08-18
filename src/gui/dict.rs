@@ -5,21 +5,20 @@ use std::rc::Rc;
 use ab_glyph::FontVec;
 use elsa::FrozenMap;
 use fancy_regex::{Regex, Captures};
-use gtk4::{Button, Orientation, SearchEntry};
-use gtk4::gdk::Display;
+use gtk4::{Button, EventControllerKey, Orientation, ScrolledWindow, SearchEntry};
+use gtk4::gdk::{Key, ModifierType};
 use gtk4::glib::{closure_local, ObjectExt};
 use gtk4::glib;
-use gtk4::prelude::{BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, WidgetExt};
+use gtk4::prelude::{BoxExt, ButtonExt, DrawingAreaExt, EditableExt, WidgetExt};
 use stardict::{StarDict, WordDefinition};
 use crate::book::{Book, Colors, Line};
-use crate::{package_name, PathConfig, ReadingInfo};
+use crate::{package_name, PathConfig};
 use crate::color::Color32;
 use crate::common::{txt_lines, Position};
-use crate::container::{ContainerManager, DummyContainer};
-use crate::controller::Controller;
-use crate::gui::{create_button, GuiController, IconMap};
-use crate::gui::render::RenderContext;
-use crate::gui::view::GuiView;
+use crate::controller::{highlight_selection, HighlightInfo, Render};
+use crate::gui::{copy_to_clipboard, create_button, IconMap};
+use crate::gui::render::{RedrawMode, RenderContext};
+use crate::gui::view::{GuiView, ScrollPosition};
 use crate::html_convertor::{html_str_content, HtmlContent};
 use crate::i18n::I18n;
 
@@ -38,14 +37,15 @@ const INJECT_REGEXP: &str = r#"(<[\\s]*img[^>]+src[\\s]*=[\\s]*")([^"]+)("[^>]*>
 
 pub(super) struct DictionaryManager {
 	view: GuiView,
+	book: DictionaryBook,
+	highlight: Option<HighlightInfo>,
 	backward_btn: Button,
 	forward_btn: Button,
 	lookup_input: SearchEntry,
 	render_context: RenderContext,
 	i18n: Rc<I18n>,
 
-	controller: GuiController,
-	words: Vec<(String, Position)>,
+	words: Vec<(String, f64)>,
 	current_index: Option<usize>,
 }
 
@@ -210,18 +210,15 @@ impl DictionaryManager {
 		toolbar.append(&lookup_input);
 		let dict_box = gtk4::Box::new(Orientation::Vertical, 0);
 		dict_box.append(&toolbar);
-		dict_box.append(&view);
+		dict_box.append(&ScrolledWindow::builder()
+			.child(&view)
+			.vexpand(true)
+			.build());
 
-		let controller = Controller::from_data(
-			ReadingInfo::new("dict").no_custom_color(),
-			ContainerManager::default(),
-			Box::new(DummyContainer::new("_dict_")),
-			Box::new(book),
-			Box::new(view.clone()),
-		);
 		let mut dm = DictionaryManager {
 			view,
-			controller,
+			book,
+			highlight: None,
 			backward_btn: backward_btn.clone(),
 			forward_btn: forward_btn.clone(),
 			lookup_input: lookup_input.clone(),
@@ -242,35 +239,32 @@ impl DictionaryManager {
 	#[inline]
 	pub fn reload(&mut self, dictionary_paths: &Vec<PathConfig>, cache_dict: bool)
 	{
-		if let Some(book) = self.controller.book
-			.as_mut()
-			.as_any()
-			.downcast_mut::<DictionaryBook>() {
-			book.reload(dictionary_paths, cache_dict);
-			if let Some(current_index) = self.current_index {
-				self.lookup(current_index);
-			}
+		self.book.reload(dictionary_paths, cache_dict);
+		if let Some(current_index) = self.current_index {
+			self.lookup(current_index, false);
 		}
 	}
 
 	#[inline]
-	pub fn redraw(&mut self)
+	pub fn redraw(&mut self, redraw_mode: RedrawMode)
 	{
-		self.controller.redraw(&mut self.render_context);
+		self.render_context.redraw_mode = redraw_mode;
+		self.view.redraw(&self.book, self.book.lines(), 0, 0, &self.highlight,
+			&mut self.render_context);
 	}
 
 	#[inline]
 	pub fn set_fonts(&mut self, fonts: Rc<Option<Vec<FontVec>>>)
 	{
 		self.view.set_fonts(fonts, &mut self.render_context);
-		self.redraw();
+		self.redraw(RedrawMode::NoResetScroll);
 	}
 
 	#[inline]
 	pub fn set_font_size(&mut self, font_size: u8)
 	{
 		self.view.set_font_size(font_size, &mut self.render_context);
-		self.redraw();
+		self.redraw(RedrawMode::NoResetScroll);
 	}
 
 	#[inline]
@@ -278,7 +272,7 @@ impl DictionaryManager {
 	{
 		let height = height.unwrap_or_else(|| self.view.size(Orientation::Vertical));
 		self.view.resized(width, height, &mut self.render_context);
-		self.redraw();
+		self.redraw(RedrawMode::NoResetScroll);
 	}
 
 	#[inline]
@@ -288,45 +282,25 @@ impl DictionaryManager {
 		self.push_dict_word(lookup_text);
 	}
 
-	fn select_text(&mut self, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64, complete: bool)
+	fn select_text(&mut self, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64)
 	{
 		let from = Position::new(from_line as usize, from_offset as usize);
 		let to = Position::new(to_line as usize, to_offset as usize);
-		let render_context = &mut self.render_context;
-		self.controller.select_text(from, to, render_context);
-		if complete {
-			if let Some(selected_text) = self.controller.selected() {
-				if let Some(display) = Display::default() {
-					display.clipboard().set_text(selected_text);
-				}
-			}
-		}
+		self.highlight = self.book.range_highlight(from, to);
+		self.redraw(RedrawMode::NoResetScroll);
 	}
 
 	#[inline]
 	fn clear_selection(&mut self)
 	{
-		self.controller.clear_highlight(&mut self.render_context);
-	}
-
-	#[inline]
-	fn scroll(&mut self, forward: bool)
-	{
-		let result = if forward {
-			self.controller.step_next(&mut self.render_context)
-		} else {
-			self.controller.step_prev(&mut self.render_context)
-		};
-
-		if let Err(err) = result {
-			eprintln!("Error: {}", err.to_string());
-		}
+		self.highlight = None;
+		self.redraw(RedrawMode::NoResetScroll);
 	}
 
 	#[inline]
 	fn goto_link(&mut self, line: usize, link_index: usize)
 	{
-		if let Some(line) = self.controller.book.lines().get(line) {
+		if let Some(line) = self.book.lines().get(line) {
 			if let Some(link) = line.link_at(link_index) {
 				self.set_lookup(link.target.trim().to_owned());
 			}
@@ -350,10 +324,10 @@ impl DictionaryManager {
 					return None;
 				}
 			};
-			self.words[current_index].1 = self.controller.reading.pos();
+			self.words[current_index].1 = self.view.scroll_pos();
 			self.current_index = Some(new_index);
 			self.lookup_input.set_text(&self.words[new_index].0);
-			self.lookup(new_index);
+			self.lookup(new_index, false);
 			Some(new_index)
 		} else {
 			None
@@ -366,33 +340,33 @@ impl DictionaryManager {
 			if word == self.words[current_index].0 {
 				return;
 			}
-			self.words[current_index].1 = self.controller.reading.pos();
+			self.words[current_index].1 = self.view.scroll_pos();
 			current_index += 1;
 			self.words.drain(current_index..);
 			current_index
 		} else {
 			0
 		};
-		self.words.push((word.to_owned(), Position::new(0, 0)));
+		self.words.push((word.to_owned(), 0.));
 		self.current_index = Some(current_index);
 
 		self.backward_btn.set_sensitive(self.words.len() > 1);
 		self.forward_btn.set_sensitive(false);
-		self.lookup(current_index);
+		self.lookup(current_index, true);
+		self.view.grab_focus();
 	}
 
-	fn lookup(&mut self, current_index: usize)
+	fn lookup(&mut self, current_index: usize, init: bool)
 	{
 		let (word, pos) = &self.words[current_index];
-		if let Some(book) = self.controller.book
-			.as_mut()
-			.as_any()
-			.downcast_mut::<DictionaryBook>() {
-			book.lookup(word, &self.i18n);
-		}
-		self.controller.clear_highlight_at(
-			pos.line, pos.offset,
-			&mut self.render_context);
+		self.book.lookup(word, &self.i18n);
+		let redraw_mode = if init {
+			RedrawMode::ResetScroll
+		} else {
+			RedrawMode::ScrollTo(*pos)
+		};
+		self.highlight = None;
+		self.redraw(redraw_mode);
 	}
 }
 
@@ -463,6 +437,13 @@ fn create_colors() -> Colors
 	}
 }
 
+#[inline]
+fn scroll_to(dm: &Rc<RefCell<DictionaryManager>>, position: ScrollPosition) -> glib::Propagation
+{
+	dm.borrow().view.scroll_to(position);
+	glib::Propagation::Stop
+}
+
 fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_btn: &Button)
 {
 	{
@@ -518,9 +499,9 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 
 	{
 		let dm = dm.clone();
-		view.setup_gesture(false, move |view, pos| {
+		view.setup_gesture(true, move |view, pos| {
 			let dictionary_manager = dm.borrow();
-			view.link_resolve(pos, dictionary_manager.controller.book.lines())
+			view.link_resolve(pos, dictionary_manager.book.lines())
 		});
 	}
 
@@ -545,7 +526,7 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 			false,
 			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
 				let mut dictionary_manager = dm.borrow_mut();
-				dictionary_manager.select_text(from_line, from_offset, to_line, to_offset, false);
+				dictionary_manager.select_text(from_line, from_offset, to_line, to_offset);
 	        }),
 		);
 	}
@@ -558,7 +539,7 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 			false,
 			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
 				let mut dictionary_manager = dm.borrow_mut();
-				dictionary_manager.select_text(from_line, from_offset, to_line, to_offset, true);
+				dictionary_manager.select_text(from_line, from_offset, to_line, to_offset);
 	        }),
 		);
 	}
@@ -575,18 +556,48 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 	        }),
 		);
 	}
-
 	{
-		// scroll signal
 		let dm = dm.clone();
-		view.connect_closure(
-			GuiView::SCROLL_SIGNAL,
-			false,
-			closure_local!(move |_: GuiView, delta: i32| {
-				let mut dictionary_manager = dm.borrow_mut();
-				dictionary_manager.scroll(delta > 0);
-	        }),
-		);
+		let key_event = EventControllerKey::new();
+		key_event.connect_key_pressed(move |_, key, _, modifier| {
+			const MODIFIER_NONE: ModifierType = ModifierType::empty();
+			match (key, modifier) {
+				(Key::space | Key::Page_Down, MODIFIER_NONE) =>
+					scroll_to(&dm, ScrollPosition::PageNext),
+				(Key::space, ModifierType::SHIFT_MASK) | (Key::Page_Up, MODIFIER_NONE) =>
+					scroll_to(&dm, ScrollPosition::PagePrev),
+				(Key::Home, MODIFIER_NONE) =>
+					scroll_to(&dm, ScrollPosition::Begin),
+				(Key::End, MODIFIER_NONE) =>
+					scroll_to(&dm, ScrollPosition::End),
+				(Key::Down, MODIFIER_NONE) =>
+					scroll_to(&dm, ScrollPosition::LineNext),
+				(Key::Up, MODIFIER_NONE) =>
+					scroll_to(&dm, ScrollPosition::LinePrev),
+				(Key::Right, MODIFIER_NONE) => {
+					let mut dictionary_manager = dm.borrow_mut();
+					dictionary_manager.switch_word(true);
+					glib::Propagation::Stop
+				}
+				(Key::Left, MODIFIER_NONE) => {
+					let mut dictionary_manager = dm.borrow_mut();
+					dictionary_manager.switch_word(false);
+					glib::Propagation::Stop
+				}
+				(Key::c, ModifierType::CONTROL_MASK) => {
+					let dictionary_manager = dm.borrow();
+					if let Some(selected_text) = highlight_selection(&dictionary_manager.highlight) {
+						copy_to_clipboard(selected_text);
+					}
+					glib::Propagation::Stop
+				}
+				_ => {
+					// println!("view, key: {key}, modifier: {modifier}");
+					glib::Propagation::Proceed
+				}
+			}
+		});
+		view.add_controller(key_event);
 	}
 }
 

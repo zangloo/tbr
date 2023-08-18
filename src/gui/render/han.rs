@@ -9,8 +9,8 @@ use crate::book::{Book, CharStyle, Line};
 use crate::color::Color32;
 use crate::common::{HAN_COMPACT_CHARS, HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::HighlightInfo;
-use crate::gui::math::{Pos2, Rect, vec2, Vec2};
-use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, scale_font_size, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, hline, CharDrawData};
+use crate::gui::math::{Pos2, pos2, Rect, vec2};
+use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, scale_font_size, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, hline, CharDrawData, GuiViewScrollDirection, GuiViewScrollSizing};
 
 pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
@@ -218,7 +218,11 @@ impl GuiRender for GuiHanRender
 		}
 	}
 
-	fn image_cache(&mut self) -> &mut HashMap<String, ImageDrawingData> {
+	fn image_cache(&self) -> &HashMap<String, ImageDrawingData> {
+		&self.images
+	}
+
+	fn image_cache_mut(&mut self) -> &mut HashMap<String, ImageDrawingData> {
 		&mut self.images
 	}
 
@@ -263,11 +267,49 @@ impl GuiRender for GuiHanRender
 	}
 
 	#[inline]
-	fn drawn_size(&self, context: &mut RenderContext) -> Vec2
+	fn scroll_size(&self, context: &mut RenderContext) -> GuiViewScrollSizing
 	{
 		let width = context.render_rect.max.x - self.baseline
 			+ context.default_font_measure.x / 2.;
-		vec2(width, context.render_rect.height())
+		GuiViewScrollSizing {
+			direction: GuiViewScrollDirection::Horizontal,
+			init_scroll_value: width,
+			full_size: width,
+			step_size: context.default_font_measure.x,
+			page_size: context.render_rect.width(),
+		}
+	}
+
+	fn visible_scrolling<'a>(&self, position: f32, size: f32, render_rect: &Rect,
+		render_lines: &'a [RenderLine]) -> (Pos2, &'a [RenderLine])
+	{
+		let mut start = 0;
+		let mut end = None;
+		let right = render_rect.max.x;
+		let left = render_rect.min.x;
+		let width = right - left;
+		let offset = size - width - position;
+		let mut line_left = offset + width;
+		for (index, line) in render_lines.iter().enumerate() {
+			if line_left > right {
+				start = index;
+			}
+			line_left -= line.size();
+			if line_left < left {
+				end = Some(index + 1);
+				break;
+			}
+		}
+		let end = end.unwrap_or_else(|| render_lines.len());
+		(pos2(offset, 0.), &render_lines[start..end])
+	}
+
+	#[inline]
+	fn translate_mouse_pos(&self, mouse_pos: &mut Pos2, render_rect: &Rect,
+		scroll_value: f32, scroll_size: f32)
+	{
+		let width = render_rect.width();
+		mouse_pos.x -= scroll_size - width - scroll_value;
 	}
 }
 
