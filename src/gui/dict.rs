@@ -197,7 +197,6 @@ impl DictionaryManager {
 		let mut render_context = RenderContext::new(create_colors(), font_size, true, 0);
 		let book = DictionaryBook::default();
 		let view = GuiView::new("dict", false, fonts, &mut render_context);
-		view.set_scrollable(true);
 		let backward_btn = create_button("backward_disabled.svg", "", icons, false);
 		let forward_btn = create_button("forward_disabled.svg", "", icons, false);
 		let lookup_input = SearchEntry::builder()
@@ -490,6 +489,7 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 
 	// setup view
 	let view = &dictionary_manager.view;
+	view.set_scrollable(true);
 	{
 		let dm = dm.clone();
 		view.connect_resize(move |_, width, height| {
