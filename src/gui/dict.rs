@@ -17,7 +17,7 @@ use crate::color::Color32;
 use crate::common::{txt_lines, Position};
 use crate::controller::{highlight_selection, HighlightInfo, Render};
 use crate::gui::{copy_to_clipboard, create_button, IconMap};
-use crate::gui::render::{RedrawMode, RenderContext};
+use crate::gui::render::{RenderContext, ScrollRedrawMethod};
 use crate::gui::view::{GuiView, ScrollPosition};
 use crate::html_convertor::{html_str_content, HtmlContent};
 use crate::i18n::I18n;
@@ -197,6 +197,7 @@ impl DictionaryManager {
 		let mut render_context = RenderContext::new(create_colors(), font_size, true, 0);
 		let book = DictionaryBook::default();
 		let view = GuiView::new("dict", false, fonts, &mut render_context);
+		view.set_scrollable(true);
 		let backward_btn = create_button("backward_disabled.svg", "", icons, false);
 		let forward_btn = create_button("forward_disabled.svg", "", icons, false);
 		let lookup_input = SearchEntry::builder()
@@ -246,9 +247,9 @@ impl DictionaryManager {
 	}
 
 	#[inline]
-	pub fn redraw(&mut self, redraw_mode: RedrawMode)
+	pub fn redraw(&mut self, redraw_method: ScrollRedrawMethod)
 	{
-		self.render_context.redraw_mode = redraw_mode;
+		self.render_context.scroll_redraw_method = redraw_method;
 		self.view.redraw(&self.book, self.book.lines(), 0, 0, &self.highlight,
 			&mut self.render_context);
 	}
@@ -257,14 +258,14 @@ impl DictionaryManager {
 	pub fn set_fonts(&mut self, fonts: Rc<Option<Vec<FontVec>>>)
 	{
 		self.view.set_fonts(fonts, &mut self.render_context);
-		self.redraw(RedrawMode::NoResetScroll);
+		self.redraw(ScrollRedrawMethod::NoResetScroll);
 	}
 
 	#[inline]
 	pub fn set_font_size(&mut self, font_size: u8)
 	{
 		self.view.set_font_size(font_size, &mut self.render_context);
-		self.redraw(RedrawMode::NoResetScroll);
+		self.redraw(ScrollRedrawMethod::NoResetScroll);
 	}
 
 	#[inline]
@@ -272,7 +273,7 @@ impl DictionaryManager {
 	{
 		let height = height.unwrap_or_else(|| self.view.size(Orientation::Vertical));
 		self.view.resized(width, height, &mut self.render_context);
-		self.redraw(RedrawMode::NoResetScroll);
+		self.redraw(ScrollRedrawMethod::NoResetScroll);
 	}
 
 	#[inline]
@@ -287,14 +288,14 @@ impl DictionaryManager {
 		let from = Position::new(from_line as usize, from_offset as usize);
 		let to = Position::new(to_line as usize, to_offset as usize);
 		self.highlight = self.book.range_highlight(from, to);
-		self.redraw(RedrawMode::NoResetScroll);
+		self.redraw(ScrollRedrawMethod::NoResetScroll);
 	}
 
 	#[inline]
 	fn clear_selection(&mut self)
 	{
 		self.highlight = None;
-		self.redraw(RedrawMode::NoResetScroll);
+		self.redraw(ScrollRedrawMethod::NoResetScroll);
 	}
 
 	#[inline]
@@ -361,9 +362,9 @@ impl DictionaryManager {
 		let (word, pos) = &self.words[current_index];
 		self.book.lookup(word, &self.i18n);
 		let redraw_mode = if init {
-			RedrawMode::ResetScroll
+			ScrollRedrawMethod::ResetScroll
 		} else {
-			RedrawMode::ScrollTo(*pos)
+			ScrollRedrawMethod::ScrollTo(*pos)
 		};
 		self.highlight = None;
 		self.redraw(redraw_mode);
@@ -499,7 +500,7 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 
 	{
 		let dm = dm.clone();
-		view.setup_gesture(true, move |view, pos| {
+		view.setup_gesture(move |view, pos| {
 			let dictionary_manager = dm.borrow();
 			view.link_resolve(pos, dictionary_manager.book.lines())
 		});

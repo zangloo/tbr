@@ -10,7 +10,7 @@ use crate::color::Color32;
 use crate::common::{HAN_COMPACT_CHARS, HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, vec2};
-use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, scale_font_size, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, hline, CharDrawData, GuiViewScrollDirection, GuiViewScrollSizing};
+use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, scale_font_size, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, hline, CharDrawData, ScrollSizing, GuiViewDrawData};
 
 pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
@@ -267,12 +267,11 @@ impl GuiRender for GuiHanRender
 	}
 
 	#[inline]
-	fn scroll_size(&self, context: &mut RenderContext) -> GuiViewScrollSizing
+	fn scroll_size(&self, context: &mut RenderContext) -> ScrollSizing
 	{
 		let width = context.render_rect.max.x - self.baseline
 			+ context.default_font_measure.x / 2.;
-		GuiViewScrollSizing {
-			direction: GuiViewScrollDirection::Horizontal,
+		ScrollSizing {
 			init_scroll_value: width,
 			full_size: width,
 			step_size: context.default_font_measure.x,
@@ -280,15 +279,16 @@ impl GuiRender for GuiHanRender
 		}
 	}
 
-	fn visible_scrolling<'a>(&self, position: f32, size: f32, render_rect: &Rect,
-		render_lines: &'a [RenderLine]) -> (Pos2, &'a [RenderLine])
+	fn visible_scrolling(&self, scroll_value: f32, scroll_size: f32,
+		render_rect: &Rect, render_lines: &[RenderLine], )
+		-> Option<GuiViewDrawData>
 	{
 		let mut start = 0;
 		let mut end = None;
 		let right = render_rect.max.x;
 		let left = render_rect.min.x;
 		let width = right - left;
-		let offset = size - width - position;
+		let offset = scroll_size - width - scroll_value;
 		let mut line_left = offset + width;
 		for (index, line) in render_lines.iter().enumerate() {
 			if line_left > right {
@@ -301,7 +301,11 @@ impl GuiRender for GuiHanRender
 			}
 		}
 		let end = end.unwrap_or_else(|| render_lines.len());
-		(pos2(offset, 0.), &render_lines[start..end])
+		let draw_data = Some(GuiViewDrawData {
+			offset: pos2(offset, 0.),
+			range: start..end,
+		});
+		draw_data
 	}
 
 	#[inline]

@@ -1,5 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::rc::Rc;
 use ab_glyph::{Font, FontVec};
 use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
@@ -270,8 +271,8 @@ pub struct RenderContext
 	// for calculate chars in single line
 	pub max_page_size: f32,
 
-	// mode for redraw with scrolling
-	pub redraw_mode: RedrawMode,
+	// method for redraw with scrolling
+	pub scroll_redraw_method: ScrollRedrawMethod,
 }
 
 impl RenderContext {
@@ -288,7 +289,7 @@ impl RenderContext {
 			leading_chars,
 			leading_space: 0.0,
 			max_page_size: 0.0,
-			redraw_mode: Default::default(),
+			scroll_redraw_method: ScrollRedrawMethod::NoResetScroll,
 		}
 	}
 }
@@ -312,29 +313,18 @@ pub(super) enum PointerPosition {
 	Tail,
 }
 
-#[derive(PartialEq)]
-pub enum GuiViewScrollDirection {
-	Horizontal,
-	Vertical,
-	None,
+pub struct GuiViewDrawData {
+	pub offset: Pos2,
+	pub range: Range<usize>,
 }
 
-pub enum RedrawMode {
-	NoScroll,
+pub enum ScrollRedrawMethod {
 	NoResetScroll,
 	ResetScroll,
 	ScrollTo(f64),
 }
 
-impl Default for RedrawMode {
-	fn default() -> Self
-	{
-		RedrawMode::NoScroll
-	}
-}
-
-pub struct GuiViewScrollSizing {
-	pub direction: GuiViewScrollDirection,
+pub struct ScrollSizing {
 	pub init_scroll_value: f32,
 	pub full_size: f32,
 	pub step_size: f32,
@@ -368,11 +358,12 @@ pub(super) trait GuiRender {
 
 	/// for scrolling view
 	/// get redraw lines size for scrollable size measure
-	fn scroll_size(&self, context: &mut RenderContext) -> GuiViewScrollSizing;
+	fn scroll_size(&self, context: &mut RenderContext) -> ScrollSizing;
 	/// for scrolling view
-	/// calc the visible lines in viewport
-	fn visible_scrolling<'a>(&self, position: f32, size: f32, render_rect: &Rect,
-		render_lines: &'a [RenderLine]) -> (Pos2, &'a [RenderLine]);
+	/// update scroll view draw data
+	fn visible_scrolling(&self, scroll_value: f32, scroll_size: f32,
+		render_rect: &Rect, render_lines: &[RenderLine], )
+		-> Option<GuiViewDrawData>;
 	/// for scrolling view
 	/// translate mouse position in viewport
 	fn translate_mouse_pos(&self, mouse_pos: &mut Pos2, render_rect: &Rect,

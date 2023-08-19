@@ -524,7 +524,7 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 
 	{
 		let gc = gc.clone();
-		view.setup_gesture(false, move |view, pos| {
+		view.setup_gesture(move |view, pos| {
 			let controller = gc.ctrl();
 			view.link_resolve(pos, controller.book.lines())
 		});
