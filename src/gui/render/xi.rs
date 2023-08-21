@@ -10,7 +10,7 @@ use crate::color::Color32;
 use crate::common::with_leading;
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2};
-use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, RenderChar, update_for_highlight, ImageDrawingData, PointerPosition, TextDecoration, RenderCell, CharCell, hline, vline, CharDrawData, ScrollSizing, GuiViewDrawData};
+use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, RenderChar, update_for_highlight, ImageDrawingData, PointerPosition, TextDecoration, RenderCell, CharCell, hline, vline, CharDrawData, ScrollSizing, ScrolledDrawData};
 
 pub(super) struct GuiXiRender {
 	images: HashMap<String, ImageDrawingData>,
@@ -278,18 +278,19 @@ impl GuiRender for GuiXiRender
 		}
 		for i in 0..render_lines.len() {
 			let render_line = &render_lines[i];
-			let bottom = line_base + render_line.line_size + render_line.line_space;
+			let bottom = line_base + render_line.line_size() + render_line.line_space();
 			if y >= line_base && y < bottom {
 				let x = pointer_pos.x;
 				if x <= rect.left() {
 					return (PointerPosition::Exact(i), PointerPosition::Head);
 				}
-				for (j, dc) in render_line.chars.iter().enumerate() {
+				return render_line.find(|j, dc| {
 					if x > dc.rect.left() && x <= dc.rect.right() {
-						return (PointerPosition::Exact(i), PointerPosition::Exact(j));
+						Some((PointerPosition::Exact(i), PointerPosition::Exact(j)))
+					} else {
+						None
 					}
-				}
-				return (PointerPosition::Exact(i), PointerPosition::Tail);
+				}).unwrap_or((PointerPosition::Exact(i), PointerPosition::Tail));
 			}
 			line_base = bottom;
 		}
@@ -322,7 +323,7 @@ impl GuiRender for GuiXiRender
 
 	fn visible_scrolling(&self, scroll_value: f32, _scroll_size: f32,
 		render_rect: &Rect, render_lines: &[RenderLine], )
-		-> Option<GuiViewDrawData>
+		-> Option<ScrolledDrawData>
 	{
 		let mut start = 0;
 		let mut end = None;
@@ -339,7 +340,7 @@ impl GuiRender for GuiXiRender
 			}
 		}
 		let end = end.unwrap_or_else(|| render_lines.len());
-		let draw_data = Some(GuiViewDrawData {
+		let draw_data = Some(ScrolledDrawData {
 			offset: pos2(0., -scroll_value),
 			range: start..end,
 		});
@@ -382,10 +383,10 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 			(chars_left, false)
 		};
 		if left_count > 0 {
-			render_line.chars.push(draw_char);
+			render_line.push(draw_char);
 			for _ in 1..left_count {
 				let e = iter.next().unwrap();
-				render_line.chars.push(e.1.0);
+				render_line.push(e.1.0);
 			}
 			let e = iter.next().unwrap();
 			draw_char = e.1.0;
@@ -397,7 +398,7 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 			max.x
 		};
 		let draw_bottom = max.y + margin;
-		render_line.chars.push(draw_char);
+		render_line.push(draw_char);
 		TextDecoration::UnderLine {
 			pos2: Pos2 { x: draw_left, y: draw_bottom },
 			length: draw_right - draw_left,
@@ -432,14 +433,14 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 				(chars_left, false)
 			};
 			if left_count > 0 {
-				render_line.chars.push(draw_char);
+				render_line.push(draw_char);
 				for _ in 1..left_count {
 					let e = iter.next().unwrap();
 					let new_top = e.1.0.rect.top();
 					if top > new_top {
 						top = new_top;
 					}
-					render_line.chars.push(e.1.0);
+					render_line.push(e.1.0);
 				}
 				let e = iter.next().unwrap();
 				let new_top = e.1.0.rect.top();
@@ -452,7 +453,7 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 			let border_right = max.x - margin;
 			let border_top = top - margin;
 			let border_bottom = max.y + margin;
-			render_line.chars.push(draw_char);
+			render_line.push(draw_char);
 			render_line.add_decoration(TextDecoration::Border {
 				rect: Rect {
 					min: Pos2 { x: border_left, y: border_top },
@@ -470,7 +471,7 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 			let decoration = setup_underline(draw_char, &range, render_line, index, len, &mut iter, context);
 			render_line.add_decoration(decoration)
 		} else {
-			render_line.chars.push(draw_char);
+			render_line.push(draw_char);
 		}
 	}
 }

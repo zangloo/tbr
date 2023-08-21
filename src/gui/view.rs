@@ -278,7 +278,7 @@ mod imp {
 	use crate::common::Position;
 	use crate::controller::HighlightInfo;
 	use crate::gui::math::{Pos2, Rect};
-	use crate::gui::render::{create_render, GuiRender, PointerPosition, RenderContext, RenderLine, GuiViewDrawData, ScrollRedrawMethod};
+	use crate::gui::render::{create_render, GuiRender, PointerPosition, RenderContext, RenderLine, ScrolledDrawData, ScrollRedrawMethod};
 	use crate::gui::view::{MIN_TEXT_SELECT_DISTANCE, ScrollPosition};
 
 	#[derive(Properties)]
@@ -322,7 +322,7 @@ mod imp {
 	struct GuiViewData {
 		render_rect: Rect,
 		render_lines: Vec<RenderLine>,
-		draw_data: Option<GuiViewDrawData>,
+		draw_data: Option<ScrolledDrawData>,
 	}
 
 	#[glib::object_subclass]
@@ -648,22 +648,22 @@ mod imp {
 			#[inline]
 			fn offset_index(line: &RenderLine, offset: &PointerPosition) -> usize {
 				match offset {
-					PointerPosition::Head => line.chars.first().map_or(0, |dc| dc.offset),
-					PointerPosition::Exact(offset) => line.chars[*offset].offset,
-					PointerPosition::Tail => line.chars.last().map_or(0, |dc| dc.offset),
+					PointerPosition::Head => line.first_offset(),
+					PointerPosition::Exact(offset) => line.char_offset(*offset),
+					PointerPosition::Tail => line.last_offset(),
 				}
 			}
 			fn select_all(lines: &Vec<RenderLine>) -> (Position, Position)
 			{
 				let render_line = lines.first().unwrap();
 				let from = Position::new(
-					render_line.line,
-					render_line.chars.first().map_or(0, |dc| dc.offset),
+					render_line.line(),
+					render_line.first_offset(),
 				);
 				let render_line = lines.last().unwrap();
 				let to = Position::new(
-					render_line.line,
-					render_line.chars.last().map_or(0, |dc| dc.offset),
+					render_line.line(),
+					render_line.last_offset(),
 				);
 				(from, to)
 			}
@@ -671,12 +671,12 @@ mod imp {
 			fn head_to_exact(line: usize, offset: &PointerPosition, lines: &Vec<RenderLine>) -> (Position, Position) {
 				let render_line = lines.first().unwrap();
 				let from = Position::new(
-					render_line.line,
-					render_line.chars.first().map_or(0, |dc| dc.offset),
+					render_line.line(),
+					render_line.first_offset(),
 				);
 				let render_line = &lines[line];
 				let to = Position::new(
-					render_line.line,
+					render_line.line(),
 					offset_index(render_line, offset),
 				);
 				(from, to)
@@ -684,13 +684,13 @@ mod imp {
 			fn exact_to_tail(line: usize, offset: &PointerPosition, lines: &Vec<RenderLine>) -> (Position, Position) {
 				let render_line = &lines[line];
 				let from = Position::new(
-					render_line.line,
+					render_line.line(),
 					offset_index(render_line, offset),
 				);
 				let render_line = lines.last().unwrap();
 				let to = Position::new(
-					render_line.line,
-					render_line.chars.last().map_or(0, |dc| dc.offset),
+					render_line.line(),
+					render_line.last_offset(),
 				);
 				(from, to)
 			}
@@ -721,12 +721,12 @@ mod imp {
 					PointerPosition::Exact(line2) => {
 						let render_line = &lines[line1];
 						let from = Position::new(
-							render_line.line,
+							render_line.line(),
 							offset_index(render_line, &offset1),
 						);
 						let render_line = &lines[line2];
 						let to = Position::new(
-							render_line.line,
+							render_line.line(),
 							offset_index(render_line, &offset2),
 						);
 						(from, to)
@@ -747,14 +747,14 @@ mod imp {
 			let data = self.data.borrow_mut();
 			for line in &data.render_lines {
 				if let Some(dc) = line.char_at_pos(mouse_position) {
-					if let Some(link_index) = lines[line.line].link_iter(true, |link| {
+					if let Some(link_index) = lines[line.line()].link_iter(true, |link| {
 						if link.range.contains(&dc.offset) {
 							(true, Some(link.index))
 						} else {
 							(false, None)
 						}
 					}) {
-						return Some((line.line, link_index));
+						return Some((line.line(), link_index));
 					}
 				}
 			}

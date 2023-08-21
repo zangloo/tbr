@@ -14,16 +14,11 @@ use crate::book::{Book, CharStyle, Colors, HAN_CHAR, Line};
 use crate::color::Color32;
 use crate::common::Position;
 use crate::controller::{HighlightInfo, HighlightMode};
-use crate::gui::render::han::GuiHanRender;
-use crate::gui::render::xi::GuiXiRender;
 use crate::gui::load_image;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
 
-mod han;
-mod xi;
-
 #[derive(Clone)]
-pub(super) enum TextDecoration {
+pub enum TextDecoration {
 	// rect, stroke width, is first, is last, color
 	Border {
 		rect: Rect,
@@ -42,7 +37,7 @@ pub(super) enum TextDecoration {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct CharCell {
+pub struct CharCell {
 	pub char: char,
 	pub font_size: f32,
 	pub color: Color32,
@@ -52,22 +47,22 @@ pub(super) struct CharCell {
 }
 
 #[derive(Clone, Debug)]
-pub(super) enum RenderCell {
+pub enum RenderCell {
 	Char(CharCell),
 	Image(String),
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct RenderChar {
+pub struct RenderChar {
 	pub cell: RenderCell,
 	pub offset: usize,
 	pub rect: Rect,
 }
 
 #[derive(Clone)]
-pub(super) struct RenderLine {
-	pub(super) chars: Vec<RenderChar>,
-	pub(super) line: usize,
+pub struct RenderLine {
+	chars: Vec<RenderChar>,
+	line: usize,
 	line_size: f32,
 	line_space: f32,
 	decorations: Vec<TextDecoration>,
@@ -75,7 +70,8 @@ pub(super) struct RenderLine {
 
 impl RenderLine
 {
-	fn new(line: usize, line_size: f32, line_space: f32) -> Self
+	#[inline]
+	pub fn new(line: usize, line_size: f32, line_space: f32) -> Self
 	{
 		RenderLine {
 			chars: vec![],
@@ -86,7 +82,7 @@ impl RenderLine
 		}
 	}
 
-	pub(super) fn char_at_pos(&self, pos: &Pos2) -> Option<&RenderChar>
+	pub fn char_at_pos(&self, pos: &Pos2) -> Option<&RenderChar>
 	{
 		for dc in &self.chars {
 			if dc.rect.contains(pos) {
@@ -96,18 +92,75 @@ impl RenderLine
 		None
 	}
 
+	#[inline]
 	pub fn add_decoration(&mut self, decoration: TextDecoration)
 	{
 		self.decorations.push(decoration)
 	}
 
+	#[inline]
+	pub fn line_size(&self) -> f32
+	{
+		self.line_size
+	}
+
+	#[inline]
+	pub fn line_space(&self) -> f32
+	{
+		self.line_space
+	}
+
+	#[inline]
 	pub fn size(&self) -> f32
 	{
 		self.line_size + self.line_space
 	}
+
+	#[inline]
+	pub fn line(&self) -> usize
+	{
+		self.line
+	}
+
+	#[inline]
+	pub fn first_offset(&self) -> usize
+	{
+		self.chars.first().map_or(0, |dc| dc.offset)
+	}
+
+	#[inline]
+	pub fn char_offset(&self, index: usize) -> usize
+	{
+		self.chars[index].offset
+	}
+
+	#[inline]
+	pub fn last_offset(&self) -> usize
+	{
+		self.chars.last().map_or(0, |dc| dc.offset)
+	}
+
+	#[inline]
+	pub fn push(&mut self, render_char: RenderChar)
+	{
+		self.chars.push(render_char);
+	}
+
+	#[inline]
+	pub fn find<F, T>(&self, f: F) -> Option<T>
+		where F: Fn(usize, &RenderChar) -> Option<T>
+	{
+		for (index, char) in self.chars.iter().enumerate() {
+			let found = f(index, char);
+			if found.is_some() {
+				return found;
+			}
+		}
+		None
+	}
 }
 
-pub(super) enum CharDrawData {
+pub enum CharDrawData {
 	Outline(OutlineDrawData),
 	Pango(PangoDrawData),
 	Space(Vec2),
@@ -145,7 +198,7 @@ impl CharDrawData {
 	}
 }
 
-pub(super) struct PangoDrawData {
+pub struct PangoDrawData {
 	char: String,
 	font_size: i32,
 	size: Vec2,
@@ -194,7 +247,7 @@ impl PangoDrawData {
 	}
 }
 
-pub(super) struct OutlineDrawData {
+pub struct OutlineDrawData {
 	points: Vec<(u32, u32, u8)>,
 	size: Vec2,
 	draw_offset: Pos2,
@@ -294,7 +347,7 @@ impl RenderContext {
 	}
 }
 
-pub(super) struct ImageDrawingData {
+pub struct ImageDrawingData {
 	view_rect: Rect,
 	texture: Pixbuf,
 }
@@ -307,13 +360,13 @@ impl ImageDrawingData {
 	}
 }
 
-pub(super) enum PointerPosition {
+pub enum PointerPosition {
 	Head,
 	Exact(usize),
 	Tail,
 }
 
-pub struct GuiViewDrawData {
+pub struct ScrolledDrawData {
 	pub offset: Pos2,
 	pub range: Range<usize>,
 }
@@ -337,7 +390,7 @@ fn cache_key(char: char, font_size: u32) -> u64
 	(char as u64) << 32 | font_size as u64
 }
 
-pub(super) trait GuiRender {
+pub trait GuiRender {
 	fn render_han(&self) -> bool;
 	fn reset_baseline(&mut self, render_context: &RenderContext);
 	fn reset_render_context(&mut self, render_context: &mut RenderContext);
@@ -363,7 +416,7 @@ pub(super) trait GuiRender {
 	/// update scroll view draw data
 	fn visible_scrolling(&self, scroll_value: f32, scroll_size: f32,
 		render_rect: &Rect, render_lines: &[RenderLine], )
-		-> Option<GuiViewDrawData>;
+		-> Option<ScrolledDrawData>;
 	/// for scrolling view
 	/// translate mouse position in viewport
 	fn translate_mouse_pos(&self, mouse_pos: &mut Pos2, render_rect: &Rect,
@@ -689,7 +742,7 @@ fn load_image_and_resize(view_rect: &Rect, bytes: &[u8]) -> Option<(ImageDrawing
 }
 
 #[inline]
-pub(self) fn update_for_highlight(render_line: usize, offset: usize, background: Option<Color32>, colors: &Colors, highlight: &Option<HighlightInfo>) -> Option<Color32>
+pub fn update_for_highlight(render_line: usize, offset: usize, background: Option<Color32>, colors: &Colors, highlight: &Option<HighlightInfo>) -> Option<Color32>
 {
 	match highlight {
 		Some(HighlightInfo { mode: HighlightMode::Search, line, start, end })
@@ -711,7 +764,7 @@ pub(self) fn update_for_highlight(render_line: usize, offset: usize, background:
 }
 
 #[inline]
-pub(super) fn scale_font_size(font_size: u8, scale: f32) -> f32
+pub fn scale_font_size(font_size: u8, scale: f32) -> f32
 {
 	let scaled_size = font_size as f32 * scale;
 	if scaled_size < 9.0 {
@@ -722,7 +775,7 @@ pub(super) fn scale_font_size(font_size: u8, scale: f32) -> f32
 }
 
 #[inline]
-pub(super) fn vline(cairo: &CairoContext, x: f32, top: f32, bottom: f32, stroke_width: f32, color: &Color32)
+pub fn vline(cairo: &CairoContext, x: f32, top: f32, bottom: f32, stroke_width: f32, color: &Color32)
 {
 	let x = x as f64;
 	color.apply(cairo);
@@ -733,7 +786,7 @@ pub(super) fn vline(cairo: &CairoContext, x: f32, top: f32, bottom: f32, stroke_
 }
 
 #[inline]
-pub(super) fn hline(cairo: &CairoContext, left: f32, right: f32, y: f32, stroke_width: f32, color: &Color32)
+pub fn hline(cairo: &CairoContext, left: f32, right: f32, y: f32, stroke_width: f32, color: &Color32)
 {
 	let y = y as f64;
 	color.apply(cairo);
@@ -744,7 +797,7 @@ pub(super) fn hline(cairo: &CairoContext, left: f32, right: f32, y: f32, stroke_
 }
 
 #[inline]
-pub(super) fn draw_rect(cairo: &CairoContext, rect: &Rect, stroke_width: f32, color: &Color32)
+pub fn draw_rect(cairo: &CairoContext, rect: &Rect, stroke_width: f32, color: &Color32)
 {
 	color.apply(cairo);
 	cairo.set_line_width(stroke_width as f64);
@@ -754,19 +807,10 @@ pub(super) fn draw_rect(cairo: &CairoContext, rect: &Rect, stroke_width: f32, co
 }
 
 #[inline]
-pub(super) fn handle_cairo<T>(result: Result<T, cairo::Error>)
+pub fn handle_cairo<T>(result: Result<T, cairo::Error>)
 {
 	if let Err(err) = result {
 		eprintln!("Failed cairo call: {}", err.to_string());
-	}
-}
-
-pub(super) fn create_render(render_han: bool) -> Box<dyn GuiRender>
-{
-	if render_han {
-		Box::new(GuiHanRender::new())
-	} else {
-		Box::new(GuiXiRender::new())
 	}
 }
 

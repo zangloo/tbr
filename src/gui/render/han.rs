@@ -10,7 +10,7 @@ use crate::color::Color32;
 use crate::common::{HAN_COMPACT_CHARS, HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, vec2};
-use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, scale_font_size, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, hline, CharDrawData, ScrollSizing, GuiViewDrawData};
+use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, scale_font_size, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, hline, CharDrawData, ScrollSizing, ScrolledDrawData};
 
 pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
@@ -153,8 +153,8 @@ impl GuiRender for GuiHanRender
 				line_size = 0.0;
 				line_space = 0.0;
 				setup_decorations(draw_chars, &mut render_line, context);
-				self.baseline -= render_line.line_size + render_line.line_space;
-				let line_delta = render_line.line_size + render_line.line_space;
+				self.baseline -= render_line.line_size() + render_line.line_space();
+				let line_delta = render_line.line_size() + render_line.line_space();
 				draw_lines.push(render_line);
 				draw_chars = vec![];
 				// the char wrapped to new line, so update positions
@@ -190,7 +190,7 @@ impl GuiRender for GuiHanRender
 		if draw_chars.len() > 0 {
 			let mut render_line = RenderLine::new(line, line_size, line_space);
 			setup_decorations(draw_chars, &mut render_line, context);
-			self.baseline -= render_line.line_size + render_line.line_space;
+			self.baseline -= render_line.line_size() + render_line.line_space();
 			draw_lines.push(render_line);
 		}
 		return draw_lines;
@@ -236,18 +236,19 @@ impl GuiRender for GuiHanRender
 		}
 		for i in 0..render_lines.len() {
 			let render_line = &render_lines[i];
-			let left = line_base - render_line.line_size - render_line.line_space;
+			let left = line_base - render_line.line_size() - render_line.line_space();
 			if x <= line_base && x > left {
 				let y = pointer_pos.y;
 				if y <= rect.top() {
 					return (PointerPosition::Exact(i), PointerPosition::Head);
 				}
-				for (j, dc) in render_line.chars.iter().enumerate() {
+				return render_line.find(|j, dc| {
 					if y > dc.rect.top() && y <= dc.rect.bottom() {
-						return (PointerPosition::Exact(i), PointerPosition::Exact(j));
+						return Some((PointerPosition::Exact(i), PointerPosition::Exact(j)));
+					} else {
+						None
 					}
-				}
-				return (PointerPosition::Exact(i), PointerPosition::Tail);
+				}).unwrap_or((PointerPosition::Exact(i), PointerPosition::Tail));
 			}
 			line_base = left;
 		}
@@ -281,7 +282,7 @@ impl GuiRender for GuiHanRender
 
 	fn visible_scrolling(&self, scroll_value: f32, scroll_size: f32,
 		render_rect: &Rect, render_lines: &[RenderLine], )
-		-> Option<GuiViewDrawData>
+		-> Option<ScrolledDrawData>
 	{
 		let mut start = 0;
 		let mut end = None;
@@ -301,7 +302,7 @@ impl GuiRender for GuiHanRender
 			}
 		}
 		let end = end.unwrap_or_else(|| render_lines.len());
-		let draw_data = Some(GuiViewDrawData {
+		let draw_data = Some(ScrolledDrawData {
 			offset: pos2(offset, 0.),
 			range: start..end,
 		});
@@ -346,13 +347,13 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 			(chars_left, false)
 		};
 		if left_count > 0 {
-			render_line.chars.push(draw_char);
+			render_line.push(draw_char);
 			for _ in 1..left_count {
 				let e = iter.next().unwrap();
 				if left > e.1.0.rect.left() {
 					left = e.1.0.rect.left()
 				}
-				render_line.chars.push(e.1.0);
+				render_line.push(e.1.0);
 			}
 			let e = iter.next().unwrap();
 			if left > e.1.0.rect.left() {
@@ -366,7 +367,7 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 			draw_char.rect.bottom()
 		};
 		let draw_left = left - margin;
-		render_line.chars.push(draw_char);
+		render_line.push(draw_char);
 		TextDecoration::UnderLine {
 			pos2: Pos2 { x: draw_left, y: draw_top },
 			length: draw_bottom - draw_top,
@@ -376,7 +377,7 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 	}
 
 	// align chars
-	let line_size = render_line.line_size;
+	let line_size = render_line.line_size();
 	for (ref mut char, _) in &mut draw_chars {
 		let rect = &mut char.rect;
 		let width = rect.width();
@@ -416,7 +417,7 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 				(chars_left, false)
 			};
 			if left_count > 0 {
-				render_line.chars.push(draw_char);
+				render_line.push(draw_char);
 				for _ in 1..left_count {
 					let e = iter.next().unwrap();
 					let new_left = e.1.0.rect.left();
@@ -427,7 +428,7 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 					if right < new_right {
 						right = new_right;
 					}
-					render_line.chars.push(e.1.0);
+					render_line.push(e.1.0);
 				}
 				let e = iter.next().unwrap();
 				let new_left = e.1.0.rect.left();
@@ -440,7 +441,7 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 			let border_bottom = max.y - margin;
 			let border_left = left - margin;
 			let border_right = right + margin;
-			render_line.chars.push(draw_char);
+			render_line.push(draw_char);
 			render_line.add_decoration(TextDecoration::Border {
 				rect: Rect {
 					min: Pos2 { x: border_left, y: border_top },
@@ -458,7 +459,7 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 			let decoration = setup_underline(draw_char, &range, render_line, index, len, &mut iter, context);
 			render_line.add_decoration(decoration);
 		} else {
-			render_line.chars.push(draw_char);
+			render_line.push(draw_char);
 		}
 	}
 }
