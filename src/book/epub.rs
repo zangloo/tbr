@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
@@ -5,6 +7,7 @@ use std::io::Read;
 use std::io::Seek;
 use std::path::PathBuf;
 use anyhow::{anyhow, Result};
+use elsa::FrozenMap;
 use strip_bom::StripBom;
 use xmltree::{Element, XMLNode};
 use zip::ZipArchive;
@@ -56,12 +59,12 @@ struct Chapter {
 }
 
 struct EpubBook<R: Read + Seek> {
-	zip: ZipArchive<R>,
+	zip: RefCell<ZipArchive<R>>,
 	content_opf: ContentOPF,
 	toc: Vec<NavPoint>,
 	chapter_cache: HashMap<usize, Chapter>,
 	css_cache: HashMap<String, String>,
-	images: HashMap<String, Vec<u8>>,
+	images: FrozenMap<String, Vec<u8>>,
 	chapter_index: usize,
 }
 
@@ -70,7 +73,9 @@ pub struct EpubLoader {
 }
 
 impl EpubLoader {
-	pub(crate) fn new() -> Self {
+	#[inline]
+	pub(crate) fn new() -> Self
+	{
 		let extensions = vec![".epub"];
 		EpubLoader { extensions }
 	}
@@ -81,7 +86,9 @@ impl Loader for EpubLoader {
 		&self.extensions
 	}
 
-	fn load_file(&self, _filename: &str, file: std::fs::File, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>> {
+	#[inline]
+	fn load_file(&self, _filename: &str, file: std::fs::File, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>>
+	{
 		Ok(Box::new(EpubBook::new(file, loading_chapter)?))
 	}
 
@@ -92,11 +99,14 @@ impl Loader for EpubLoader {
 }
 
 impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
-	fn chapter_count(&self) -> usize {
+	#[inline]
+	fn chapter_count(&self) -> usize
+	{
 		self.content_opf.spine.len()
 	}
 
-	fn prev_chapter(&mut self) -> Result<Option<usize>> {
+	fn prev_chapter(&mut self) -> Result<Option<usize>>
+	{
 		let mut current = self.chapter_index;
 		loop {
 			if current == 0 {
@@ -113,7 +123,8 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 		}
 	}
 
-	fn goto_chapter(&mut self, chapter_index: usize) -> Result<Option<usize>> {
+	fn goto_chapter(&mut self, chapter_index: usize) -> Result<Option<usize>>
+	{
 		let mut current = chapter_index;
 		let chapter_count = self.chapter_count();
 		loop {
@@ -131,6 +142,7 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 		}
 	}
 
+	#[inline]
 	fn current_chapter(&self) -> usize {
 		self.chapter_index
 	}
@@ -141,7 +153,8 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 		Some(toc_title(toc))
 	}
 
-	fn toc_index(&self, line: usize, offset: usize) -> usize {
+	fn toc_index(&self, line: usize, offset: usize) -> usize
+	{
 		self.chapter_cache
 			.get(&self.chapter_index)
 			.map_or(0, |c| {
@@ -191,18 +204,22 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 		Some(Box::new(iter))
 	}
 
-	fn toc_position(&mut self, toc_index: usize) -> Option<TraceInfo> {
+	fn toc_position(&mut self, toc_index: usize) -> Option<TraceInfo>
+	{
 		let np = self.toc.get(toc_index)?;
 		let src_file = np.src_file.as_ref()?.to_string();
 		let src_anchor = np.src_anchor.clone();
 		self.target_position(Some(&src_file), src_anchor)
 	}
 
-	fn lines(&self) -> &Vec<Line> {
+	#[inline]
+	fn lines(&self) -> &Vec<Line>
+	{
 		&self.chapter_cache.get(&self.chapter_index).unwrap().lines
 	}
 
-	fn link_position(&mut self, line: usize, link_index: usize) -> Option<TraceInfo> {
+	fn link_position(&mut self, line: usize, link_index: usize) -> Option<TraceInfo>
+	{
 		let full_path = chapter_path(self.chapter_index, &self.content_opf).ok()?;
 		let cwd = path_cwd(full_path);
 		let chapter = self.chapter_cache.get(&self.chapter_index)?;
@@ -221,11 +238,18 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 		}
 	}
 
-	fn image(&self, href: &str) -> Option<(String, &[u8])> {
+	fn image<'h>(&self, href: &'h str) -> Option<(Cow<'h, str>, &[u8])>
+	{
 		if let Ok(path) = chapter_path(self.current_chapter(), &self.content_opf) {
 			let cwd = path_cwd(path);
-			let (path, bytes) = resolve(&cwd, href, &self.images)?;
-			Some((path, bytes.as_slice()))
+			let full_path = concat_path(cwd, href)?;
+			let bytes = if let Some(bytes) = self.images.get(&full_path) {
+				bytes
+			} else {
+				let bytes = zip_content(&mut self.zip.borrow_mut(), &full_path).ok()?;
+				self.images.insert(full_path.clone(), bytes)
+			};
+			Some((Cow::Owned(full_path), bytes))
 		} else {
 			None
 		}
@@ -252,7 +276,7 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 		let content_opf = parse_content_opf(&content_opf_text, &content_opf_dir, &zip)
 			.ok_or(anyhow!("Malformatted content.opf file"))?;
 
-		let (css_cache, images) = load_cache(&mut zip, &content_opf.manifest);
+		let css_cache = load_cache(&mut zip, &content_opf.manifest);
 
 		let mut toc = match content_opf.manifest.get(content_opf.toc_id.as_ref().unwrap_or(&"ncx".to_string())) {
 			Some(ManifestItem { href, .. }) => {
@@ -307,28 +331,31 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 		}
 		let chapter_cache = HashMap::new();
 		let mut book = EpubBook {
-			zip,
+			zip: RefCell::new(zip),
 			content_opf,
 			toc,
 			chapter_cache,
 			chapter_index,
 			css_cache,
-			images,
+			images: Default::default(),
 		};
 		book.load_chapter(chapter_index)?;
 		Ok(book)
 	}
 
-	fn load_chapter(&mut self, chapter_index: usize) -> Result<&Chapter> {
+	fn load_chapter(&mut self, chapter_index: usize) -> Result<&Chapter>
+	{
 		let chapter = match self.chapter_cache.entry(chapter_index) {
 			Entry::Occupied(o) => o.into_mut(),
 			Entry::Vacant(v) => {
 				let full_path = chapter_path(chapter_index, &self.content_opf)?;
 				let cwd = path_cwd(full_path);
-				let html_str = zip_string(&mut self.zip, full_path)?;
+				let html_str = zip_string(&mut self.zip.borrow_mut(), full_path)?;
 				let css_cache = &self.css_cache;
 				let html_content = html_str_content(&html_str, Some(|path: String| {
-					Some(resolve(&cwd, &path, css_cache)?.1)
+					let full_path = concat_path(cwd.clone(), &path)?;
+					let content = css_cache.get(&full_path)?;
+					Some(content)
 				}))?;
 				let chapter = Chapter {
 					lines: html_content.lines,
@@ -340,7 +367,8 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 		Ok(chapter)
 	}
 
-	fn target_position(&mut self, target_file: Option<&str>, target_anchor: Option<String>) -> Option<TraceInfo> {
+	fn target_position(&mut self, target_file: Option<&str>, target_anchor: Option<String>) -> Option<TraceInfo>
+	{
 		fn target_position_in_chapter(chapter_index: usize, chapter: &Chapter, target_anchor: &Option<String>) -> Option<TraceInfo> {
 			if let Some(anchor) = target_anchor {
 				if let Some(position) = chapter.id_map.get(anchor) {
@@ -378,7 +406,8 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 }
 
 #[inline]
-fn zip_string<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<String> {
+fn zip_string<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<String>
+{
 	let buf = zip_content(zip, name)?;
 	Ok(String::from_utf8(buf)?)
 }
@@ -397,13 +426,9 @@ fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Ve
 }
 
 
-fn load_cache<R: Read + Seek>(zip: &mut ZipArchive<R>, manifest: &Manifest) -> (HashMap<String, String>, HashMap<String, Vec<u8>>)
+fn load_cache<R: Read + Seek>(zip: &mut ZipArchive<R>, manifest: &Manifest) -> HashMap<String, String>
 {
 	let mut css_cache = HashMap::new();
-	#[cfg(not(feature = "gui"))]
-		let images = HashMap::new();
-	#[cfg(feature = "gui")]
-		let mut images = HashMap::new();
 	for (_, item) in manifest {
 		if item.media_type == "text/css" {
 			if let Ok(content) = zip_string(zip, &item.href) {
@@ -411,17 +436,12 @@ fn load_cache<R: Read + Seek>(zip: &mut ZipArchive<R>, manifest: &Manifest) -> (
 			}
 			continue;
 		}
-		#[cfg(feature = "gui")]
-		if item.media_type.starts_with("image/") {
-			if let Ok(content) = zip_content(zip, &item.href) {
-				images.insert(item.href.clone(), content);
-			}
-		}
 	}
-	(css_cache, images)
+	css_cache
 }
 
-fn parse_nav_points(nav_points_element: &Element, level: usize, nav_points: &mut Vec<NavPoint>, cwd: &PathBuf) {
+fn parse_nav_points(nav_points_element: &Element, level: usize, nav_points: &mut Vec<NavPoint>, cwd: &PathBuf)
+{
 	fn parse_element(el: &Element, level: usize, cwd: &PathBuf) -> Option<NavPoint> {
 		let id = Some(el.attributes.get("id")?.to_string());
 		let play_order: Option<usize> = el
@@ -579,7 +599,8 @@ fn parse_nav_doc(text: &str, cwd: &PathBuf) -> Result<Vec<NavPoint>>
 	}
 }
 
-fn parse_manifest(manifest: &Element, path: &PathBuf) -> Manifest {
+fn parse_manifest(manifest: &Element, path: &PathBuf) -> Manifest
+{
 	manifest
 		.children
 		.iter()
@@ -606,7 +627,8 @@ fn parse_manifest(manifest: &Element, path: &PathBuf) -> Manifest {
 }
 
 #[inline]
-fn parse_spine<R: Read + Seek>(spine: &Element, manifest: &Manifest, zip: &ZipArchive<R>) -> Option<(Spine, Option<String>)> {
+fn parse_spine<R: Read + Seek>(spine: &Element, manifest: &Manifest, zip: &ZipArchive<R>) -> Option<(Spine, Option<String>)>
+{
 	let file_names: HashSet<&str> = zip.file_names().collect();
 	let chapters = spine.children
 		.iter()
@@ -627,7 +649,8 @@ fn parse_spine<R: Read + Seek>(spine: &Element, manifest: &Manifest, zip: &ZipAr
 	Some((chapters, toc_id))
 }
 
-fn parse_content_opf<R: Read + Seek>(text: &str, content_opf_dir: &PathBuf, zip: &ZipArchive<R>) -> Option<ContentOPF> {
+fn parse_content_opf<R: Read + Seek>(text: &str, content_opf_dir: &PathBuf, zip: &ZipArchive<R>) -> Option<ContentOPF>
+{
 	let package = Element::parse(text.strip_bom().as_bytes()).ok()?;
 	let metadata = package.get_child("metadata")?;
 	let manifest = package.get_child("manifest")?;
@@ -653,7 +676,9 @@ fn parse_content_opf<R: Read + Seek>(text: &str, content_opf_dir: &PathBuf, zip:
 	})
 }
 
-fn is_encrypted<R: Read + Seek>(zip: &ZipArchive<R>) -> bool {
+#[inline]
+fn is_encrypted<R: Read + Seek>(zip: &ZipArchive<R>) -> bool
+{
 	zip.file_names().find(|f| *f == "META-INF/encryption.xml").is_some()
 }
 
@@ -666,13 +691,6 @@ fn toc_title(nav_point: &NavPoint) -> &str {
 		}
 	};
 	label
-}
-
-fn resolve<'a, T>(cwd: &PathBuf, path: &str, cache: &'a HashMap<String, T>) -> Option<(String, &'a T)>
-{
-	let full_path = concat_path(cwd.clone(), path)?;
-	let content = cache.get(&full_path)?;
-	Some((full_path, content))
 }
 
 fn chapter_path(chapter_index: usize, content_opf: &ContentOPF) -> Result<&str>

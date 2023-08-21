@@ -1,4 +1,4 @@
-use std::any::Any;
+use std::borrow::Cow;
 use std::cmp;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -289,18 +289,7 @@ pub enum LoadingChapter {
 	Last,
 }
 
-pub trait AsAny: 'static {
-	fn as_any(&mut self) -> &mut dyn Any;
-}
-
-impl<T: 'static> AsAny for T {
-	fn as_any(&mut self) -> &mut dyn Any
-	{
-		self
-	}
-}
-
-pub trait Book: AsAny {
+pub trait Book {
 	fn chapter_count(&self) -> usize { 1 }
 	fn prev_chapter(&mut self) -> Result<Option<usize>>
 	{
@@ -334,7 +323,7 @@ pub trait Book: AsAny {
 	fn leading_space(&self) -> usize { 2 }
 	fn link_position(&mut self, _line: usize, _link_index: usize) -> Option<TraceInfo> { None }
 	// (absolute path, content)
-	fn image(&self, _href: &str) -> Option<(String, &[u8])> { None }
+	fn image<'a>(&self, _href: &'a str) -> Option<(Cow<'a, str>, &[u8])> { None }
 	fn range_highlight(&self, from: Position, to: Position)
 		-> Option<HighlightInfo>
 	{

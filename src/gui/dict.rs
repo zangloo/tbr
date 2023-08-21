@@ -77,13 +77,13 @@ impl Book for DictionaryBook
 		0
 	}
 
-	fn image(&self, href: &str) -> Option<(String, &[u8])>
+	fn image<'a>(&self, href: &'a str) -> Option<(Cow<'a, str>, &[u8])>
 	{
 		if let Some(bytes) = self.resources.get(href) {
 			return if bytes.is_empty() {
 				None
 			} else {
-				Some((href.to_owned(), bytes))
+				Some((Cow::Borrowed(href), bytes))
 			};
 		}
 
@@ -92,7 +92,7 @@ impl Book for DictionaryBook
 			if dict.dict_name() == dict_name {
 				let bytes = dict.get_resource(href).ok()??;
 				let bytes = self.resources.insert(href.to_owned(), bytes);
-				return Some((href.to_owned(), bytes));
+				return Some((Cow::Borrowed(href), bytes));
 			}
 		}
 		self.resources.insert(href.to_owned(), vec![]);

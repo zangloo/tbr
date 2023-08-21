@@ -621,7 +621,7 @@ pub trait GuiRender {
 		if let Some(href) = &char_style.image {
 			if let Some((path, bytes)) = book.image(href) {
 				let cache = self.image_cache_mut();
-				let (image_data, mut size) = match cache.entry(path.clone()) {
+				let (image_data, mut size) = match cache.entry(path.clone().into_owned()) {
 					Entry::Occupied(o) => {
 						let data = o.into_mut();
 						let size = data.size();
@@ -636,14 +636,14 @@ pub trait GuiRender {
 
 				if *view_rect != image_data.view_rect {
 					if let Some((new_image_data, new_size)) = load_image_and_resize(view_rect, bytes) {
-						cache.insert(path.clone(), new_image_data);
+						cache.insert(path.clone().into_owned(), new_image_data);
 						size = new_size
 					} else {
 						return None;
 					}
 				};
 
-				Some((path, size))
+				Some((path.into_owned(), size))
 			} else {
 				None
 			}
