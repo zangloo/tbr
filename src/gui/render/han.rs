@@ -146,7 +146,11 @@ impl GuiRender for GuiHanRender
 					cell_offset,
 					cell_size,
 				};
-				(RenderCell::Char(cell), rect)
+				if let Some((link_index, _)) = char_style.link {
+					(RenderCell::Link(cell, link_index), rect)
+				} else {
+					(RenderCell::Char(cell), rect)
+				}
 			};
 			if top + rect.height() > max_top {
 				let mut render_line = RenderLine::new(line, line_size, line_space);
@@ -331,7 +335,9 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 		let offset = draw_char.offset;
 		let (color, padding) = match &draw_char.cell {
 			RenderCell::Image(_) => (context.colors.color.clone(), 0.0),
-			RenderCell::Char(CharCell { color, cell_size, .. }) => (color.clone(), cell_size.y / 4.0),
+			RenderCell::Char(CharCell { color, cell_size, .. })
+			| RenderCell::Link(CharCell { color, cell_size, .. }, _)
+			=> (color.clone(), cell_size.y / 4.0),
 		};
 		let margin = padding / 2.0;
 		let draw_top = if offset == range.start {
@@ -399,7 +405,9 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 			let offset = draw_char.offset;
 			let (color, padding) = match &draw_char.cell {
 				RenderCell::Image(_) => (context.colors.color.clone(), 0.0),
-				RenderCell::Char(CharCell { color, cell_size, .. }) => (color.clone(), cell_size.y / 4.0),
+				RenderCell::Char(CharCell { color, cell_size, .. })
+				| RenderCell::Link(CharCell { color, cell_size, .. }, _)
+				=> (color.clone(), cell_size.y / 4.0),
 			};
 			let margin = padding / 2.0;
 			let mut left = min.x;

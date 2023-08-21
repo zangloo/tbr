@@ -50,6 +50,8 @@ pub struct CharCell {
 pub enum RenderCell {
 	Char(CharCell),
 	Image(String),
+	/// usize for link_index
+	Link(CharCell, usize),
 }
 
 #[derive(Clone, Debug)]
@@ -497,7 +499,8 @@ pub trait GuiRender {
 					RenderCell::Image(name) => {
 						self.draw_image(name, &dc.rect, cairo);
 					}
-					RenderCell::Char(cell) => {
+					RenderCell::Char(cell)
+					| RenderCell::Link(cell, _) => {
 						if let Some(bg) = &cell.background {
 							draw_rect(cairo, &dc.rect, 1.0, bg);
 						}

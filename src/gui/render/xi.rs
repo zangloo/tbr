@@ -171,7 +171,12 @@ impl GuiRender for GuiXiRender
 					cell_offset,
 					cell_size,
 				};
-				(RenderCell::Char(cell), rect, blank_char, blank_char || !char.is_ascii_alphanumeric())
+				let render_cell = if let Some((link_index, _)) = char_style.link {
+					RenderCell::Link(cell, link_index)
+				} else {
+					RenderCell::Char(cell)
+				};
+				(render_cell, rect, blank_char, blank_char || !char.is_ascii_alphanumeric())
 			};
 			let draw_height = rect.height();
 			let draw_width = rect.width();
@@ -367,7 +372,9 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 		let offset = draw_char.offset;
 		let (color, padding) = match &draw_char.cell {
 			RenderCell::Image(_) => (context.colors.color.clone(), 0.0),
-			RenderCell::Char(CharCell { color, cell_size, .. }) => (color.clone(), cell_size.x / 4.0),
+			RenderCell::Char(CharCell { color, cell_size, .. })
+			| RenderCell::Link(CharCell { color, cell_size, .. }, _)
+			=> (color.clone(), cell_size.x / 4.0),
 		};
 		let margin = padding / 2.0;
 		let draw_left = if offset == range.start {
@@ -416,7 +423,9 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 			let offset = draw_char.offset;
 			let (color, padding) = match &draw_char.cell {
 				RenderCell::Image(_) => (context.colors.color.clone(), 0.0),
-				RenderCell::Char(CharCell { color, cell_size, .. }) => (color.clone(), cell_size.x / 4.0),
+				RenderCell::Char(CharCell { color, cell_size, .. })
+				| RenderCell::Link(CharCell { color, cell_size, .. }, _)
+				=> (color.clone(), cell_size.x / 4.0),
 			};
 			let margin = padding / 2.0;
 			let mut top = min.y;

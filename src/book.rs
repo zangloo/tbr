@@ -51,7 +51,7 @@ pub struct CharStyle {
 	pub background: Option<Color32>,
 	pub line: Option<(TextDecorationLine, Range<usize>)>,
 	pub border: Option<Range<usize>>,
-	pub link: Option<(String, Range<usize>)>,
+	pub link: Option<(usize, Range<usize>)>,
 	pub image: Option<String>,
 }
 
@@ -192,7 +192,7 @@ impl Line {
 				(TextStyle::Link(target), range) => {
 					let (stop, found) = f(Link {
 						index,
-						target: target.as_str(),
+						target,
 						range,
 					});
 					if stop {
@@ -209,7 +209,7 @@ impl Line {
 		if let Some((TextStyle::Link(target), range)) = self.styles.get(link_index) {
 			Some(Link {
 				index: link_index,
-				target: target.as_str(),
+				target,
 				range,
 			})
 		} else {
@@ -218,7 +218,8 @@ impl Line {
 	}
 
 	#[cfg(feature = "gui")]
-	pub fn char_style_at(&self, index: usize, custom_color: bool, colors: &Colors) -> CharStyle
+	pub fn char_style_at(&self, char_index: usize, custom_color: bool,
+		colors: &Colors) -> CharStyle
 	{
 		let mut char_style = CharStyle {
 			font_scale: 1.0,
@@ -229,8 +230,8 @@ impl Line {
 			link: None,
 			image: None,
 		};
-		for (style, range) in self.styles.iter().rev() {
-			if range.contains(&index) {
+		for (index, (style, range)) in self.styles.iter().enumerate().rev() {
+			if range.contains(&char_index) {
 				match style {
 					TextStyle::FontSize { scale, relative } => {
 						if *relative {
@@ -240,8 +241,8 @@ impl Line {
 						}
 					}
 					TextStyle::Image(href) => char_style.image = Some(href.clone()),
-					TextStyle::Link(target) => {
-						char_style.link = Some((target.clone(), range.clone()));
+					TextStyle::Link(_) => {
+						char_style.link = Some((index, range.clone()));
 						char_style.color = colors.link.clone();
 					}
 					TextStyle::Border => char_style.border = Some(range.clone()),
@@ -301,7 +302,8 @@ impl<T: 'static> AsAny for T {
 
 pub trait Book: AsAny {
 	fn chapter_count(&self) -> usize { 1 }
-	fn prev_chapter(&mut self) -> Result<Option<usize>> {
+	fn prev_chapter(&mut self) -> Result<Option<usize>>
+	{
 		let current = self.current_chapter();
 		if current == 0 {
 			Ok(None)
@@ -309,10 +311,14 @@ pub trait Book: AsAny {
 			self.goto_chapter(current - 1)
 		}
 	}
-	fn next_chapter(&mut self) -> Result<Option<usize>> {
+
+	fn next_chapter(&mut self) -> Result<Option<usize>>
+	{
 		self.goto_chapter(self.current_chapter() + 1)
 	}
-	fn goto_chapter(&mut self, chapter_index: usize) -> Result<Option<usize>> {
+
+	fn goto_chapter(&mut self, chapter_index: usize) -> Result<Option<usize>>
+	{
 		if chapter_index >= self.chapter_count() {
 			return Ok(None);
 		} else {

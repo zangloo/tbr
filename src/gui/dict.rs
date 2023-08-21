@@ -490,19 +490,12 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 	// setup view
 	let view = &dictionary_manager.view;
 	view.set_scrollable(true);
+	view.setup_gesture();
 	{
 		let dm = dm.clone();
 		view.connect_resize(move |_, width, height| {
 			let mut dictionary_manager = dm.borrow_mut();
 			dictionary_manager.resize(width, Some(height));
-		});
-	}
-
-	{
-		let dm = dm.clone();
-		view.setup_gesture(move |view, pos| {
-			let dictionary_manager = dm.borrow();
-			view.link_resolve(pos, dictionary_manager.book.lines())
 		});
 	}
 

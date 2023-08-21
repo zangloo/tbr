@@ -27,6 +27,11 @@ pub enum ScrollPosition {
 	Position(f64),
 }
 
+pub enum ClickTarget {
+	Link(usize, usize),
+	None,
+}
+
 glib::wrapper! {
     pub struct GuiView(ObjectSubclass<imp::GuiView>)
         @extends gtk4::Widget, gtk4::DrawingArea,
@@ -96,7 +101,6 @@ impl GuiView {
 		view.set_widget_name(instance_name);
 		view.set_focusable(true);
 		view.set_focus_on_click(true);
-		view.set_render_han(render_han);
 
 		let imp = view.imp();
 		let pango = &view.get_pango();
@@ -105,8 +109,7 @@ impl GuiView {
 		view
 	}
 
-	pub fn setup_gesture<'a, F>(&self, link_resolver: F)
-		where F: Fn(&Self, &Pos2) -> Option<(usize, usize)> + Clone + 'static
+	pub fn setup_gesture(&self)
 	{
 		let drag_gesture = GestureDrag::builder()
 			.button(gdk::BUTTON_PRIMARY)
@@ -134,7 +137,6 @@ impl GuiView {
 			}
 		});
 		let view = self.clone();
-		let lr = link_resolver.clone();
 		drag_gesture.connect_end(move |drag, seq| {
 			if let Some(bp) = drag.start_point() {
 				if let Some(ep) = drag.point(seq) {
@@ -143,13 +145,13 @@ impl GuiView {
 					if bp == ep {
 						let mut pos = pos2(bp.0 as f32, bp.1 as f32);
 						imp.translate(&mut pos);
-						if let Some((line, link_index)) = lr(&view, &pos) {
-							view.emit_by_name::<()>(GuiView::OPEN_LINK_SIGNAL, &[
+						match imp.resolve_click(&pos) {
+							ClickTarget::Link(line, link_index) => view.emit_by_name::<()>(GuiView::OPEN_LINK_SIGNAL, &[
 								&(line as u64),
 								&(link_index as u64),
-							]);
-						} else {
-							view.emit_by_name::<()>(GuiView::CLEAR_SELECTION_SIGNAL, &[]);
+							]),
+							ClickTarget::None =>
+								view.emit_by_name::<()>(GuiView::CLEAR_SELECTION_SIGNAL, &[]),
 						}
 					} else {
 						let mut from = pos2(bp.0 as f32, bp.1 as f32);
@@ -172,18 +174,11 @@ impl GuiView {
 
 		let mouse_event = EventControllerMotion::new();
 		let view = self.clone();
-		let lr = link_resolver.clone();
 		mouse_event.connect_motion(move |_, x, y| {
 			let mut pos = pos2(x as f32, y as f32);
 			let imp = view.imp();
 			imp.translate(&mut pos);
-			let cursor_name = if let Some(_) = lr(&view, &pos) {
-				"pointer"
-			} else if view.render_han() {
-				"vertical-text"
-			} else {
-				"text"
-			};
+			let cursor_name = imp.pointer_cursor(&pos);
 			view.set_cursor_from_name(Some(cursor_name))
 		});
 		self.add_controller(mouse_event);
@@ -215,7 +210,6 @@ impl GuiView {
 	pub fn reload_render(&self, render_han: bool, render_context: &mut RenderContext)
 	{
 		self.imp().set_render_type(render_han, render_context);
-		self.set_render_han(render_han);
 	}
 
 	#[inline]
@@ -253,12 +247,6 @@ impl GuiView {
 	{
 		self.imp().calc_selection(original_pos, current_pos)
 	}
-
-	#[inline(always)]
-	pub fn link_resolve(&self, mouse_position: &Pos2, lines: &Vec<Line>) -> Option<(usize, usize)>
-	{
-		self.imp().link_resolve(mouse_position, lines)
-	}
 }
 
 mod imp {
@@ -278,8 +266,8 @@ mod imp {
 	use crate::common::Position;
 	use crate::controller::HighlightInfo;
 	use crate::gui::math::{Pos2, Rect};
-	use crate::gui::render::{create_render, GuiRender, PointerPosition, RenderContext, RenderLine, ScrolledDrawData, ScrollRedrawMethod};
-	use crate::gui::view::{MIN_TEXT_SELECT_DISTANCE, ScrollPosition};
+	use crate::gui::render::{create_render, GuiRender, PointerPosition, RenderCell, RenderContext, RenderLine, ScrolledDrawData, ScrollRedrawMethod};
+	use crate::gui::view::{ClickTarget, MIN_TEXT_SELECT_DISTANCE, ScrollPosition};
 
 	#[derive(Properties)]
 	#[properties(wrapper_type = super::GuiView)]
@@ -294,7 +282,6 @@ mod imp {
 		vscroll_policy: Cell<ScrollablePolicy>,
 		#[property(get, set)]
 		scrollable: Cell<bool>,
-		#[property(get, set)]
 		render_han: Cell<bool>,
 		data: RefCell<GuiViewData>,
 		render: RefCell<Box<dyn GuiRender>>,
@@ -549,12 +536,12 @@ mod imp {
 			render_context.max_page_size = view_size;
 
 			self.adjustment(|adjustment| {
-				let mut data = self.data.borrow_mut();
 				let value = match &render_context.scroll_redraw_method {
 					ScrollRedrawMethod::ResetScroll => sizing.init_scroll_value as f64,
 					ScrollRedrawMethod::NoResetScroll => adjustment.value(),
 					ScrollRedrawMethod::ScrollTo(value) => *value,
 				};
+				let mut data = self.data.borrow_mut();
 				data.render_lines = lines;
 				let draw_data = render.visible_scrolling(
 					value as f32, sizing.full_size,
@@ -605,6 +592,7 @@ mod imp {
 			if render.render_han() != render_han {
 				*render = create_render(render_han);
 			}
+			self.render_han.replace(render_han);
 			render.reset_render_context(render_context);
 		}
 
@@ -742,23 +730,34 @@ mod imp {
 			Some((from, to))
 		}
 
-		pub fn link_resolve(&self, mouse_position: &Pos2, lines: &Vec<Line>) -> Option<(usize, usize)>
+		pub fn resolve_click(&self, mouse_position: &Pos2) -> ClickTarget
 		{
-			let data = self.data.borrow_mut();
+			let data = self.data.borrow();
 			for line in &data.render_lines {
 				if let Some(dc) = line.char_at_pos(mouse_position) {
-					if let Some(link_index) = lines[line.line()].link_iter(true, |link| {
-						if link.range.contains(&dc.offset) {
-							(true, Some(link.index))
-						} else {
-							(false, None)
-						}
-					}) {
-						return Some((line.line(), link_index));
+					if let RenderCell::Link(_, link_index) = &dc.cell {
+						return ClickTarget::Link(line.line(), *link_index);
 					}
 				}
 			}
-			None
+			return ClickTarget::None;
+		}
+
+		pub fn pointer_cursor(&self, mouse_position: &Pos2) -> &str
+		{
+			let data = self.data.borrow();
+			for line in &data.render_lines {
+				if let Some(dc) = line.char_at_pos(mouse_position) {
+					if matches!(&dc.cell, RenderCell::Link(_, _)) {
+						return "pointer";
+					}
+				}
+			}
+			if self.render_han.get() {
+				"vertical-text"
+			} else {
+				"text"
+			}
 		}
 	}
 }

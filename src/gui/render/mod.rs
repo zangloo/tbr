@@ -6,6 +6,7 @@ pub use imp::GuiRender;
 pub use imp::PointerPosition;
 pub use imp::RenderContext;
 pub use imp::RenderLine;
+pub use imp::RenderCell;
 pub use imp::ScrollRedrawMethod;
 pub use imp::ScrolledDrawData;
 

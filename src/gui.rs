@@ -512,6 +512,7 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 		gc.ctrl_mut().select_text(from, to, &mut gc.ctx_mut());
 	}
 
+	view.setup_gesture();
 	{
 		let gc = gc.clone();
 		view.connect_resize(move |view, width, height| {
@@ -519,14 +520,6 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 			let mut controller = gc.ctrl_mut();
 			view.resized(width, height, &mut render_context);
 			controller.redraw(&mut render_context);
-		});
-	}
-
-	{
-		let gc = gc.clone();
-		view.setup_gesture(move |view, pos| {
-			let controller = gc.ctrl();
-			view.link_resolve(pos, controller.book.lines())
 		});
 	}
 
