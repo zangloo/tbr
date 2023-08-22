@@ -737,6 +737,8 @@ mod imp {
 				if let Some(dc) = line.char_at_pos(mouse_position) {
 					if let RenderCell::Link(_, link_index) = &dc.cell {
 						return ClickTarget::Link(line.line(), *link_index);
+					} else {
+						break;
 					}
 				}
 			}
