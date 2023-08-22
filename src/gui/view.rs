@@ -778,6 +778,7 @@ mod imp {
 			ClickTarget::None
 		}
 
+		#[cfg(not(windows))]
 		pub fn pointer_cursor(&self, mouse_position: &Pos2, state: ModifierType) -> &str
 		{
 			let data = self.data.borrow();
@@ -799,6 +800,21 @@ mod imp {
 			} else {
 				"text"
 			}
+		}
+		#[cfg(windows)]
+		pub fn pointer_cursor(&self, mouse_position: &Pos2, _state: ModifierType) -> &str
+		{
+			let data = self.data.borrow();
+			for line in &data.render_lines {
+				if let Some(dc) = line.char_at_pos(mouse_position) {
+					match dc.cell {
+						RenderCell::Char(_) => break,
+						RenderCell::Image(_) => break,
+						RenderCell::Link(_, _) => return "pointer",
+					}
+				}
+			}
+			"default"
 		}
 	}
 }
