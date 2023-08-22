@@ -34,6 +34,7 @@ mod gui;
 #[cfg(feature = "i18n")]
 mod i18n;
 mod color;
+#[cfg(feature = "open")]
 mod open;
 
 const TBR_BOOK_ENV_KEY: &str = "TBR_BOOK";

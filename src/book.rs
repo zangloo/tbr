@@ -233,6 +233,7 @@ impl Line {
 		}
 	}
 
+	#[allow(unused)]
 	pub fn image_at(&self, char_offset: usize) -> Option<&str>
 	{
 		for style in self.styles.iter().rev() {
