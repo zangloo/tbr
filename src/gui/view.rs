@@ -3,10 +3,10 @@ use ab_glyph::FontVec;
 use gtk4::{CssProvider, EventControllerMotion, EventControllerScroll, EventControllerScrollFlags, gdk, GestureDrag, glib};
 use glib::Object;
 use gtk4::Scrollable;
-use gtk4::gdk::Display;
+use gtk4::gdk::{Display, ModifierType};
 use gtk4::glib::ObjectExt;
 use gtk4::pango::Layout as PangoContext;
-use gtk4::prelude::{GestureDragExt, GestureExt, WidgetExt};
+use gtk4::prelude::{EventControllerExt, GestureDragExt, GestureExt, WidgetExt};
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
 use crate::book::{Book, Line};
 use crate::color::Color32;
@@ -29,6 +29,8 @@ pub enum ScrollPosition {
 
 pub enum ClickTarget {
 	Link(usize, usize),
+	ExternalLink(usize, usize),
+	Image(usize, usize),
 	None,
 }
 
@@ -87,6 +89,8 @@ impl Render<RenderContext> for GuiView {
 impl GuiView {
 	pub const WIDGET_NAME: &str = "book-view";
 	pub const OPEN_LINK_SIGNAL: &str = "open-link";
+	pub const OPEN_IMAGE_EXTERNAL_SIGNAL: &str = "open-image-external";
+	pub const OPEN_LINK_EXTERNAL_SIGNAL: &str = "open-link-external";
 	pub const SELECTING_TEXT_SIGNAL: &str = "select-text";
 	pub const TEXT_SELECTED_SIGNAL: &str = "text-selected";
 	pub const CLEAR_SELECTION_SIGNAL: &str = "clear-selection";
@@ -145,10 +149,19 @@ impl GuiView {
 					if bp == ep {
 						let mut pos = pos2(bp.0 as f32, bp.1 as f32);
 						imp.translate(&mut pos);
-						match imp.resolve_click(&pos) {
+						let state = drag.current_event_state();
+						match imp.resolve_click(&pos, state) {
 							ClickTarget::Link(line, link_index) => view.emit_by_name::<()>(GuiView::OPEN_LINK_SIGNAL, &[
 								&(line as u64),
 								&(link_index as u64),
+							]),
+							ClickTarget::ExternalLink(line, link_index) => view.emit_by_name::<()>(GuiView::OPEN_LINK_EXTERNAL_SIGNAL, &[
+								&(line as u64),
+								&(link_index as u64),
+							]),
+							ClickTarget::Image(line, offset) => view.emit_by_name::<()>(GuiView::OPEN_IMAGE_EXTERNAL_SIGNAL, &[
+								&(line as u64),
+								&(offset as u64),
 							]),
 							ClickTarget::None =>
 								view.emit_by_name::<()>(GuiView::CLEAR_SELECTION_SIGNAL, &[]),
@@ -174,12 +187,8 @@ impl GuiView {
 
 		let mouse_event = EventControllerMotion::new();
 		let view = self.clone();
-		mouse_event.connect_motion(move |_, x, y| {
-			let mut pos = pos2(x as f32, y as f32);
-			let imp = view.imp();
-			imp.translate(&mut pos);
-			let cursor_name = imp.pointer_cursor(&pos);
-			view.set_cursor_from_name(Some(cursor_name))
+		mouse_event.connect_motion(move |motion, x, y| {
+			update_mouse_pointer(&view, x as f32, y as f32, motion.current_event_state());
 		});
 		self.add_controller(mouse_event);
 
@@ -256,6 +265,7 @@ mod imp {
 	use glib::Properties;
 	use gtk4::prelude::*;
 	use gtk4::{Adjustment, glib, graphene, Scrollable, ScrollablePolicy, Snapshot};
+	use gtk4::gdk::ModifierType;
 	use gtk4::glib::once_cell::sync::Lazy;
 	use gtk4::glib::StaticType;
 	use gtk4::glib::subclass::Signal;
@@ -331,6 +341,20 @@ mod imp {
 			static SIGNALS: Lazy<Vec<Signal>> = Lazy::new(|| {
 				vec![
 					Signal::builder(super::GuiView::OPEN_LINK_SIGNAL)
+						.param_types([
+							<u64>::static_type(),
+							<u64>::static_type(),
+						])
+						.run_last()
+						.build(),
+					Signal::builder(super::GuiView::OPEN_LINK_EXTERNAL_SIGNAL)
+						.param_types([
+							<u64>::static_type(),
+							<u64>::static_type(),
+						])
+						.run_last()
+						.build(),
+					Signal::builder(super::GuiView::OPEN_IMAGE_EXTERNAL_SIGNAL)
 						.param_types([
 							<u64>::static_type(),
 							<u64>::static_type(),
@@ -730,30 +754,43 @@ mod imp {
 			Some((from, to))
 		}
 
-		pub fn resolve_click(&self, mouse_position: &Pos2) -> ClickTarget
+		#[inline]
+		pub fn resolve_click(&self, mouse_position: &Pos2, state: ModifierType) -> ClickTarget
 		{
 			let data = self.data.borrow();
 			for line in &data.render_lines {
 				if let Some(dc) = line.char_at_pos(mouse_position) {
-					if let RenderCell::Link(_, link_index) = &dc.cell {
-						return ClickTarget::Link(line.line(), *link_index);
-					} else {
-						break;
+					match dc.cell {
+						RenderCell::Link(_, link_index) =>
+							return if state.eq(&(ModifierType::CONTROL_MASK | ModifierType::BUTTON1_MASK)) {
+								ClickTarget::ExternalLink(line.line(), link_index)
+							} else {
+								ClickTarget::Link(line.line(), link_index)
+							},
+						RenderCell::Image(_) =>
+							if state.eq(&(ModifierType::CONTROL_MASK | ModifierType::BUTTON1_MASK)) {
+								return ClickTarget::Image(line.line(), dc.offset);
+							}
+						RenderCell::Char(_) => break,
 					}
 				}
 			}
-			return ClickTarget::None;
+			ClickTarget::None
 		}
 
-		pub fn pointer_cursor(&self, mouse_position: &Pos2) -> &str
+		pub fn pointer_cursor(&self, mouse_position: &Pos2, state: ModifierType) -> &str
 		{
 			let data = self.data.borrow();
 			for line in &data.render_lines {
 				if let Some(dc) = line.char_at_pos(mouse_position) {
-					if matches!(&dc.cell, RenderCell::Link(_, _)) {
-						return "pointer";
-					} else {
-						break;
+					match dc.cell {
+						RenderCell::Char(_) => break,
+						RenderCell::Image(_) => if state.eq(&ModifierType::CONTROL_MASK) {
+							return "zoom-in";
+						} else {
+							break;
+						}
+						RenderCell::Link(_, _) => return "pointer",
 					}
 				}
 			}
@@ -783,4 +820,13 @@ pub fn update_css(css_provider: &CssProvider, name: &str, background: &Color32)
 {
 	let css = format!("{}#{} {{background: {};}}", GuiView::WIDGET_NAME, name, background);
 	css_provider.load_from_data(&css);
+}
+
+pub fn update_mouse_pointer(view: &GuiView, x: f32, y: f32, state: ModifierType)
+{
+	let mut pos = pos2(x, y);
+	let imp = view.imp();
+	imp.translate(&mut pos);
+	let cursor_name = imp.pointer_cursor(&pos, state);
+	view.set_cursor_from_name(Some(cursor_name))
 }

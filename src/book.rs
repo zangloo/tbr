@@ -91,7 +91,8 @@ pub struct Link<'a> {
 }
 
 impl Line {
-	pub fn new(str: &str) -> Self {
+	pub fn new(str: &str) -> Self
+	{
 		let mut chars = vec![];
 		for ch in str.chars() {
 			chars.push(ch);
@@ -99,7 +100,8 @@ impl Line {
 		Line { chars, styles: vec![] }
 	}
 
-	pub fn concat(&mut self, str: &str) {
+	pub fn concat(&mut self, str: &str)
+	{
 		if str.len() == 0 {
 			return;
 		}
@@ -121,19 +123,23 @@ impl Line {
 		}
 	}
 
+	#[inline]
 	pub fn push_style(&mut self, style: TextStyle, range: Range<usize>)
 	{
 		self.styles.push((style, range));
 	}
 
-	pub fn push(&mut self, ch: char) {
+	#[inline]
+	pub fn push(&mut self, ch: char)
+	{
 		if ch == '\0' {
 			return;
 		}
 		self.chars.push(ch);
 	}
 
-	pub fn to_string(&self) -> String {
+	pub fn to_string(&self) -> String
+	{
 		let mut string = String::new();
 		for char in &self.chars {
 			string.push(*char)
@@ -141,26 +147,35 @@ impl Line {
 		string
 	}
 
-	pub fn len(&self) -> usize {
+	#[inline]
+	pub fn len(&self) -> usize
+	{
 		self.chars.len()
 	}
 
-	pub fn is_empty(&self) -> bool {
+	#[inline]
+	pub fn is_empty(&self) -> bool
+	{
 		self.chars.is_empty()
 	}
 
-	pub fn char_at(&self, index: usize) -> Option<char> {
+	#[inline]
+	pub fn char_at(&self, index: usize) -> Option<char>
+	{
 		match self.chars.get(index) {
 			Some(ch) => Some(*ch),
 			None => None,
 		}
 	}
 
-	pub fn iter(&self) -> Iter<char> {
+	#[inline]
+	pub fn iter(&self) -> Iter<char>
+	{
 		self.chars.iter()
 	}
 
-	pub fn search_pattern(&self, regex: &Regex, start: Option<usize>, stop: Option<usize>, rev: bool) -> Option<Range<usize>> {
+	pub fn search_pattern(&self, regex: &Regex, start: Option<usize>, stop: Option<usize>, rev: bool) -> Option<Range<usize>>
+	{
 		let mut line = String::new();
 		let start = start.unwrap_or(0);
 		let stop = stop.unwrap_or(self.len());
@@ -205,7 +220,8 @@ impl Line {
 		None
 	}
 
-	pub fn link_at(&self, link_index: usize) -> Option<Link> {
+	pub fn link_at(&self, link_index: usize) -> Option<Link>
+	{
 		if let Some((TextStyle::Link(target), range)) = self.styles.get(link_index) {
 			Some(Link {
 				index: link_index,
@@ -215,6 +231,18 @@ impl Line {
 		} else {
 			None
 		}
+	}
+
+	pub fn image_at(&self, char_offset: usize) -> Option<&str>
+	{
+		for style in self.styles.iter().rev() {
+			if let (TextStyle::Image(url), range) = style {
+				if range.contains(&char_offset) {
+					return Some(url);
+				}
+			}
+		}
+		None
 	}
 
 	#[cfg(feature = "gui")]
@@ -263,7 +291,8 @@ impl Default for Line {
 }
 
 impl PartialEq for Line {
-	fn eq(&self, other: &Self) -> bool {
+	fn eq(&self, other: &Self) -> bool
+	{
 		let len = self.len();
 		if len != other.len() {
 			return false;
@@ -390,7 +419,8 @@ pub struct BookLoader {
 
 pub(crate) trait Loader {
 	fn extensions(&self) -> &Vec<&'static str>;
-	fn support(&self, filename: &str) -> bool {
+	fn support(&self, filename: &str) -> bool
+	{
 		let filename = filename.to_lowercase();
 		for extension in self.extensions() {
 			if filename.ends_with(extension) {
@@ -399,7 +429,8 @@ pub(crate) trait Loader {
 		}
 		false
 	}
-	fn load_file(&self, filename: &str, mut file: std::fs::File, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>> {
+	fn load_file(&self, filename: &str, mut file: std::fs::File, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>>
+	{
 		let mut content: Vec<u8> = Vec::new();
 		file.read_to_end(&mut content)?;
 		self.load_buf(filename, content, loading_chapter)
@@ -420,7 +451,8 @@ impl BookLoader {
 		vec
 	}
 
-	pub fn support(&self, filename: &str) -> bool {
+	pub fn support(&self, filename: &str) -> bool
+	{
 		for loader in self.loaders.iter() {
 			if loader.support(filename) {
 				return true;
@@ -428,7 +460,8 @@ impl BookLoader {
 		}
 		false
 	}
-	pub fn load(&self, filename: &str, content: BookContent, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>> {
+	pub fn load(&self, filename: &str, content: BookContent, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>>
+	{
 		for loader in self.loaders.iter() {
 			if loader.support(filename) {
 				let book = match content {
@@ -446,7 +479,8 @@ impl BookLoader {
 }
 
 impl Default for BookLoader {
-	fn default() -> Self {
+	fn default() -> Self
+	{
 		let mut loaders: Vec<Box<dyn Loader>> = Vec::new();
 		loaders.push(Box::new(TxtLoader::new()));
 		loaders.push(Box::new(EpubLoader::new()));
@@ -461,13 +495,15 @@ pub struct ChapterError {
 }
 
 impl Debug for ChapterError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result
+	{
 		f.write_str(&format!("Chapter error: {}", self.msg))
 	}
 }
 
 impl Display for ChapterError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result
+	{
 		f.write_str(&format!("Chapter error: {}", self.msg))
 	}
 }

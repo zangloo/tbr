@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::collections::HashMap;
-use std::env;
+use std::{env, fs};
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::ops::Index;
@@ -11,13 +11,13 @@ use ab_glyph::FontVec;
 
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
-use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, FilterListModel, gdk, GestureClick, HeaderBar, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, PositionType, SearchEntry, Stack, Window};
+use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, FilterListModel, gdk, GestureClick, HeaderBar, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, PositionType, SearchEntry, Stack, Widget, Window};
 use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle};
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
 use gtk4::glib;
 use gtk4::glib::{Bytes, closure_local, ExitCode, Object, ObjectExt, StaticType};
-use gtk4::prelude::{ActionGroupExt, ActionMapExt, AdjustmentExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, PopoverExt, WidgetExt};
+use gtk4::prelude::{ActionGroupExt, ActionMapExt, AdjustmentExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, IsA, ListBoxRowExt, ListModelExt, NativeExt, PopoverExt, SeatExt, SurfaceExt, WidgetExt};
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
 
@@ -29,7 +29,8 @@ use crate::container::{BookContent, BookName, Container, load_book, load_contain
 use crate::controller::Controller;
 use crate::gui::render::RenderContext;
 use crate::gui::dict::DictionaryManager;
-use crate::gui::view::GuiView;
+use crate::gui::view::{GuiView, update_mouse_pointer};
+use crate::open::Opener;
 
 mod render;
 mod dict;
@@ -512,6 +513,32 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 		gc.ctrl_mut().select_text(from, to, &mut gc.ctx_mut());
 	}
 
+	#[inline]
+	fn view_image(controller: &GuiController, line: usize, offset: usize,
+		opener: &mut Opener) -> Result<()>
+	{
+		if let Some(line) = controller.book.lines().get(line) {
+			if let Some(url) = line.image_at(offset) {
+				if let Some((_, bytes)) = controller.book.image(url) {
+					opener.open_image(url, bytes)?;
+				}
+			}
+		}
+		Ok(())
+	}
+
+	#[inline]
+	fn open_link(controller: &GuiController, line: usize, link_index: usize,
+		opener: &mut Opener) -> Result<()>
+	{
+		if let Some(line) = controller.book.lines().get(line) {
+			if let Some(link) = line.link_at(link_index) {
+				opener.open_link(link.target)?;
+			}
+		}
+		Ok(())
+	}
+
 	view.setup_gesture();
 	{
 		let gc = gc.clone();
@@ -555,6 +582,32 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 			closure_local!(move |_: GuiView, line: u64, link_index: u64| {
 				handle(&gc, |controller, render_context|
 					controller.goto_link(line as usize,	link_index as usize, render_context));
+	        }),
+		);
+	}
+
+	{
+		// open image signal
+		let gc = gc.clone();
+		view.connect_closure(
+			GuiView::OPEN_IMAGE_EXTERNAL_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView, line: u64, offset: u64| {
+				handle(&gc, |controller, _render_context|
+					view_image(controller, line as usize, offset as usize, &mut gc.opener()))
+	        }),
+		);
+	}
+
+	{
+		// open link external signal
+		let gc = gc.clone();
+		view.connect_closure(
+			GuiView::OPEN_LINK_EXTERNAL_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView, line: u64, link_index: u64| {
+				handle(&gc, |controller, _render_context|
+					open_link(controller, line as usize, link_index as usize, &mut gc.opener()))
 	        }),
 		);
 	}
@@ -703,12 +756,34 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 	window.add_css_class("main-window");
 	update_title(window, &filename);
 
+	let window_key_event = EventControllerKey::new();
 	{
-		let window_key_event = EventControllerKey::new();
+		let gc = gc.clone();
+		window_key_event.connect_key_released(move |_, key, _, modifier| {
+			const MODIFIER_NONE: ModifierType = ModifierType::empty();
+			match (key, modifier) {
+				(Key::Control_L, ModifierType::CONTROL_MASK) => {
+					let view = &gc.ctrl().render;
+					if let Some((x, y)) = mouse_pointer(view.as_ref()) {
+						update_mouse_pointer(&view, x, y, MODIFIER_NONE);
+					}
+				}
+				_ => {}
+			}
+		});
+	}
+	{
 		let gc = gc.clone();
 		window_key_event.connect_key_pressed(move |_, key, _, modifier| {
 			const MODIFIER_NONE: ModifierType = ModifierType::empty();
 			match (key, modifier) {
+				(Key::Control_L, MODIFIER_NONE) => {
+					let view = &gc.ctrl().render;
+					if let Some((x, y)) = mouse_pointer(view.as_ref()) {
+						update_mouse_pointer(&view, x, y, ModifierType::CONTROL_MASK);
+					}
+					glib::Propagation::Proceed
+				}
 				(Key::c, MODIFIER_NONE) => {
 					if switch_stack(SIDEBAR_CHAPTER_LIST_NAME, &gc, true) {
 						gc.scroll_to_current_chapter();
@@ -742,13 +817,14 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					glib::Propagation::Stop
 				}
 				_ => {
-					// println!("window, key: {key}, modifier: {modifier}");
+					// println!("window pressed, key: {key}, modifier: {modifier}");
 					glib::Propagation::Proceed
 				}
 			}
 		});
-		window.add_controller(window_key_event);
 	}
+	window.add_controller(window_key_event);
+
 	{
 		let gc = gc.clone();
 		window.connect_close_request(move |_| {
@@ -1100,7 +1176,6 @@ fn apply_settings(locale: &str, fonts: Vec<PathConfig>,
 #[cfg(unix)]
 fn setup_env() -> Result<bool>
 {
-	use std::fs;
 	use dirs::home_dir;
 
 	// any better way to know if a usable backend for gtk4 available?
@@ -1131,6 +1206,7 @@ struct GuiContextInner {
 	ctrl: Rc<RefCell<GuiController>>,
 	ctx: Rc<RefCell<RenderContext>>,
 	dm: Rc<RefCell<DictionaryManager>>,
+	opener: Rc<RefCell<Opener>>,
 	chapter_syncing: Rc<Cell<bool>>,
 	window: ApplicationWindow,
 	menu: Menu,
@@ -1189,6 +1265,7 @@ impl GuiContext {
 			ctrl: ctrl.clone(),
 			ctx: ctx.clone(),
 			dm,
+			opener: Rc::new(RefCell::new(Default::default())),
 			chapter_syncing: Rc::new(Cell::new(false)),
 			window,
 			menu: Menu::new(),
@@ -1236,6 +1313,12 @@ impl GuiContext {
 	fn ctx_mut(&self) -> RefMut<RenderContext>
 	{
 		self.inner.ctx.borrow_mut()
+	}
+
+	#[inline]
+	fn opener(&self) -> RefMut<Opener>
+	{
+		self.inner.opener.borrow_mut()
 	}
 
 	#[inline]
@@ -1513,13 +1596,31 @@ fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>
 	Window::set_default_icon_name("tbr-icon");
 
 	match build_ui(app, cfg.clone(), themes) {
-		Ok(context) => {
-			*gui_context = Some(context);
+		Ok(gc) => {
+			{
+				// clean temp files
+				let gc = gc.clone();
+				app.connect_shutdown(move |_| gc.opener().cleanup());
+			}
+			*gui_context = Some(gc);
 		}
 		Err(err) => {
 			eprintln!("Failed start tbr: {}", err.to_string());
 			app.quit();
 		}
+	}
+}
+
+pub fn mouse_pointer(view: &impl IsA<Widget>) -> Option<(f32, f32)>
+{
+	let pointer = view.display().default_seat()?.pointer()?;
+	let root = view.root()?;
+	let (x, y, _) = root.surface().device_position(&pointer)?;
+	let (x, y) = root.translate_coordinates(view, x, y)?;
+	if x < 0. || y < 0. || x > view.width() as f64 || y > view.height() as f64 {
+		None
+	} else {
+		Some((x as f32, y as f32))
 	}
 }
 
