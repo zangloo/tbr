@@ -752,6 +752,8 @@ mod imp {
 				if let Some(dc) = line.char_at_pos(mouse_position) {
 					if matches!(&dc.cell, RenderCell::Link(_, _)) {
 						return "pointer";
+					} else {
+						break;
 					}
 				}
 			}
