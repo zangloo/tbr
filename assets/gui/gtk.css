@@ -29,7 +29,7 @@ headerbar {
 	min-height: 24px;
 	padding-top: 0;
 	padding-bottom: 0;
-	padding-left: 2px; /* same as childrens vertical margins for nicer proportions */
+	padding-left: 2px; /* same as children vertical margins for nicer proportions */
 	padding-right: 2px;
 	margin: 0; /* same as headerbar side padding for nicer proportions */
 }
