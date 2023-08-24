@@ -1,14 +1,14 @@
+use std::{env, fs};
 use std::borrow::Cow;
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::collections::HashMap;
-use std::{env, fs};
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::ops::Index;
 use std::path::PathBuf;
 use std::rc::Rc;
-use ab_glyph::FontVec;
 
+use ab_glyph::FontVec;
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, FilterListModel, gdk, GestureClick, HeaderBar, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, PositionType, SearchEntry, Stack, Widget, Window};
@@ -21,14 +21,14 @@ use gtk4::prelude::{ActionGroupExt, ActionMapExt, AdjustmentExt, ApplicationExt,
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
 
-use crate::{Asset, PathConfig, Configuration, I18n, package_name, ReadingInfo, Themes, BookToOpen};
+use crate::{Asset, BookToOpen, Configuration, I18n, package_name, PathConfig, ReadingInfo, Themes};
 use crate::book::{Book, Colors, Line};
 use crate::color::Color32;
 use crate::common::{Position, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container, title_for_filename};
 use crate::controller::Controller;
-use crate::gui::render::RenderContext;
 use crate::gui::dict::DictionaryManager;
+use crate::gui::render::RenderContext;
 use crate::gui::view::{GuiView, update_mouse_pointer};
 use crate::open::Opener;
 
@@ -759,10 +759,10 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 	let window_key_event = EventControllerKey::new();
 	{
 		let gc = gc.clone();
-		window_key_event.connect_key_released(move |_, key, _, modifier| {
+		window_key_event.connect_key_released(move |_, key, _, _| {
 			const MODIFIER_NONE: ModifierType = ModifierType::empty();
-			match (key, modifier) {
-				(Key::Control_L, ModifierType::CONTROL_MASK) => {
+			match key {
+				Key::Control_L => {
 					let view = &gc.ctrl().render;
 					if let Some((x, y)) = mouse_pointer(view.as_ref()) {
 						update_mouse_pointer(&view, x, y, MODIFIER_NONE);
