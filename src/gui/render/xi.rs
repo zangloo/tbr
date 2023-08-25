@@ -183,7 +183,7 @@ impl GuiRender for GuiXiRender
 
 			if left + draw_width > max_left {
 				left = context.render_rect.min.x;
-				// for unicode, can_break, or prev break not exists, or breaking conent too long
+				// for unicode, can_break, or prev break not exists, or breaking content too long
 				if can_break || break_position.is_none()
 					|| draw_chars.len() > break_position.unwrap() + 20
 					|| break_position.unwrap() >= draw_chars.len() {

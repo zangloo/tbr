@@ -182,7 +182,7 @@ impl Xi
 			if x + cw > width {
 				let gap = width - x;
 				x = 0;
-				// for unicode, can_break, or prev break not exists, or breaking conent too long
+				// for unicode, can_break, or prev break not exists, or breaking content too long
 				if cw > 1 || can_break || break_position.is_none() || position - break_position.unwrap() > 20 {
 					fill_print_line(&mut print_line, gap);
 					context.print_lines.push(print_line);
@@ -321,7 +321,7 @@ mod tests {
 		};
 		let book: Box<dyn Book> = Box::new(DummyBook { lines });
 		let mut xi = Xi {};
-		// first page draw resul verify
+		// first page draw result verify
 		let next = xi.redraw(book.as_ref(), &book.lines(), 0, 0, &None, &mut context);
 
 		assert!(next.is_some());
@@ -360,7 +360,7 @@ mod tests {
 			assert_eq!(line.len(), result_line.len());
 		}
 
-		// 2nd page draw resul verify
+		// 2nd page draw result verify
 		let next = xi.redraw(book.as_ref(), &book.lines(), next.line, next.offset, &None, &mut context);
 
 		assert!(next.is_some());
@@ -399,7 +399,7 @@ mod tests {
 			assert_eq!(line.len(), result_line.len());
 		}
 
-		// 3rd page draw resul verify
+		// 3rd page draw result verify
 		let next = xi.redraw(book.as_ref(), &book.lines(), next.line, next.offset, &None, &mut context);
 
 		assert!(next.is_none());
