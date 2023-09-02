@@ -11,13 +11,13 @@ use std::rc::Rc;
 use ab_glyph::FontVec;
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
-use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, FilterListModel, gdk, GestureClick, HeaderBar, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, PositionType, SearchEntry, Stack, Widget, Window};
+use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, FilterListModel, gdk, GestureClick, HeaderBar, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, PositionType, SearchEntry, Stack, ToggleButton, Widget, Window};
 use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle};
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
 use gtk4::glib;
 use gtk4::glib::{Bytes, closure_local, ExitCode, Object, ObjectExt, StaticType};
-use gtk4::prelude::{ActionGroupExt, ActionMapExt, AdjustmentExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, IsA, ListBoxRowExt, ListModelExt, NativeExt, PopoverExt, SeatExt, SurfaceExt, WidgetExt};
+use gtk4::prelude::{ActionGroupExt, ActionMapExt, AdjustmentExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, IsA, ListBoxRowExt, ListModelExt, NativeExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
 
@@ -204,7 +204,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let icons = Rc::new(icons);
 
 	let mut render_context = RenderContext::new(colors, configuration.gui.font_size,
-		reading.custom_color, book.leading_space());
+		reading.custom_color, book.leading_space(), configuration.gui.strip_empty_lines);
 	let view = GuiView::new(
 		"main",
 		configuration.render_han,
@@ -225,6 +225,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let (render_icon, render_tooltip) = get_render_icon(configuration.render_han, &i18n);
 	let (theme_icon, theme_tooltip) = get_theme_icon(configuration.dark_theme, &i18n);
 	let (custom_color_icon, custom_color_tooltip) = get_custom_color_icon(controller.reading.custom_color, &i18n);
+	let strip_empty_lines = configuration.gui.strip_empty_lines;
 	drop(configuration);
 
 	let ctx = Rc::new(RefCell::new(render_context));
@@ -239,7 +240,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	chapter_list::init(&gc);
 
 	let (toolbar, render_btn, theme_btn, search_box)
-		= setup_toolbar(&gc, &view, &lookup_entry,
+		= setup_toolbar(&gc, &view, &lookup_entry, strip_empty_lines,
 		render_icon, &render_tooltip, theme_icon, &theme_tooltip,
 		custom_color_icon, &custom_color_tooltip);
 
@@ -931,7 +932,7 @@ fn switch_custom_color(custom_color_btn: &Button, gc: &GuiContext)
 
 #[inline]
 fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
-	render_icon: &str, render_tooltip: &str,
+	strip_empty_lines: bool, render_icon: &str, render_tooltip: &str,
 	theme_icon: &str, theme_tooltip: &str,
 	custom_color_icon: &str, custom_color_tooltip: &str,
 ) -> (gtk4::Box, Button, Button, SearchEntry)
@@ -1045,6 +1046,27 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 		toolbar.append(&custom_color_button);
 	}
 
+	{
+		let image = load_button_image("strip.svg", icons, false);
+		let tooltip = i18n.msg("strip-empty-lines");
+		let strip_empty_lines_button = ToggleButton::builder()
+			.child(&image)
+			.focus_on_click(false)
+			.focusable(false)
+			.tooltip_text(tooltip)
+			.active(strip_empty_lines)
+			.build();
+		let gc = gc.clone();
+		strip_empty_lines_button.connect_toggled(move |btn| {
+			let strip_empty_lines = btn.is_active();
+			gc.cfg_mut().gui.strip_empty_lines = strip_empty_lines;
+			let render_context = &mut gc.ctx_mut();
+			render_context.strip_empty_lines = strip_empty_lines;
+			gc.ctrl_mut().redraw(render_context);
+		});
+		toolbar.append(&strip_empty_lines_button);
+	}
+
 	let settings_button = create_button("setting.svg", &i18n.msg("settings-dialog"), &icons, false);
 	{
 		let gc = gc.clone();
@@ -1069,7 +1091,7 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 }
 
 #[inline]
-fn create_button(name: &str, tooltip: &str, icons: &IconMap, inline: bool) -> Button
+fn load_button_image(name: &str, icons: &IconMap, inline: bool) -> Image
 {
 	let pixbuf = icons.get(name).unwrap();
 	let image = Image::from_pixbuf(Some(pixbuf));
@@ -1080,6 +1102,13 @@ fn create_button(name: &str, tooltip: &str, icons: &IconMap, inline: bool) -> Bu
 		image.set_width_request(ICON_SIZE);
 		image.set_height_request(ICON_SIZE);
 	}
+	image
+}
+
+#[inline]
+fn create_button(name: &str, tooltip: &str, icons: &IconMap, inline: bool) -> Button
+{
+	let image = load_button_image(name, icons, inline);
 	let button = Button::builder()
 		.child(&image)
 		.focus_on_click(false)

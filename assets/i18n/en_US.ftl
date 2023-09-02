@@ -16,6 +16,7 @@ lang = language
 search-hint = search
 with-custom-color = book custom color
 no-custom-color = no book custom color
+strip-empty-lines = no empty lines
 tab-chapter = chapter
 tab-dictionary = dictionary
 font-files = font files

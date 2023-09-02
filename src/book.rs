@@ -160,6 +160,18 @@ impl Line {
 	}
 
 	#[inline]
+	#[allow(unused)]
+	pub fn is_blank(&self) -> bool
+	{
+		for char in &self.chars {
+			if !char.is_whitespace() {
+				return false;
+			}
+		}
+		true
+	}
+
+	#[inline]
 	pub fn char_at(&self, index: usize) -> Option<char>
 	{
 		match self.chars.get(index) {

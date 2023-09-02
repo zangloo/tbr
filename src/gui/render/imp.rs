@@ -319,6 +319,8 @@ pub struct RenderContext
 
 	// use book custom color
 	pub custom_color: bool,
+	// strip empty lines
+	pub strip_empty_lines: bool,
 
 	pub render_rect: Rect,
 	pub leading_chars: usize,
@@ -332,7 +334,7 @@ pub struct RenderContext
 
 impl RenderContext {
 	pub fn new(colors: Colors, font_size: u8, custom_color: bool,
-		leading_chars: usize) -> Self
+		leading_chars: usize, strip_empty_lines: bool) -> Self
 	{
 		RenderContext {
 			colors,
@@ -340,6 +342,7 @@ impl RenderContext {
 			font_size,
 			default_font_measure: Pos2::ZERO,
 			custom_color,
+			strip_empty_lines,
 			render_rect: Rect::NOTHING,
 			leading_chars,
 			leading_space: 0.0,
@@ -440,6 +443,18 @@ pub trait GuiRender {
 	}
 
 	#[inline]
+	fn try_wrap_line(&mut self, book: &dyn Book, text: &Line, line: usize,
+		start_offset: usize, end_offset: usize, highlight: &Option<HighlightInfo>,
+		pango: &PangoContext, context: &mut RenderContext) -> Vec<RenderLine>
+	{
+		if context.strip_empty_lines && text.is_blank() {
+			vec![]
+		} else {
+			self.wrap_line(book, text, line, start_offset, end_offset, highlight, pango, context)
+		}
+	}
+
+	#[inline]
 	fn prepare_wrap(&mut self, text: &Line, line: usize, start_offset: usize,
 		end_offset: usize, context: &RenderContext)
 		-> (usize, Option<Vec<RenderLine>>)
@@ -471,7 +486,7 @@ pub trait GuiRender {
 		let mut offset = reading_offset;
 		for index in reading_line..lines.len() {
 			let line = &lines[index];
-			let wrapped_lines = self.wrap_line(book, &line, index, offset, line.len(), highlight, pango, context);
+			let wrapped_lines = self.try_wrap_line(book, &line, index, offset, line.len(), highlight, pango, context);
 			offset = 0;
 			for wrapped_line in wrapped_lines {
 				drawn_size += wrapped_line.line_size;
@@ -536,7 +551,7 @@ pub trait GuiRender {
 		let mut drawn_size = 0.0;
 		for index in (0..=reading_line).rev() {
 			let line = &lines[index];
-			let wrapped_lines = self.wrap_line(book, &line, index, 0, offset, &None, pango, context);
+			let wrapped_lines = self.try_wrap_line(book, &line, index, 0, offset, &None, pango, context);
 			offset = usize::MAX;
 			for wrapped_line in wrapped_lines.iter().rev() {
 				drawn_size += wrapped_line.line_size;
@@ -562,7 +577,7 @@ pub trait GuiRender {
 		line: usize, offset: usize, pango: &PangoContext, context: &mut RenderContext)
 		-> Position
 	{
-		let wrapped_lines = self.wrap_line(book, &lines[line], line, offset, usize::MAX, &None, pango, context);
+		let wrapped_lines = self.try_wrap_line(book, &lines[line], line, offset, usize::MAX, &None, pango, context);
 		if wrapped_lines.len() > 1 {
 			if let Some(next_line_char) = wrapped_lines[1].chars.first() {
 				Position::new(line, next_line_char.offset)
@@ -586,7 +601,7 @@ pub trait GuiRender {
 			(line, offset)
 		};
 		let text = &lines[line];
-		let wrapped_lines = self.wrap_line(book, text, line, 0, offset, &None, pango, context);
+		let wrapped_lines = self.try_wrap_line(book, text, line, 0, offset, &None, pango, context);
 		if let Some(last_line) = wrapped_lines.last() {
 			if let Some(first_char) = last_line.chars.first() {
 				Position::new(line, first_char.offset)
@@ -603,7 +618,7 @@ pub trait GuiRender {
 		-> Position
 	{
 		let text = &lines[line];
-		let wrapped_lines = self.wrap_line(book, text, line, 0, start + 1, &None, pango, context);
+		let wrapped_lines = self.try_wrap_line(book, text, line, 0, start + 1, &None, pango, context);
 		if let Some(last_line) = wrapped_lines.last() {
 			if let Some(first_char) = last_line.chars.first() {
 				Position::new(line, first_char.offset)

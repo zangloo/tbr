@@ -84,6 +84,8 @@ pub struct ReadingInfo {
 	position: usize,
 	#[serde(default)]
 	custom_color: bool,
+	#[serde(default)]
+	strip_empty_lines: bool,
 	ts: u64,
 }
 
@@ -98,6 +100,7 @@ impl ReadingInfo {
 			line: 0,
 			position: 0,
 			custom_color: true,
+			strip_empty_lines: false,
 			ts: 0,
 		}
 	}
@@ -127,7 +130,8 @@ impl ReadingInfo {
 		Position::new(self.line, self.position)
 	}
 
-	fn now() -> u64 {
+	fn now() -> u64
+	{
 		SystemTime::now()
 			.duration_since(UNIX_EPOCH)
 			.unwrap()
@@ -136,7 +140,8 @@ impl ReadingInfo {
 }
 
 impl Clone for ReadingInfo {
-	fn clone(&self) -> Self {
+	fn clone(&self) -> Self
+	{
 		ReadingInfo {
 			filename: self.filename.clone(),
 			inner_book: self.inner_book,
@@ -144,6 +149,7 @@ impl Clone for ReadingInfo {
 			line: self.line,
 			position: self.position,
 			custom_color: self.custom_color,
+			strip_empty_lines: self.strip_empty_lines,
 			ts: ReadingInfo::now(),
 		}
 	}
@@ -166,6 +172,8 @@ struct GuiConfiguration {
 	dictionaries: Vec<PathConfig>,
 	#[serde(default)]
 	cache_dict: bool,
+	#[serde(default)]
+	strip_empty_lines: bool,
 }
 
 #[cfg(feature = "gui")]
@@ -179,6 +187,7 @@ impl Default for GuiConfiguration
 			lang: default_locale(),
 			dictionaries: vec![],
 			cache_dict: false,
+			strip_empty_lines: false,
 		}
 	}
 }
