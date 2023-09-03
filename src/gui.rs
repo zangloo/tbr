@@ -16,7 +16,7 @@ use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle};
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
 use gtk4::glib;
-use gtk4::glib::{Bytes, closure_local, ExitCode, Object, ObjectExt, StaticType};
+use gtk4::glib::{Bytes, closure_local, ExitCode, Object, ObjectExt, SignalHandlerId, StaticType};
 use gtk4::prelude::{ActionGroupExt, ActionMapExt, AdjustmentExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, IsA, ListBoxRowExt, ListModelExt, NativeExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
@@ -224,7 +224,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 
 	let (render_icon, render_tooltip) = get_render_icon(configuration.render_han, &i18n);
 	let (theme_icon, theme_tooltip) = get_theme_icon(configuration.dark_theme, &i18n);
-	let (custom_color_icon, custom_color_tooltip) = get_custom_color_icon(controller.reading.custom_color, &i18n);
+	let custom_color = controller.reading.custom_color;
 	let strip_empty_lines = configuration.gui.strip_empty_lines;
 	drop(configuration);
 
@@ -240,9 +240,8 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	chapter_list::init(&gc);
 
 	let (toolbar, render_btn, theme_btn, search_box)
-		= setup_toolbar(&gc, &view, &lookup_entry, strip_empty_lines,
-		render_icon, &render_tooltip, theme_icon, &theme_tooltip,
-		custom_color_icon, &custom_color_tooltip);
+		= setup_toolbar(&gc, &view, &lookup_entry, strip_empty_lines, custom_color,
+		render_icon, &render_tooltip, theme_icon, &theme_tooltip);
 
 	{
 		let gc = gc.clone();
@@ -864,15 +863,6 @@ fn get_theme_icon(dark_theme: bool, i18n: &I18n) -> (&'static str, Cow<str>) {
 	}
 }
 
-#[inline(always)]
-fn get_custom_color_icon(custom_color: bool, i18n: &I18n) -> (&'static str, Cow<str>) {
-	if custom_color {
-		("custom_color_off.svg", i18n.msg("no-custom-color"))
-	} else {
-		("custom_color_on.svg", i18n.msg("with-custom-color"))
-	}
-}
-
 fn toggle_sidebar(gc: &GuiContext)
 {
 	let paned = gc.paned();
@@ -918,23 +908,11 @@ fn switch_theme(theme_btn: &Button, gc: &GuiContext)
 	view::update_css(gc.css_provider(), "main", &render_context.colors.background);
 }
 
-fn switch_custom_color(custom_color_btn: &Button, gc: &GuiContext)
-{
-	let mut controller = gc.ctrl_mut();
-	let custom_color = !controller.reading.custom_color;
-	controller.reading.custom_color = custom_color;
-	let (custom_color_icon, custom_color_tooltip) = get_custom_color_icon(custom_color, gc.i18n());
-	update_button(custom_color_btn, custom_color_icon, &custom_color_tooltip, gc.icons());
-	let mut render_context = gc.ctx_mut();
-	render_context.custom_color = custom_color;
-	controller.redraw(&mut render_context);
-}
-
 #[inline]
 fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
-	strip_empty_lines: bool, render_icon: &str, render_tooltip: &str,
+	strip_empty_lines: bool, custom_color: bool,
+	render_icon: &str, render_tooltip: &str,
 	theme_icon: &str, theme_tooltip: &str,
-	custom_color_icon: &str, custom_color_tooltip: &str,
 ) -> (gtk4::Box, Button, Button, SearchEntry)
 {
 	let i18n = gc.i18n();
@@ -1037,25 +1015,20 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 		toolbar.append(&theme_button);
 	}
 
-	let custom_color_button = create_button(custom_color_icon, custom_color_tooltip, &icons, false);
 	{
-		let gc = gc.clone();
-		custom_color_button.connect_clicked(move |btn| {
-			switch_custom_color(btn, &gc);
-		});
-		toolbar.append(&custom_color_button);
+		let custom_color_button = gc.custom_color_btn();
+		custom_color_button.set_active(custom_color);
+		toolbar.append(custom_color_button);
 	}
 
 	{
-		let image = load_button_image("strip.svg", icons, false);
-		let tooltip = i18n.msg("strip-empty-lines");
-		let strip_empty_lines_button = ToggleButton::builder()
-			.child(&image)
-			.focus_on_click(false)
-			.focusable(false)
-			.tooltip_text(tooltip)
-			.active(strip_empty_lines)
-			.build();
+		let strip_empty_lines_button = create_toggle_button(
+			strip_empty_lines,
+			"strip.svg",
+			"strip-empty-lines",
+			icons,
+			i18n,
+		);
 		let gc = gc.clone();
 		strip_empty_lines_button.connect_toggled(move |btn| {
 			let strip_empty_lines = btn.is_active();
@@ -1103,6 +1076,29 @@ fn load_button_image(name: &str, icons: &IconMap, inline: bool) -> Image
 		image.set_height_request(ICON_SIZE);
 	}
 	image
+}
+
+#[inline]
+fn update_toggle_button(btn: &ToggleButton, handle_id: &SignalHandlerId, active: bool)
+{
+	btn.block_signal(handle_id);
+	btn.set_active(active);
+	btn.unblock_signal(handle_id);
+}
+
+fn create_toggle_button(active: bool, name: &str, i18n_key: &str,
+	icons: &IconMap, i18n: &I18n)
+	-> ToggleButton
+{
+	let image = load_button_image(name, icons, false);
+	let tooltip = i18n.msg(i18n_key);
+	ToggleButton::builder()
+		.child(&image)
+		.focus_on_click(false)
+		.focusable(false)
+		.tooltip_text(tooltip)
+		.active(active)
+		.build()
 }
 
 #[inline]
@@ -1244,6 +1240,8 @@ struct GuiContextInner {
 	paned: Paned,
 	sidebar_stack: Stack,
 	sidebar_btn: Button,
+	custom_color_btn: ToggleButton,
+	custom_color_handler_id: SignalHandlerId,
 	chapter_list: ListBox,
 	chapter_model: FilterListModel,
 	icons: Rc<IconMap>,
@@ -1288,6 +1286,25 @@ impl GuiContext {
 			.vexpand(true)
 			.build();
 		let sidebar_btn = create_button("sidebar_on.svg", &i18n.msg("sidebar-on"), &icons, false);
+		let custom_color_btn = create_toggle_button(
+			false,
+			"custom_color.svg",
+			"with-custom-color",
+			&icons,
+			&i18n,
+		);
+		let custom_color_handler_id = {
+			let ctrl = ctrl.clone();
+			let ctx = ctx.clone();
+			custom_color_btn.connect_toggled(move |btn| {
+				let custom_color = btn.is_active();
+				let mut controller = ctrl.borrow_mut();
+				controller.reading.custom_color = custom_color;
+				let mut render_context = ctx.borrow_mut();
+				render_context.custom_color = custom_color;
+				controller.redraw(&mut render_context);
+			})
+		};
 
 		let inner = GuiContextInner {
 			cfg: cfg.clone(),
@@ -1303,6 +1320,8 @@ impl GuiContext {
 			paned,
 			sidebar_stack,
 			sidebar_btn,
+			custom_color_btn,
+			custom_color_handler_id,
 			chapter_list,
 			chapter_model,
 			icons,
@@ -1366,6 +1385,18 @@ impl GuiContext {
 	fn sidebar_btn(&self) -> &Button
 	{
 		&self.inner.sidebar_btn
+	}
+
+	#[inline]
+	fn custom_color_btn(&self) -> &ToggleButton
+	{
+		&self.inner.custom_color_btn
+	}
+
+	#[inline]
+	fn update_custom_color(&self, active: bool)
+	{
+		update_toggle_button(&self.inner.custom_color_btn, &self.inner.custom_color_handler_id, active);
 	}
 
 	#[inline]
@@ -1454,6 +1485,9 @@ impl GuiContext {
 					match controller.switch_container(new_reading, &mut render_context) {
 						Ok(msg) => {
 							configuration.history.push(reading_now);
+							let custom_color = controller.reading.custom_color;
+							self.update_custom_color(custom_color);
+							render_context.custom_color = custom_color;
 							update_title(self.win(), &controller.reading.filename);
 							controller.redraw(&mut render_context);
 							self.update(

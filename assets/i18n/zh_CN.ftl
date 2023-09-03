@@ -15,7 +15,6 @@ theme-bright = 日光模式
 lang = 语言
 search-hint = 查找
 with-custom-color = 使用书籍设定颜色
-no-custom-color = 不使用书籍设定颜色
 strip-empty-lines = 隐藏空行
 tab-chapter = 章节
 tab-dictionary = 字典
