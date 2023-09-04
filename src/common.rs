@@ -7,7 +7,7 @@ use unicode_width::UnicodeWidthChar;
 use crate::book::Line;
 use crate::ReadingInfo;
 
-pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 34] = [
+pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 36] = [
 	(' ', '　'),
 	('─', '︱'),
 	('…', '︙'),
@@ -42,6 +42,8 @@ pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 34] = [
 	('}', '︸'),
 	('〖', '︘'),
 	('〗', '︗'),
+	('～','ⸯ'),
+	('~','ⸯ'),
 ];
 
 #[allow(unused)]
