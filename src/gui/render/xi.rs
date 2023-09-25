@@ -139,6 +139,7 @@ impl GuiRender for GuiXiRender
 					pango,
 					char,
 					font_size,
+					char_style.font_weight,
 					context);
 
 				let mut rect = Rect::new(left, self.baseline, cell_size.x, cell_size.y);
@@ -166,6 +167,7 @@ impl GuiRender for GuiXiRender
 				let cell = CharCell {
 					char: if blank_char { ' ' } else { char },
 					font_size,
+					font_weight: char_style.font_weight,
 					color,
 					background,
 					cell_offset,

@@ -4,11 +4,12 @@ use std::ops::Range;
 use std::rc::Rc;
 use ab_glyph::{Font, FontVec};
 use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
-use gtk4::cairo;
+use gtk4::{cairo, pango};
 use gtk4::prelude::GdkCairoContextExt;
 use gtk4::cairo::{Context as CairoContext};
 use gtk4::pango::{Layout as PangoContext, FontDescription};
 use gtk4::pango::ffi::PANGO_SCALE;
+use crate::book;
 
 use crate::book::{Book, CharStyle, Colors, HAN_CHAR, Line};
 use crate::color::Color32;
@@ -40,6 +41,7 @@ pub enum TextDecoration {
 pub struct CharCell {
 	pub char: char,
 	pub font_size: f32,
+	pub font_weight: u16,
 	pub color: Color32,
 	pub background: Option<Color32>,
 	pub cell_offset: Vec2,
@@ -203,16 +205,17 @@ impl CharDrawData {
 pub struct PangoDrawData {
 	char: String,
 	font_size: i32,
+	font_weight: u16,
 	size: Vec2,
 	draw_offset: Pos2,
 	draw_size: Vec2,
 }
 
 impl PangoDrawData {
-	fn measure(char: char, font_size: f32, layout: &PangoContext) -> Self
+	fn measure(char: char, font_size: f32, font_weight: u16, layout: &PangoContext) -> Self
 	{
 		let text = char.to_string();
-		set_pango_font_size(font_size as i32, layout);
+		set_pango_font_size(font_size as i32, font_weight, layout);
 		layout.set_text(&text);
 		let (ink_rect, logical_rect) = layout.pixel_extents();
 		let logical_x = logical_rect.x() as f32;
@@ -229,6 +232,7 @@ impl PangoDrawData {
 		PangoDrawData {
 			char: text,
 			font_size: font_size as i32,
+			font_weight,
 			size,
 			draw_offset,
 			draw_size,
@@ -238,7 +242,7 @@ impl PangoDrawData {
 	fn draw(&self, cairo: &CairoContext, offset_x: f32, offset_y: f32, color: &Color32,
 		layout: &PangoContext)
 	{
-		set_pango_font_size(self.font_size, layout);
+		set_pango_font_size(self.font_size, self.font_weight, layout);
 		layout.set_text(&self.char);
 
 		let x_offset = offset_x as f64;
@@ -390,9 +394,9 @@ pub struct ScrollSizing {
 }
 
 #[inline(always)]
-fn cache_key(char: char, font_size: u32) -> u64
+fn cache_key(char: char, font_size: u16, font_weight: u16) -> u64
 {
-	(char as u64) << 32 | font_size as u64
+	(char as u64) << 32 | (font_size as u64) << 16 | font_weight as u64
 }
 
 pub trait GuiRender {
@@ -427,14 +431,16 @@ pub trait GuiRender {
 	fn translate_mouse_pos(&self, mouse_pos: &mut Pos2, render_rect: &Rect,
 		scroll_value: f32, scroll_size: f32);
 
-	fn cache_get(&self, char: char, font_size: f32) -> Option<&CharDrawData>
+	#[inline]
+	fn cache_get(&self, char: char, font_size: f32, font_weight: u16) -> Option<&CharDrawData>
 	{
-		let key = cache_key(char, font_size as u32);
+		let key = cache_key(char, font_size as u16, font_weight);
 		self.cache().get(&key)
 	}
-	fn cache_insert(&mut self, char: char, font_size: f32, data: CharDrawData)
+	#[inline]
+	fn cache_insert(&mut self, char: char, font_size: f32, font_weight: u16, data: CharDrawData)
 	{
-		let key = cache_key(char, font_size as u32);
+		let key = cache_key(char, font_size as u16, font_weight);
 		self.cache_mut().insert(key, data);
 	}
 	fn cache_clear(&mut self)
@@ -521,7 +527,7 @@ pub trait GuiRender {
 						}
 						let draw_position = Pos2::new(dc.rect.min.x + cell.cell_offset.x, dc.rect.min.y + cell.cell_offset.y);
 						// should always exists
-						if let Some(draw_data) = self.cache_get(cell.char, cell.font_size) {
+						if let Some(draw_data) = self.cache_get(cell.char, cell.font_size, cell.font_weight) {
 							draw_char(
 								cairo,
 								draw_data,
@@ -682,29 +688,30 @@ pub trait GuiRender {
 			pango,
 			HAN_CHAR,
 			render_context.font_size as f32,
+			book::DEFAULT_FONT_WIDTH,
 			render_context);
 		render_context.default_font_measure = size;
 	}
 
 	fn measure_char(&mut self, layout: &PangoContext, char: char, font_size: f32,
-		render_context: &mut RenderContext) -> (Vec2, Vec2, Pos2)
+		font_weight: u16, render_context: &mut RenderContext) -> (Vec2, Vec2, Pos2)
 	{
 		const SPACE: char = ' ';
 		const FULL_SPACE: char = '　';
-		if let Some(data) = self.cache_get(char, font_size) {
+		if let Some(data) = self.cache_get(char, font_size, font_weight) {
 			return (data.size(), data.draw_size(), data.offset());
 		}
 		match char {
 			SPACE => {
 				let (size, draw_size, draw_offset) = self.measure_char(
-					layout, 'S', font_size, render_context);
-				self.cache_insert(SPACE, font_size, CharDrawData::Space(size));
+					layout, 'S', font_size, font_weight, render_context);
+				self.cache_insert(SPACE, font_size, font_weight, CharDrawData::Space(size));
 				return (size, draw_size, draw_offset);
 			}
 			FULL_SPACE => {
 				let (size, draw_size, draw_offset) = self.measure_char(
-					layout, HAN_CHAR, font_size, render_context);
-				self.cache_insert(FULL_SPACE, font_size, CharDrawData::Space(size));
+					layout, HAN_CHAR, font_size, font_weight, render_context);
+				self.cache_insert(FULL_SPACE, font_size, font_weight, CharDrawData::Space(size));
 				return (size, draw_size, draw_offset);
 			}
 			_ => {}
@@ -712,12 +719,12 @@ pub trait GuiRender {
 
 		if let Some(draw_data) = OutlineDrawData::measure(char, font_size, &render_context.fonts) {
 			let data = (draw_data.size, draw_data.draw_size, draw_data.draw_offset);
-			self.cache_insert(char, font_size, CharDrawData::Outline(draw_data));
+			self.cache_insert(char, font_size, font_weight, CharDrawData::Outline(draw_data));
 			data
 		} else {
-			let draw_data = PangoDrawData::measure(char, font_size, layout);
+			let draw_data = PangoDrawData::measure(char, font_size, font_weight, layout);
 			let data = (draw_data.size, draw_data.draw_size, draw_data.draw_offset);
-			self.cache_insert(char, font_size, CharDrawData::Pango(draw_data));
+			self.cache_insert(char, font_size, font_weight, CharDrawData::Pango(draw_data));
 			data
 		}
 	}
@@ -833,10 +840,22 @@ pub fn handle_cairo<T>(result: Result<T, cairo::Error>)
 }
 
 #[inline(always)]
-fn set_pango_font_size(font_size: i32, layout: &PangoContext)
+fn set_pango_font_size(font_size: i32, font_weight: u16, layout: &PangoContext)
 {
 	let mut description = FontDescription::new();
 	description.set_size(font_size * PANGO_SCALE);
+	description.set_weight(match font_weight {
+		100 => pango::Weight::Thin,
+		200 => pango::Weight::Light,
+		300 => pango::Weight::Book,
+		400 => pango::Weight::Normal,
+		500 => pango::Weight::Medium,
+		600 => pango::Weight::Semibold,
+		700 => pango::Weight::Bold,
+		800 => pango::Weight::Ultrabold,
+		900 => pango::Weight::Heavy,
+		_ => pango::Weight::Normal,
+	});
 	layout.set_font_description(Some(&description));
 }
 

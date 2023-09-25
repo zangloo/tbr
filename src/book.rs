@@ -32,11 +32,21 @@ pub const HAN_CHAR: char = '漢';
 
 type TextDecorationLine = lightningcss::properties::text::TextDecorationLine;
 
+pub const DEFAULT_FONT_WIDTH: u16 = 400;
+
+#[derive(Clone, Debug)]
+pub enum FontWeightValue {
+	Absolute(u16),
+	Bolder,
+	Lighter,
+}
+
 #[derive(Clone, Debug)]
 pub enum TextStyle {
 	Line(TextDecorationLine),
 	Border,
 	FontSize { scale: f32, relative: bool },
+	FontWeight(FontWeightValue),
 	Image(String),
 	Link(String),
 	Color(Color32),
@@ -47,6 +57,7 @@ pub enum TextStyle {
 #[derive(Debug)]
 pub struct CharStyle {
 	pub font_scale: f32,
+	pub font_weight: u16,
 	pub color: Color32,
 	pub background: Option<Color32>,
 	pub line: Option<(TextDecorationLine, Range<usize>)>,
@@ -264,6 +275,7 @@ impl Line {
 	{
 		let mut char_style = CharStyle {
 			font_scale: 1.0,
+			font_weight: DEFAULT_FONT_WIDTH,
 			color: colors.color.clone(),
 			background: None,
 			line: None,
@@ -279,6 +291,25 @@ impl Line {
 							char_style.font_scale *= scale;
 						} else {
 							char_style.font_scale = *scale;
+						}
+					}
+					TextStyle::FontWeight(weight) => {
+						char_style.font_weight = match weight {
+							FontWeightValue::Absolute(weight) => *weight,
+							FontWeightValue::Bolder => if char_style.font_weight <= 300 {
+								400
+							} else if char_style.font_weight <= 500 {
+								700
+							} else {
+								900
+							}
+							FontWeightValue::Lighter => if char_style.font_weight <= 500 {
+								100
+							} else if char_style.font_weight <= 700 {
+								400
+							} else {
+								700
+							}
 						}
 					}
 					TextStyle::Image(href) => char_style.image = Some(href.clone()),

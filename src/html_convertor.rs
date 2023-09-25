@@ -7,7 +7,7 @@ use ego_tree::{NodeId, NodeRef};
 use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use lightningcss::properties::{border, font, Property};
 use lightningcss::properties::border::{Border, BorderSideWidth};
-use lightningcss::properties::font::FontSize;
+use lightningcss::properties::font::{AbsoluteFontWeight, FontSize, FontWeight};
 use lightningcss::rules::CssRule;
 use lightningcss::stylesheet::{ParserOptions, StyleSheet};
 use lightningcss::traits::Parse;
@@ -17,7 +17,7 @@ use lightningcss::values::percentage;
 use scraper::{Html, Node, Selector};
 use scraper::node::Element;
 
-use crate::book::{EMPTY_CHAPTER_CONTENT, IMAGE_CHAR, Line, TextStyle};
+use crate::book::{EMPTY_CHAPTER_CONTENT, FontWeightValue, IMAGE_CHAR, Line, TextStyle};
 use crate::color::Color32;
 use crate::common::plain_text;
 use crate::common::Position;
@@ -376,11 +376,32 @@ fn convert_style(property: &Property) -> Option<TextStyle>
 			Some(TextStyle::Border)
 		}
 		Property::FontSize(size) => Some(font_size(size)),
+		Property::FontWeight(weight) => Some(font_weight(weight)),
 		Property::TextDecorationLine(line, _) => Some(TextStyle::Line(*line)),
 		Property::Color(color) => Some(TextStyle::Color(css_color(color)?)),
 		Property::BackgroundColor(color) => Some(TextStyle::BackgroundColor(css_color(color)?)),
 		Property::Background(bg) => Some(TextStyle::BackgroundColor(css_color(&bg[0].color)?)),
 		_ => None,
+	}
+}
+
+/// https://developer.mozilla.org/en-US/docs/Web/CSS/font-weight
+#[inline]
+fn font_weight(weight: &FontWeight) -> TextStyle
+{
+	match weight {
+		FontWeight::Absolute(weight) => match weight {
+			AbsoluteFontWeight::Weight(number) => {
+				let value: f32 = *number;
+				TextStyle::FontWeight(FontWeightValue::Absolute(value as u16))
+			}
+			AbsoluteFontWeight::Normal =>
+				TextStyle::FontWeight(FontWeightValue::Absolute(400)),
+			AbsoluteFontWeight::Bold =>
+				TextStyle::FontWeight(FontWeightValue::Absolute(700)),
+		}
+		FontWeight::Bolder => TextStyle::FontWeight(FontWeightValue::Bolder),
+		FontWeight::Lighter => TextStyle::FontWeight(FontWeightValue::Lighter),
 	}
 }
 

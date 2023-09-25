@@ -113,6 +113,7 @@ impl GuiRender for GuiHanRender
 					pango,
 					char,
 					font_size,
+					char_style.font_weight,
 					context);
 				let (char_height, y_offset) = if self.compact_chars.contains(&char) {
 					(draw_size.y * 2., -draw_offset.y + (draw_size.y / 2.))
@@ -141,6 +142,7 @@ impl GuiRender for GuiHanRender
 				let cell = CharCell {
 					char,
 					font_size,
+					font_weight: char_style.font_weight,
 					color,
 					background,
 					cell_offset,
