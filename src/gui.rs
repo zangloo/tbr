@@ -787,9 +787,11 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					glib::Propagation::Proceed
 				}
 				(Key::c, MODIFIER_NONE) => {
+					gc.inner.chapter_syncing.replace(true);
 					if switch_stack(SIDEBAR_CHAPTER_LIST_NAME, &gc, true) {
 						gc.scroll_to_current_chapter();
 					}
+					gc.inner.chapter_syncing.replace(false);
 					glib::Propagation::Stop
 				}
 				(Key::d, MODIFIER_NONE) => {
@@ -1616,6 +1618,7 @@ impl GuiContext {
 		}
 		self.inner.chapter_syncing.replace(true);
 		do_sync(self, sync_mode, controller);
+		self.scroll_to_current_chapter();
 		self.inner.chapter_syncing.replace(false);
 	}
 
