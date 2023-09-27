@@ -173,15 +173,13 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 					let np = &toc[toc_index];
 					match &np.src_file {
 						Some(src_file) if chapter_href == src_file => {
+							file_matched = Some(toc_index);
 							if let Some(anchor) = &np.src_anchor {
-								file_matched = Some(toc_index);
 								if let Some(position) = c.id_map.get(anchor) {
 									if position.line > line || (position.line == line && position.offset > offset) {
 										break;
 									}
 								}
-							} else {
-								file_matched = Some(toc_index);
 							}
 						}
 						_ => if np.first_chapter_index <= self.chapter_index {
