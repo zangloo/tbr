@@ -174,10 +174,9 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 					match &np.src_file {
 						Some(src_file) if chapter_href == src_file => {
 							if let Some(anchor) = &np.src_anchor {
+								file_matched = Some(toc_index);
 								if let Some(position) = c.id_map.get(anchor) {
-									if position.line < line || (position.line == line && position.offset <= offset) {
-										file_matched = Some(toc_index);
-									} else {
+									if position.line > line || (position.line == line && position.offset > offset) {
 										break;
 									}
 								}
