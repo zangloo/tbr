@@ -10,6 +10,7 @@ use gtk4::gdk::{Key, ModifierType};
 use gtk4::glib::{closure_local, ObjectExt};
 use gtk4::glib;
 use gtk4::prelude::{BoxExt, ButtonExt, DrawingAreaExt, EditableExt, WidgetExt};
+use indexmap::IndexSet;
 use stardict::{StarDict, WordDefinition};
 use crate::book::{Book, Colors, Line};
 use crate::{package_name, PathConfig};
@@ -59,6 +60,7 @@ struct DictionaryBook {
 	cache: HashMap<String, Vec<LookupResult>>,
 	resources: FrozenMap<String, Vec<u8>>,
 	replacer: Regex,
+	font_families: IndexSet<String>,
 
 	content: HtmlContent,
 }
@@ -108,11 +110,8 @@ impl Default for DictionaryBook {
 			cache: HashMap::new(),
 			resources: FrozenMap::new(),
 			replacer: Regex::new(INJECT_REGEXP).unwrap(),
-			content: HtmlContent {
-				title: None,
-				lines: vec![],
-				id_map: Default::default(),
-			},
+			content: Default::default(),
+			font_families: Default::default(),
 		}
 	}
 }
@@ -161,13 +160,13 @@ impl DictionaryBook {
 				render_definition(single, &mut text, &self.replacer);
 			}
 			text.push_str(HTML_DEFINITION_TAIL);
-			if let Ok(mut content) = html_str_content(&text, None::<fn(String) -> Option<&'static String>>) {
+			if let Ok(mut content) = html_str_content(&text, &mut self.font_families, None::<fn(String) -> Option<&'static String>>) {
 				content.title = Some(String::from(word));
 				content
 			} else {
 				let mut lines = vec![];
 				for single in &mut *results {
-					let mut new_lines = render_definition_text(single);
+					let mut new_lines = render_definition_text(single, &mut self.font_families);
 					lines.append(&mut new_lines);
 				}
 				HtmlContent {
@@ -404,7 +403,7 @@ fn inject_definition<'a>(html: &'a str, dict_name: &str, replacer: &Regex) -> Co
 }
 
 #[inline]
-fn render_definition_text(result: &LookupResult) -> Vec<Line>
+fn render_definition_text(result: &LookupResult, font_families: &mut IndexSet<String>) -> Vec<Line>
 {
 	let mut html = "<html><body>".to_string();
 
@@ -422,7 +421,7 @@ fn render_definition_text(result: &LookupResult) -> Vec<Line>
 		}
 	}
 	html.push_str("</body></html>");
-	html_str_content(&html, None::<fn(String) -> Option<&'static String>>).unwrap().lines
+	html_str_content(&html, font_families, None::<fn(String) -> Option<&'static String>>).unwrap().lines
 }
 
 #[inline]

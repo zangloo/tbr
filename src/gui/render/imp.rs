@@ -9,6 +9,7 @@ use gtk4::prelude::GdkCairoContextExt;
 use gtk4::cairo::{Context as CairoContext};
 use gtk4::pango::{Layout as PangoContext, FontDescription};
 use gtk4::pango::ffi::PANGO_SCALE;
+use indexmap::IndexSet;
 use crate::book;
 
 use crate::book::{Book, CharStyle, Colors, HAN_CHAR, Line};
@@ -41,7 +42,8 @@ pub enum TextDecoration {
 pub struct CharCell {
 	pub char: char,
 	pub font_size: f32,
-	pub font_weight: u16,
+	pub font_weight: u8,
+	pub font_family: Option<u16>,
 	pub color: Color32,
 	pub background: Option<Color32>,
 	pub cell_offset: Vec2,
@@ -204,18 +206,23 @@ impl CharDrawData {
 
 pub struct PangoDrawData {
 	char: String,
-	font_size: i32,
-	font_weight: u16,
+	font_size: u8,
+	font_weight: u8,
+	font_family: Option<u16>,
 	size: Vec2,
 	draw_offset: Pos2,
 	draw_size: Vec2,
 }
 
 impl PangoDrawData {
-	fn measure(char: char, font_size: f32, font_weight: u16, layout: &PangoContext) -> Self
+	fn measure(char: char, font_size: f32, font_weight: u8,
+		font_family_idx: &Option<u16>, font_family_names: Option<&IndexSet<String>>,
+		layout: &PangoContext) -> Self
 	{
 		let text = char.to_string();
-		set_pango_font_size(font_size as i32, font_weight, layout);
+		let font_size = font_size as u8;
+		let font_family_names = get_font_family_names(font_family_idx, font_family_names);
+		set_pango_font_size(font_size, font_weight, font_family_names, layout);
 		layout.set_text(&text);
 		let (ink_rect, logical_rect) = layout.pixel_extents();
 		let logical_x = logical_rect.x() as f32;
@@ -231,8 +238,9 @@ impl PangoDrawData {
 
 		PangoDrawData {
 			char: text,
-			font_size: font_size as i32,
+			font_size,
 			font_weight,
+			font_family: font_family_idx.clone(),
 			size,
 			draw_offset,
 			draw_size,
@@ -240,9 +248,10 @@ impl PangoDrawData {
 	}
 
 	fn draw(&self, cairo: &CairoContext, offset_x: f32, offset_y: f32, color: &Color32,
-		layout: &PangoContext)
+		font_family_names: Option<&IndexSet<String>>, layout: &PangoContext)
 	{
-		set_pango_font_size(self.font_size, self.font_weight, layout);
+		let font_family_names = get_font_family_names(&self.font_family, font_family_names);
+		set_pango_font_size(self.font_size, self.font_weight, font_family_names, layout);
 		layout.set_text(&self.char);
 
 		let x_offset = offset_x as f64;
@@ -394,9 +403,12 @@ pub struct ScrollSizing {
 }
 
 #[inline(always)]
-fn cache_key(char: char, font_size: u16, font_weight: u16) -> u64
+fn cache_key(char: char, font_size: u8, font_weight: u8, font_family_idx: &Option<u16>) -> u64
 {
-	(char as u64) << 32 | (font_size as u64) << 16 | font_weight as u64
+	(char as u64) << 32
+		| (font_size as u64) << 24
+		| (font_weight as u64) << 16
+		| font_family_idx.unwrap_or(u16::MAX) as u64
 }
 
 pub trait GuiRender {
@@ -432,15 +444,16 @@ pub trait GuiRender {
 		scroll_value: f32, scroll_size: f32);
 
 	#[inline]
-	fn cache_get(&self, char: char, font_size: f32, font_weight: u16) -> Option<&CharDrawData>
+	fn cache_get(&self, char: char, font_size: f32, font_weight: u8, font_family_idx: &Option<u16>) -> Option<&CharDrawData>
 	{
-		let key = cache_key(char, font_size as u16, font_weight);
+		let key = cache_key(char, font_size as u8, font_weight, font_family_idx);
 		self.cache().get(&key)
 	}
 	#[inline]
-	fn cache_insert(&mut self, char: char, font_size: f32, font_weight: u16, data: CharDrawData)
+	fn cache_insert(&mut self, char: char, font_size: f32, font_weight: u8,
+		font_family_idx: &Option<u16>, data: CharDrawData)
 	{
-		let key = cache_key(char, font_size as u16, font_weight);
+		let key = cache_key(char, font_size as u8, font_weight, font_family_idx);
 		self.cache_mut().insert(key, data);
 	}
 	fn cache_clear(&mut self)
@@ -511,7 +524,8 @@ pub trait GuiRender {
 		(render_lines, None)
 	}
 
-	fn draw(&self, render_lines: &[RenderLine], cairo: &CairoContext, layout: &PangoContext)
+	fn draw(&self, render_lines: &[RenderLine], font_family_names: &Option<IndexSet<String>>,
+		cairo: &CairoContext, layout: &PangoContext)
 	{
 		cairo.set_line_width(1.0);
 		for render_line in render_lines {
@@ -527,12 +541,13 @@ pub trait GuiRender {
 						}
 						let draw_position = Pos2::new(dc.rect.min.x + cell.cell_offset.x, dc.rect.min.y + cell.cell_offset.y);
 						// should always exists
-						if let Some(draw_data) = self.cache_get(cell.char, cell.font_size, cell.font_weight) {
+						if let Some(draw_data) = self.cache_get(cell.char, cell.font_size, cell.font_weight, &cell.font_family) {
 							draw_char(
 								cairo,
 								draw_data,
 								&draw_position,
 								&cell.color,
+								font_family_names,
 								layout,
 							);
 						}
@@ -689,29 +704,34 @@ pub trait GuiRender {
 			HAN_CHAR,
 			render_context.font_size as f32,
 			book::DEFAULT_FONT_WIDTH,
+			&None,
+			None,
 			render_context);
 		render_context.default_font_measure = size;
 	}
 
 	fn measure_char(&mut self, layout: &PangoContext, char: char, font_size: f32,
-		font_weight: u16, render_context: &mut RenderContext) -> (Vec2, Vec2, Pos2)
+		font_weight: u8, font_family_index: &Option<u16>,
+		font_family_names: Option<&IndexSet<String>>,
+		render_context: &mut RenderContext)
+		-> (Vec2, Vec2, Pos2)
 	{
 		const SPACE: char = ' ';
 		const FULL_SPACE: char = '　';
-		if let Some(data) = self.cache_get(char, font_size, font_weight) {
+		if let Some(data) = self.cache_get(char, font_size, font_weight, font_family_index) {
 			return (data.size(), data.draw_size(), data.offset());
 		}
 		match char {
 			SPACE => {
 				let (size, draw_size, draw_offset) = self.measure_char(
-					layout, 'S', font_size, font_weight, render_context);
-				self.cache_insert(SPACE, font_size, font_weight, CharDrawData::Space(size));
+					layout, 'S', font_size, font_weight, font_family_index, font_family_names, render_context);
+				self.cache_insert(SPACE, font_size, font_weight, font_family_index, CharDrawData::Space(size));
 				return (size, draw_size, draw_offset);
 			}
 			FULL_SPACE => {
 				let (size, draw_size, draw_offset) = self.measure_char(
-					layout, HAN_CHAR, font_size, font_weight, render_context);
-				self.cache_insert(FULL_SPACE, font_size, font_weight, CharDrawData::Space(size));
+					layout, HAN_CHAR, font_size, font_weight, font_family_index, font_family_names, render_context);
+				self.cache_insert(FULL_SPACE, font_size, font_weight, font_family_index, CharDrawData::Space(size));
 				return (size, draw_size, draw_offset);
 			}
 			_ => {}
@@ -719,12 +739,18 @@ pub trait GuiRender {
 
 		if let Some(draw_data) = OutlineDrawData::measure(char, font_size, &render_context.fonts) {
 			let data = (draw_data.size, draw_data.draw_size, draw_data.draw_offset);
-			self.cache_insert(char, font_size, font_weight, CharDrawData::Outline(draw_data));
+			self.cache_insert(char, font_size, font_weight, font_family_index, CharDrawData::Outline(draw_data));
 			data
 		} else {
-			let draw_data = PangoDrawData::measure(char, font_size, font_weight, layout);
+			let draw_data = PangoDrawData::measure(
+				char,
+				font_size,
+				font_weight,
+				font_family_index,
+				font_family_names,
+				layout);
 			let data = (draw_data.size, draw_data.draw_size, draw_data.draw_offset);
-			self.cache_insert(char, font_size, font_weight, CharDrawData::Pango(draw_data));
+			self.cache_insert(char, font_size, font_weight, font_family_index, CharDrawData::Pango(draw_data));
 			data
 		}
 	}
@@ -840,36 +866,54 @@ pub fn handle_cairo<T>(result: Result<T, cairo::Error>)
 }
 
 #[inline(always)]
-fn set_pango_font_size(font_size: i32, font_weight: u16, layout: &PangoContext)
+fn set_pango_font_size(font_size: u8, font_weight: u8,
+	font_families: Option<&str>, layout: &PangoContext)
 {
 	let mut description = FontDescription::new();
-	description.set_size(font_size * PANGO_SCALE);
+	description.set_size(font_size as i32 * PANGO_SCALE);
 	description.set_weight(match font_weight {
-		100 => pango::Weight::Thin,
-		200 => pango::Weight::Light,
-		300 => pango::Weight::Book,
-		400 => pango::Weight::Normal,
-		500 => pango::Weight::Medium,
-		600 => pango::Weight::Semibold,
-		700 => pango::Weight::Bold,
-		800 => pango::Weight::Ultrabold,
-		900 => pango::Weight::Heavy,
+		1 => pango::Weight::Thin,
+		2 => pango::Weight::Light,
+		3 => pango::Weight::Book,
+		4 => pango::Weight::Normal,
+		5 => pango::Weight::Medium,
+		6 => pango::Weight::Semibold,
+		7 => pango::Weight::Bold,
+		8 => pango::Weight::Ultrabold,
+		9 => pango::Weight::Heavy,
 		_ => pango::Weight::Normal,
 	});
+	if let Some(font_families) = font_families {
+		description.set_family(font_families);
+	}
 	layout.set_font_description(Some(&description));
 }
 
 #[inline]
 fn draw_char(cairo: &CairoContext, draw_data: &CharDrawData, position: &Pos2,
-	color: &Color32, layout: &PangoContext)
+	color: &Color32, font_family_names: &Option<IndexSet<String>>,
+	layout: &PangoContext)
 {
 	match draw_data {
 		CharDrawData::Outline(data) => {
 			data.draw(cairo, position.x, position.y, &color);
 		}
 		CharDrawData::Pango(data) => {
-			data.draw(cairo, position.x, position.y, &color, layout);
+			data.draw(cairo, position.x, position.y, &color,
+				font_family_names.as_ref(), layout);
 		}
 		CharDrawData::Space(_) => {}
 	}
+}
+
+#[inline]
+fn get_font_family_names<'a>(font_family_idx: &Option<u16>,
+	font_family_names: Option<&'a IndexSet<String>>) -> Option<&'a str>
+{
+	if let Some(names) = font_family_names {
+		if let Some(idx) = font_family_idx {
+			names.get_index(*idx as usize)
+				.map_or(None, |str| Some(str))
+		} else { None }
+	} else { None }
 }

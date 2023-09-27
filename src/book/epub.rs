@@ -8,6 +8,7 @@ use std::io::Seek;
 use std::path::PathBuf;
 use anyhow::{anyhow, Result};
 use elsa::FrozenMap;
+use indexmap::IndexSet;
 use strip_bom::StripBom;
 use xmltree::{Element, XMLNode};
 use zip::ZipArchive;
@@ -65,6 +66,7 @@ struct EpubBook<R: Read + Seek> {
 	chapter_cache: HashMap<usize, Chapter>,
 	css_cache: HashMap<String, String>,
 	images: FrozenMap<String, Vec<u8>>,
+	font_families: IndexSet<String>,
 	chapter_index: usize,
 }
 
@@ -254,6 +256,12 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 			None
 		}
 	}
+
+	#[inline]
+	fn font_family_names(&self) -> Option<&IndexSet<String>>
+	{
+		Some(&self.font_families)
+	}
 }
 
 impl<R: Read + Seek + 'static> EpubBook<R> {
@@ -338,6 +346,7 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 			chapter_index,
 			css_cache,
 			images: Default::default(),
+			font_families: Default::default(),
 		};
 		book.load_chapter(chapter_index)?;
 		Ok(book)
@@ -352,7 +361,7 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 				let cwd = path_cwd(full_path);
 				let html_str = zip_string(&mut self.zip.borrow_mut(), full_path)?;
 				let css_cache = &self.css_cache;
-				let html_content = html_str_content(&html_str, Some(|path: String| {
+				let html_content = html_str_content(&html_str, &mut self.font_families, Some(|path: String| {
 					let full_path = concat_path(cwd.clone(), &path)?;
 					let content = css_cache.get(&full_path)?;
 					Some(content)

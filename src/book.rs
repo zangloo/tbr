@@ -8,6 +8,7 @@ use std::ops::Range;
 use std::slice::Iter;
 use anyhow::{anyhow, Result};
 use fancy_regex::Regex;
+use indexmap::IndexSet;
 
 use crate::book::epub::EpubLoader;
 use crate::book::haodoo::HaodooLoader;
@@ -32,11 +33,11 @@ pub const HAN_CHAR: char = '漢';
 
 type TextDecorationLine = lightningcss::properties::text::TextDecorationLine;
 
-pub const DEFAULT_FONT_WIDTH: u16 = 400;
+pub const DEFAULT_FONT_WIDTH: u8 = 4;
 
 #[derive(Clone, Debug)]
 pub enum FontWeightValue {
-	Absolute(u16),
+	Absolute(u8),
 	Bolder,
 	Lighter,
 }
@@ -47,6 +48,7 @@ pub enum TextStyle {
 	Border,
 	FontSize { scale: f32, relative: bool },
 	FontWeight(FontWeightValue),
+	FontFamily(u16),
 	Image(String),
 	Link(String),
 	Color(Color32),
@@ -57,7 +59,8 @@ pub enum TextStyle {
 #[derive(Debug)]
 pub struct CharStyle {
 	pub font_scale: f32,
-	pub font_weight: u16,
+	pub font_weight: u8,
+	pub font_family: Option<u16>,
 	pub color: Color32,
 	pub background: Option<Color32>,
 	pub line: Option<(TextDecorationLine, Range<usize>)>,
@@ -276,6 +279,7 @@ impl Line {
 		let mut char_style = CharStyle {
 			font_scale: 1.0,
 			font_weight: DEFAULT_FONT_WIDTH,
+			font_family: None,
 			color: colors.color.clone(),
 			background: None,
 			line: None,
@@ -296,22 +300,23 @@ impl Line {
 					TextStyle::FontWeight(weight) => {
 						char_style.font_weight = match weight {
 							FontWeightValue::Absolute(weight) => *weight,
-							FontWeightValue::Bolder => if char_style.font_weight <= 300 {
-								400
-							} else if char_style.font_weight <= 500 {
-								700
+							FontWeightValue::Bolder => if char_style.font_weight <= 3 {
+								4
+							} else if char_style.font_weight <= 5 {
+								7
 							} else {
-								900
+								9
 							}
-							FontWeightValue::Lighter => if char_style.font_weight <= 500 {
-								100
-							} else if char_style.font_weight <= 700 {
-								400
+							FontWeightValue::Lighter => if char_style.font_weight <= 5 {
+								1
+							} else if char_style.font_weight <= 7 {
+								4
 							} else {
-								700
+								7
 							}
 						}
 					}
+					TextStyle::FontFamily(families) => char_style.font_family = Some(families.clone()),
 					TextStyle::Image(href) => char_style.image = Some(href.clone()),
 					TextStyle::Link(_) => {
 						char_style.link = Some((index, range.clone()));
@@ -397,6 +402,8 @@ pub trait Book {
 	fn link_position(&mut self, _line: usize, _link_index: usize) -> Option<TraceInfo> { None }
 	// (absolute path, content)
 	fn image<'a>(&self, _href: &'a str) -> Option<(Cow<'a, str>, &[u8])> { None }
+	fn font_family_names(&self) -> Option<&IndexSet<String>> { None }
+
 	fn range_highlight(&self, from: Position, to: Position)
 		-> Option<HighlightInfo>
 	{

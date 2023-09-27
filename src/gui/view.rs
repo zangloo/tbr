@@ -272,6 +272,7 @@ mod imp {
 	use gtk4::pango::Layout as PangoContext;
 	use gtk4::subclass::drawing_area::DrawingAreaImpl;
 	use gtk4::subclass::prelude::*;
+	use indexmap::IndexSet;
 	use crate::book::{Book, Line};
 	use crate::common::Position;
 	use crate::controller::HighlightInfo;
@@ -310,6 +311,7 @@ mod imp {
 					render_rect: Rect::NOTHING,
 					render_lines: vec![],
 					draw_data: None,
+					font_family_names: None,
 				}),
 				render: RefCell::new(create_render(false)),
 			}
@@ -320,6 +322,7 @@ mod imp {
 		render_rect: Rect,
 		render_lines: Vec<RenderLine>,
 		draw_data: Option<ScrolledDrawData>,
+		font_family_names: Option<IndexSet<String>>,
 	}
 
 	#[glib::object_subclass]
@@ -413,6 +416,7 @@ mod imp {
 			};
 			render.draw(
 				render_lines,
+				&data.font_family_names,
 				&cairo,
 				&self.obj().get_pango());
 		}
@@ -509,6 +513,8 @@ mod imp {
 				let (render_lines, next) = render.gui_redraw(book, lines, line, offset, highlight,
 					pango, context);
 				let mut data = self.data.borrow_mut();
+				data.font_family_names = book.font_family_names()
+					.map(|names| names.clone());
 				data.render_lines = render_lines;
 				next
 			}
@@ -558,6 +564,8 @@ mod imp {
 				highlight, pango, render_context);
 			let sizing = render.scroll_size(render_context);
 			render_context.max_page_size = view_size;
+			self.data.borrow_mut().font_family_names = book.font_family_names()
+				.map(|names| names.clone());
 
 			self.adjustment(|adjustment| {
 				let value = match &render_context.scroll_redraw_method {

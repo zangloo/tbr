@@ -4,10 +4,11 @@ use std::ops::Deref;
 use anyhow::{anyhow, Result};
 use ego_tree::iter::Children;
 use ego_tree::{NodeId, NodeRef};
+use indexmap::IndexSet;
 use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use lightningcss::properties::{border, font, Property};
 use lightningcss::properties::border::{Border, BorderSideWidth};
-use lightningcss::properties::font::{AbsoluteFontWeight, FontSize, FontWeight};
+use lightningcss::properties::font::{AbsoluteFontWeight, FontFamily, FontSize, FontWeight};
 use lightningcss::rules::CssRule;
 use lightningcss::stylesheet::{ParserOptions, StyleSheet};
 use lightningcss::traits::Parse;
@@ -41,17 +42,18 @@ struct ParseContext {
 	element_styles: HashMap<NodeId, Vec<TextStyle>>,
 }
 
-pub(crate) fn html_content(text: Vec<u8>) -> Result<HtmlContent>
+pub(crate) fn html_content(text: Vec<u8>, font_family: &mut IndexSet<String>) -> Result<HtmlContent>
 {
 	let text = plain_text(text, false)?;
-	html_str_content(&text, None::<fn(String) -> Option<&'static String>>)
+	html_str_content(&text, font_family, None::<fn(String) -> Option<&'static String>>)
 }
 
-pub(crate) fn html_str_content<'a, F>(str: &str, file_resolver: Option<F>) -> Result<HtmlContent>
+pub(crate) fn html_str_content<'a, F>(str: &str, font_family: &mut IndexSet<String>,
+	file_resolver: Option<F>) -> Result<HtmlContent>
 	where F: Fn(String) -> Option<&'a String>
 {
 	let document = Html::parse_document(str);
-	let element_styles = load_styles(&document, file_resolver);
+	let element_styles = load_styles(&document, font_family, file_resolver);
 	let mut context = ParseContext {
 		title: None,
 		content: Default::default(),
@@ -294,7 +296,8 @@ fn reset_lines(context: &mut ParseContext)
 	context.content.lines.push(Line::default());
 }
 
-fn load_styles<'a, F>(document: &Html, file_resolver: Option<F>) -> HashMap<NodeId, Vec<TextStyle>>
+fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
+	file_resolver: Option<F>) -> HashMap<NodeId, Vec<TextStyle>>
 	where F: Fn(String) -> Option<&'a String>
 {
 	let mut element_styles = HashMap::new();
@@ -338,7 +341,7 @@ fn load_styles<'a, F>(document: &Html, file_resolver: Option<F>) -> HashMap<Node
 			if let CssRule::Style(style_rule) = rule {
 				let mut styles = vec![];
 				for property in &style_rule.declarations.declarations {
-					if let Some(style) = convert_style(property) {
+					if let Some(style) = convert_style(property, font_families) {
 						styles.push(style);
 					}
 				}
@@ -364,7 +367,7 @@ fn load_styles<'a, F>(document: &Html, file_resolver: Option<F>) -> HashMap<Node
 const HTML_DEFAULT_FONT_SIZE: f32 = 16.0;
 
 #[inline]
-fn convert_style(property: &Property) -> Option<TextStyle>
+fn convert_style(property: &Property, font_families: &mut IndexSet<String>) -> Option<TextStyle>
 {
 	match property {
 		Property::Border(border) => border_style(border),
@@ -377,11 +380,36 @@ fn convert_style(property: &Property) -> Option<TextStyle>
 		}
 		Property::FontSize(size) => Some(font_size(size)),
 		Property::FontWeight(weight) => Some(font_weight(weight)),
+		Property::FontFamily(families) => font_family(families, font_families),
 		Property::TextDecorationLine(line, _) => Some(TextStyle::Line(*line)),
 		Property::Color(color) => Some(TextStyle::Color(css_color(color)?)),
 		Property::BackgroundColor(color) => Some(TextStyle::BackgroundColor(css_color(color)?)),
 		Property::Background(bg) => Some(TextStyle::BackgroundColor(css_color(&bg[0].color)?)),
 		_ => None,
+	}
+}
+
+#[inline]
+fn font_family(families: &Vec<FontFamily>, names: &mut IndexSet<String>)
+	-> Option<TextStyle>
+{
+	let mut string = String::new();
+	for family in families {
+		let name = match family {
+			FontFamily::Generic(name) => name.as_str(),
+			FontFamily::FamilyName(name) => &name,
+		};
+		if !string.is_empty() {
+			string.push(',');
+		}
+		string.push_str(name);
+	}
+	let is_empty = string.is_empty();
+	let (idx, _) = names.insert_full(string);
+	if is_empty {
+		None
+	} else {
+		Some(TextStyle::FontFamily(idx as u16))
 	}
 }
 
@@ -393,12 +421,12 @@ fn font_weight(weight: &FontWeight) -> TextStyle
 		FontWeight::Absolute(weight) => match weight {
 			AbsoluteFontWeight::Weight(number) => {
 				let value: f32 = *number;
-				TextStyle::FontWeight(FontWeightValue::Absolute(value as u16))
+				TextStyle::FontWeight(FontWeightValue::Absolute((value / 100.) as u8))
 			}
 			AbsoluteFontWeight::Normal =>
-				TextStyle::FontWeight(FontWeightValue::Absolute(400)),
+				TextStyle::FontWeight(FontWeightValue::Absolute(4)),
 			AbsoluteFontWeight::Bold =>
-				TextStyle::FontWeight(FontWeightValue::Absolute(700)),
+				TextStyle::FontWeight(FontWeightValue::Absolute(7)),
 		}
 		FontWeight::Bolder => TextStyle::FontWeight(FontWeightValue::Bolder),
 		FontWeight::Lighter => TextStyle::FontWeight(FontWeightValue::Lighter),

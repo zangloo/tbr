@@ -140,6 +140,8 @@ impl GuiRender for GuiXiRender
 					char,
 					font_size,
 					char_style.font_weight,
+					&char_style.font_family,
+					book.font_family_names(),
 					context);
 
 				let mut rect = Rect::new(left, self.baseline, cell_size.x, cell_size.y);
@@ -168,6 +170,7 @@ impl GuiRender for GuiXiRender
 					char: if blank_char { ' ' } else { char },
 					font_size,
 					font_weight: char_style.font_weight,
+					font_family: char_style.font_family,
 					color,
 					background,
 					cell_offset,
