@@ -39,6 +39,8 @@ mod math;
 mod settings;
 mod chapter_list;
 
+pub const DEFAULT_FONT_WEIGHT: u8 = 4;
+
 const APP_ID: &str = "net.lzrj.tbr";
 const ICON_SIZE: i32 = 32;
 const INLINE_ICON_SIZE: i32 = 16;

@@ -10,7 +10,6 @@ use gtk4::cairo::{Context as CairoContext};
 use gtk4::pango::{Layout as PangoContext, FontDescription};
 use gtk4::pango::ffi::PANGO_SCALE;
 use indexmap::IndexSet;
-use crate::book;
 
 use crate::book::{Book, CharStyle, Colors, HAN_CHAR, Line};
 use crate::color::Color32;
@@ -18,6 +17,7 @@ use crate::common::Position;
 use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::load_image;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
+use crate::gui::DEFAULT_FONT_WEIGHT;
 
 #[derive(Clone)]
 pub enum TextDecoration {
@@ -703,7 +703,7 @@ pub trait GuiRender {
 			pango,
 			HAN_CHAR,
 			render_context.font_size as f32,
-			book::DEFAULT_FONT_WIDTH,
+			DEFAULT_FONT_WEIGHT,
 			&None,
 			None,
 			render_context);

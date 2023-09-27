@@ -33,8 +33,6 @@ pub const HAN_CHAR: char = '漢';
 
 type TextDecorationLine = lightningcss::properties::text::TextDecorationLine;
 
-pub const DEFAULT_FONT_WIDTH: u8 = 4;
-
 #[derive(Clone, Debug)]
 pub enum FontWeightValue {
 	Absolute(u8),
@@ -276,9 +274,10 @@ impl Line {
 	pub fn char_style_at(&self, char_index: usize, custom_color: bool,
 		colors: &Colors) -> CharStyle
 	{
+		use crate::gui::DEFAULT_FONT_WEIGHT;
 		let mut char_style = CharStyle {
 			font_scale: 1.0,
-			font_weight: DEFAULT_FONT_WIDTH,
+			font_weight: DEFAULT_FONT_WEIGHT,
 			font_family: None,
 			color: colors.color.clone(),
 			background: None,

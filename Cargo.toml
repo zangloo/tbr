@@ -13,7 +13,7 @@ edition = "2021"
 
 [features]
 default = ["gui"]
-gui = ["i18n", "dict", "open", "dep:gtk4", "dep:pangocairo", "dep:ab_glyph", "dep:resvg", "dep:indexmap"]
+gui = ["i18n", "dict", "open", "dep:gtk4", "dep:pangocairo", "dep:ab_glyph", "dep:resvg"]
 i18n = ["dep:fluent", "dep:unic-langid", "dep:sys-locale"]
 dict = ["dep:stardict", "dep:html-escape"]
 open = ["dep:rand", "dep:open"]
@@ -49,6 +49,7 @@ markup5ever = "0.11"
 scraper = "0.17"
 lightningcss = "=1.0.0-alpha.41"
 ego-tree = "0.6"
+indexmap = "2.0"
 
 fluent = { version = "0.16", optional = true }
 unic-langid = { version = "0.9", optional = true }
@@ -58,7 +59,6 @@ gtk4 = { version = "0.7", features = ["v4_10"], optional = true }
 pangocairo = { version = "0.18", optional = true }
 ab_glyph = { version = "0.2", optional = true }
 resvg = { version = "0.35", optional = true }
-indexmap = { version = "2.0", optional = true }
 
 stardict = { version = "0.2", optional = true }
 #stardict = { git = "https://github.com/zangloo/stardict.git", optional = true }
