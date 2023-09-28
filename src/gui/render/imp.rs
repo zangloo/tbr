@@ -736,8 +736,11 @@ pub trait GuiRender {
 			}
 			_ => {}
 		}
-
-		if let Some(draw_data) = OutlineDrawData::measure(char, font_size, &render_context.fonts) {
+		// fallback to pango render with custom weight or family
+		if let (true, true, Some(draw_data)) = (
+			font_weight == DEFAULT_FONT_WEIGHT,
+			font_family_index.is_none(),
+			OutlineDrawData::measure(char, font_size, &render_context.fonts)) {
 			let data = (draw_data.size, draw_data.draw_size, draw_data.draw_offset);
 			self.cache_insert(char, font_size, font_weight, font_family_index, CharDrawData::Outline(draw_data));
 			data
