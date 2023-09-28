@@ -517,7 +517,7 @@ mod imp {
 				sync_font_family_names(
 					&mut data,
 					book.font_family_names(),
-					&self.render,
+					&mut render,
 				);
 				data.render_lines = render_lines;
 				next
@@ -571,7 +571,7 @@ mod imp {
 			sync_font_family_names(
 				&mut self.data.borrow_mut(),
 				book.font_family_names(),
-				&self.render,
+				&mut render,
 			);
 
 			self.adjustment(|adjustment| {
@@ -840,14 +840,14 @@ mod imp {
 	// with different name for family index, the cache with family invalid
 	fn sync_font_family_names(data: &mut GuiViewData,
 		font_family_names: Option<&IndexSet<String>>,
-		render: &RefCell<Box<dyn GuiRender>>)
+		render: &mut Box<dyn GuiRender>)
 	{
 		if let Some(new) = font_family_names {
 			if let Some(orig) = &data.font_family_names {
 				let len = min(orig.len(), new.len());
 				for i in 0..len {
 					if orig[i] != new[i] {
-						render.borrow_mut().clear_cache_with_family();
+						render.clear_cache_with_family();
 						break;
 					}
 				}
