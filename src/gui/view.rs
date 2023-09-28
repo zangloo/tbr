@@ -842,19 +842,25 @@ mod imp {
 		font_family_names: Option<&IndexSet<String>>,
 		render: &mut Box<dyn GuiRender>)
 	{
-		if let Some(new) = font_family_names {
+		if let Some(curr) = font_family_names {
 			if let Some(orig) = &data.font_family_names {
-				let len = min(orig.len(), new.len());
+				let mut copy = false;
+				let orig_len = orig.len();
+				let curr_len = curr.len();
+				let len = min(orig.len(), curr.len());
 				for i in 0..len {
-					if orig[i] != new[i] {
+					if orig[i] != curr[i] {
 						render.clear_cache_with_family();
+						copy = true;
 						break;
 					}
 				}
+				if copy || orig_len < curr_len {
+					data.font_family_names = Some(curr.clone());
+				}
+			} else {
+				data.font_family_names = Some(curr.clone());
 			}
-			data.font_family_names = Some(new.clone());
-		} else {
-			data.font_family_names = None;
 		}
 	}
 }
