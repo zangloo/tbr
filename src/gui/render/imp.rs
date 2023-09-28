@@ -456,9 +456,9 @@ pub trait GuiRender {
 		let key = cache_key(char, font_size as u8, font_weight, font_family_idx);
 		self.cache_mut().insert(key, data);
 	}
-	fn cache_clear(&mut self)
+	fn clear_cache_with_family(&mut self)
 	{
-		self.cache_mut().clear()
+		self.cache_mut().retain(|k, _| k & 0xffff == 0);
 	}
 
 	#[inline]
