@@ -408,7 +408,7 @@ fn cache_key(char: char, font_size: u8, font_weight: u8, font_family_idx: &Optio
 	(char as u64) << 32
 		| (font_size as u64) << 24
 		| (font_weight as u64) << 16
-		| font_family_idx.unwrap_or(u16::MAX) as u64
+		| font_family_idx.unwrap_or(0xffff) as u64
 }
 
 pub trait GuiRender {
@@ -458,7 +458,7 @@ pub trait GuiRender {
 	}
 	fn clear_cache_with_family(&mut self)
 	{
-		self.cache_mut().retain(|k, _| k & 0xffff == 0);
+		self.cache_mut().retain(|k, _| k & 0xffff == 0xffff);
 	}
 
 	#[inline]
