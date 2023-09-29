@@ -275,8 +275,11 @@ impl OutlineDrawData {
 		if let Some(fonts) = fonts {
 			for font in fonts {
 				if let Some(scale) = font.pt_to_px_scale(font_size) {
-					let glyph = font.glyph_id(char)
-						.with_scale(scale);
+					let glyph = font.glyph_id(char);
+					if glyph.0 == 0 {
+						return None;
+					}
+					let glyph = glyph.with_scale(scale);
 					if let Some(outline) = font.outline_glyph(glyph) {
 						let mut points = vec![];
 						outline.draw(|_, _, a| {
