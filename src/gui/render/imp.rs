@@ -263,7 +263,7 @@ impl PangoDrawData {
 }
 
 pub struct OutlineDrawData {
-	points: Vec<(u32, u32, u8)>,
+	points: Vec<u8>,
 	size: Vec2,
 	draw_offset: Pos2,
 	draw_size: Vec2,
@@ -279,8 +279,8 @@ impl OutlineDrawData {
 						.with_scale(scale);
 					if let Some(outline) = font.outline_glyph(glyph) {
 						let mut points = vec![];
-						outline.draw(|x, y, a| {
-							points.push((x, y, (a * 255.) as u8));
+						outline.draw(|_, _, a| {
+							points.push((a * 255.) as u8);
 						});
 						let bounds = outline.px_bounds();
 						let draw_size = vec2(bounds.width(), bounds.height());
@@ -304,13 +304,17 @@ impl OutlineDrawData {
 
 	fn draw(&self, cairo: &CairoContext, offset_x: f32, offset_y: f32, color: &Color32)
 	{
+		let width = self.draw_size.x as usize;
+		let height = self.draw_size.y as usize;
 		if let Some(pixbuf) = Pixbuf::new(Colorspace::Rgb, true, 8,
-			self.draw_size.x as i32, self.draw_size.y as i32) {
+			width as i32, height as i32) {
 			let r = color.r();
 			let g = color.g();
 			let b = color.b();
-			for point in &self.points {
-				pixbuf.put_pixel(point.0, point.1, r, g, b, point.2);
+			for y in 0..height {
+				for x in 0..width {
+					pixbuf.put_pixel(x as u32, y as u32, r, g, b, self.points[y * width + x]);
+				}
 			}
 			let draw_x = (offset_x + self.draw_offset.x) as f64;
 			let draw_y = (offset_y + self.draw_offset.y) as f64;
