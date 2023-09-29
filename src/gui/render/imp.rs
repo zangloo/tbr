@@ -277,7 +277,7 @@ impl OutlineDrawData {
 				if let Some(scale) = font.pt_to_px_scale(font_size) {
 					let glyph = font.glyph_id(char);
 					if glyph.0 == 0 {
-						return continue;
+						continue;
 					}
 					let glyph = glyph.with_scale(scale);
 					if let Some(outline) = font.outline_glyph(glyph) {
