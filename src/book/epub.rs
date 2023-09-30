@@ -13,7 +13,7 @@ use strip_bom::StripBom;
 use xmltree::{Element, XMLNode};
 use zip::ZipArchive;
 
-use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader};
+use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader, TocInfo};
 use crate::html_convertor::html_str_content;
 use crate::list::ListIterator;
 use crate::common::{Position, TraceInfo};
@@ -194,11 +194,11 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 			})
 	}
 
-	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=(&str, usize)> + '_>>
+	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=TocInfo> + '_>>
 	{
 		let iter = ListIterator::new(|index| {
 			let toc = self.toc.get(index)?;
-			Some((toc_title(toc), index))
+			Some(TocInfo{title:toc_title(toc), index, level: toc.level })
 		});
 		Some(Box::new(iter))
 	}

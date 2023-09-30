@@ -27,6 +27,25 @@ struct TerminalContext {
 	themes: Themes,
 }
 
+pub trait Listable {
+	fn title(&self) -> &str;
+	fn index(&self) -> usize;
+}
+
+impl<'a> Listable for (&'a str, usize) {
+	#[inline]
+	fn title(&self) -> &str
+	{
+		self.0
+	}
+
+	#[inline]
+	fn index(&self) -> usize
+	{
+		self.1
+	}
+}
+
 pub fn start(mut configuration: Configuration, themes: Themes) -> Result<()> {
 	if configuration.current.is_none() {
 		return Err(anyhow!("No file to open."));
@@ -114,7 +133,7 @@ fn select_book(s: &mut Cursive) {
 	let names = container.inner_book_names();
 	let li = ListIterator::new(|position| {
 		let bn = names.get(position)?;
-		Some((bn.name(), position))
+		Some((bn.name() as &str, position))
 	});
 	let reading = &reading_view.reading_info();
 	let dialog = list_dialog("Select inner book", li, reading.inner_book, |s, selected| {
@@ -146,7 +165,7 @@ fn select_history(s: &mut Cursive)
 			}
 			let option = history.get(size - position - 1);
 			match option {
-				Some(ri) => Some((&ri.filename, position)),
+				Some(ri) => Some((&ri.filename as &str, position)),
 				None => None,
 			}
 		});

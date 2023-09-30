@@ -20,6 +20,7 @@ use crate::common::TraceInfo;
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
 use crate::controller::{HighlightInfo, HighlightMode};
+use crate::terminal::Listable;
 
 mod epub;
 mod txt;
@@ -366,6 +367,26 @@ pub enum LoadingChapter {
 	Last,
 }
 
+pub struct TocInfo<'a> {
+	pub title: &'a str,
+	pub index: usize,
+	pub level: usize,
+}
+
+impl<'a> Listable for TocInfo<'a> {
+	#[inline]
+	fn title(&self) -> &str
+	{
+		self.title
+	}
+
+	#[inline]
+	fn index(&self) -> usize
+	{
+		self.index
+	}
+}
+
 pub trait Book {
 	fn chapter_count(&self) -> usize { 1 }
 	fn prev_chapter(&mut self) -> Result<Option<usize>>
@@ -394,7 +415,7 @@ pub trait Book {
 	fn current_chapter(&self) -> usize { 0 }
 	fn title(&self, _line: usize, _offset: usize) -> Option<&str> { None }
 	fn toc_index(&self, _line: usize, _offset: usize) -> usize { 0 }
-	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=(&str, usize)> + '_>> { None }
+	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=TocInfo> + '_>> { None }
 	fn toc_position(&mut self, _toc_index: usize) -> Option<TraceInfo> { None }
 	fn lines(&self) -> &Vec<Line>;
 	fn leading_space(&self) -> usize { 2 }

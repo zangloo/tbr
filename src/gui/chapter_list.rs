@@ -13,15 +13,17 @@ struct ChapterListEntry {
 	title: String,
 	book: bool,
 	index: usize,
+	level: usize,
 	reading: bool,
 }
 
 impl ChapterListEntry {
-	pub fn new(title: &str, index: usize, book: bool, reading: bool) -> Self
+	pub fn new(title: &str, book: bool, index: usize, level: usize, reading: bool) -> Self
 	{
 		ChapterListEntry {
 			title: title.to_owned(),
 			book,
+			level,
 			index,
 			reading,
 		}
@@ -247,21 +249,21 @@ pub fn load_entries(chapter_list: &ChapterList)
 		}
 		if index == controller.reading.inner_book {
 			current_book_idx = Some(entries.len());
-			entries.push(ChapterListEntry::new(bookname, index, true, true));
+			entries.push(ChapterListEntry::new(bookname, true, index, 0, true));
 			if let Some(toc) = controller.book.toc_iterator() {
-				for (title, value) in toc {
-					let reading = value == current_toc;
+				for info in toc {
+					let reading = info.index == current_toc;
 					if reading {
 						selected_index = Some(entries.len());
 					}
-					entries.push(ChapterListEntry::new(title, value, false, reading));
+					entries.push(ChapterListEntry::new(info.title, false, info.index, info.level, reading));
 				}
 			} else {
 				selected_index = Some(entries.len() - 1);
 				current_book_collapsable = false;
 			}
 		} else {
-			entries.push(ChapterListEntry::new(bookname, index, true, false));
+			entries.push(ChapterListEntry::new(bookname, true, index, 0, false));
 		}
 	}
 	let mut rows = vec![];
@@ -320,7 +322,7 @@ fn create_list_row(entry: &ChapterListEntry, icons: &IconMap) -> ListBoxRow
 		}
 	} else {
 		view.add_css_class(TOC_LABEL_CLASS);
-		label.set_label(&format!("    {}", title));
+		label.set_label(&format!("{}{}", "    ".repeat(entry.level), title));
 		"chapter.svg"
 	};
 

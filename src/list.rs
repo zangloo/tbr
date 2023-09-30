@@ -2,11 +2,12 @@ use cursive::Cursive;
 use cursive::event::Key::Esc;
 use cursive::traits::Scrollable;
 use cursive::views::{Dialog, OnEventView, SelectView};
+use crate::terminal::Listable;
 
-pub(crate) fn list_dialog<'a, F, I>(title: &str, iterator: I, current_value: usize, callback: F) -> OnEventView<Dialog>
+pub(crate) fn list_dialog<'a, F, I, T: Listable>(title: &str, iterator: I, current_value: usize, callback: F) -> OnEventView<Dialog>
 	where
 		F: Fn(&mut Cursive, usize) + 'static,
-		I: Iterator<Item=(&'a str, usize)>,
+		I: Iterator<Item=T>,
 {
 	let mut select_view = SelectView::new()
 		.on_submit(move |s, v| {
@@ -14,9 +15,10 @@ pub(crate) fn list_dialog<'a, F, I>(title: &str, iterator: I, current_value: usi
 			callback(s, *v);
 		});
 	let mut selected = 0;
-	for (idx, (title, value)) in iterator.enumerate() {
-		select_view.add_item(title, value);
-		if current_value == value {
+	for (idx, info) in iterator.enumerate() {
+		let index = info.index();
+		select_view.add_item(info.title(), index);
+		if current_value == index {
 			selected = idx;
 		}
 	}
@@ -31,15 +33,15 @@ pub(crate) fn list_dialog<'a, F, I>(title: &str, iterator: I, current_value: usi
 	dialog
 }
 
-pub struct ListIterator<'a, F>
-	where F: Fn(usize) -> Option<(&'a str, usize)>
+pub struct ListIterator<F, T>
+	where F: Fn(usize) -> Option<T>
 {
 	index: usize,
 	mapper: F,
 }
 
-impl<'a, F> ListIterator<'a, F>
-	where F: Fn(usize) -> Option<(&'a str, usize)>
+impl<F, T> ListIterator<F, T>
+	where F: Fn(usize) -> Option<T>
 {
 	pub fn new(mapper: F) -> Self
 	{
@@ -47,10 +49,10 @@ impl<'a, F> ListIterator<'a, F>
 	}
 }
 
-impl<'a, F> Iterator for ListIterator<'a, F>
-	where F: Fn(usize) -> Option<(&'a str, usize)>
+impl<F, T> Iterator for ListIterator<F, T>
+	where F: Fn(usize) -> Option<T>
 {
-	type Item = (&'a str, usize);
+	type Item = T;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		let ret = (self.mapper)(self.index)?;

@@ -4,7 +4,7 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 use anyhow::{anyhow, bail, Result};
 use encoding_rs::Encoding;
 
-use crate::book::{Book, LoadingChapter, Line, Loader};
+use crate::book::{Book, LoadingChapter, Line, Loader, TocInfo};
 use crate::common::{decode_text, detect_charset, txt_lines};
 use crate::list::ListIterator;
 use crate::common::TraceInfo;
@@ -196,14 +196,14 @@ impl<R: Read + Seek + 'static> Book for HaodooBook<R> {
 		self.chapter_index
 	}
 
-	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=(&str, usize)> + '_>>
+	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=TocInfo> + '_>>
 	{
 		if matches!(self.book_type, PDBType::PalmDoc) {
 			return None;
 		}
 		let iter = ListIterator::new(|index| {
 			let chapter = self.chapters.get(index)?;
-			Some((&chapter.title, index))
+			Some(TocInfo { title: &chapter.title, index, level: 1 })
 		});
 		Some(Box::new(iter))
 	}
