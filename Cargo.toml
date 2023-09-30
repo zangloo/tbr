@@ -55,7 +55,7 @@ fluent = { version = "0.16", optional = true }
 unic-langid = { version = "0.9", optional = true }
 sys-locale = { version = "0.3", optional = true }
 
-gtk4 = { version = "0.7", features = ["v4_10"], optional = true }
+gtk4 = { version = "0.7", features = ["v4_12"], optional = true }
 pangocairo = { version = "0.18", optional = true }
 ab_glyph = { version = "0.2", optional = true }
 resvg = { version = "0.35", optional = true }

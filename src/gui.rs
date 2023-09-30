@@ -12,11 +12,12 @@ use ab_glyph::FontVec;
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, PopoverMenu, PositionType, SearchEntry, Stack, ToggleButton, Widget, Window};
-use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle};
+use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle, Texture};
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
 use gtk4::glib;
 use gtk4::glib::{Bytes, closure_local, ExitCode, ObjectExt, SignalHandlerId, StaticType};
+use gtk4::graphene::Point;
 use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, IsA, NativeExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
@@ -57,7 +58,7 @@ const DICT_LOOKUP_KEY: &str = "lookup-dictionary";
 const README_TEXT_FILENAME: &str = "readme";
 
 type GuiController = Controller<RenderContext, GuiView>;
-type IconMap = HashMap<String, Pixbuf>;
+type IconMap = HashMap<String, Texture>;
 
 struct ReadmeContainer {
 	book_names: Vec<BookName>,
@@ -458,7 +459,7 @@ fn load_icons() -> IconMap
 			let mis = MemoryInputStream::from_bytes(&bytes);
 			let pixbuf = Pixbuf::from_stream(&mis, None::<&Cancellable>).unwrap();
 			let name = &file[ICONS_PREFIX.len()..];
-			map.insert(name.to_string(), pixbuf);
+			map.insert(name.to_string(), Texture::for_pixbuf(&pixbuf));
 		}
 	}
 	map
@@ -1068,8 +1069,8 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 #[inline]
 fn load_button_image(name: &str, icons: &IconMap, inline: bool) -> Image
 {
-	let pixbuf = icons.get(name).unwrap();
-	let image = Image::from_pixbuf(Some(pixbuf));
+	let texture = icons.get(name).unwrap();
+	let image = Image::from_paintable(Some(texture));
 	if inline {
 		image.set_width_request(INLINE_ICON_SIZE);
 		image.set_height_request(INLINE_ICON_SIZE);
@@ -1123,8 +1124,8 @@ fn create_button(name: &str, tooltip: &str, icons: &IconMap, inline: bool) -> Bu
 #[inline]
 fn update_button(btn: &Button, name: &str, tooltip: &str, icons: &IconMap)
 {
-	let pixbuf = icons.get(name).unwrap();
-	let image = Image::from_pixbuf(Some(pixbuf));
+	let texture = icons.get(name).unwrap();
+	let image = Image::from_paintable(Some(texture));
 	image.set_width_request(ICON_SIZE);
 	image.set_height_request(ICON_SIZE);
 	btn.set_tooltip_text(Some(tooltip));
@@ -1581,7 +1582,7 @@ fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>
 	mut gui_context: RefMut<Option<GuiContext>>)
 {
 	let css_provider = CssProvider::new();
-	css_provider.load_from_data(include_str!("../assets/gui/gtk.css"));
+	css_provider.load_from_string(include_str!("../assets/gui/gtk.css"));
 	gtk4::style_context_add_provider_for_display(
 		&Display::default().expect("Could not connect to a display."),
 		&css_provider,
@@ -1610,11 +1611,13 @@ pub fn mouse_pointer(view: &impl IsA<Widget>) -> Option<(f32, f32)>
 	let pointer = view.display().default_seat()?.pointer()?;
 	let root = view.root()?;
 	let (x, y, _) = root.surface().device_position(&pointer)?;
-	let (x, y) = root.translate_coordinates(view, x, y)?;
-	if x < 0. || y < 0. || x > view.width() as f64 || y > view.height() as f64 {
+	let point = root.compute_point(view, &Point::new(x as f32, y as f32))?;
+	let x = point.x();
+	let y = point.y();
+	if x < 0. || y < 0. || x > view.width() as f32 || y > view.height() as f32 {
 		None
 	} else {
-		Some((x as f32, y as f32))
+		Some((x, y))
 	}
 }
 

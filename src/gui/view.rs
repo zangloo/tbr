@@ -881,7 +881,7 @@ pub fn init_css(name: &str, background: &Color32) -> CssProvider
 pub fn update_css(css_provider: &CssProvider, name: &str, background: &Color32)
 {
 	let css = format!("{}#{} {{background: {};}}", GuiView::WIDGET_NAME, name, background);
-	css_provider.load_from_data(&css);
+	css_provider.load_from_string(&css);
 }
 
 pub fn update_mouse_pointer(view: &GuiView, x: f32, y: f32, state: ModifierType)
