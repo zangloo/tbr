@@ -28,5 +28,6 @@ cancel-title = Cancel
 add-title = add
 remove-title = remove
 invalid-path = invalid { $title }: { $path }
+filter-chapter = filter chapters
 
 dictionary-no-definition = no definition in dictionary

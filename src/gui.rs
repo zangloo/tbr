@@ -240,6 +240,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	// now setup ui
 	setup_sidebar(&gc, &view, &dict_view, chapter_list_view);
 	setup_view(&gc, &view);
+	setup_chapter_list(&gc);
 
 	let (toolbar, render_btn, theme_btn, search_box)
 		= setup_toolbar(&gc, &view, &lookup_entry, strip_empty_lines, custom_color,
@@ -712,6 +713,31 @@ fn setup_sidebar(gc: &GuiContext, view: &GuiView, dict_view: &gtk4::Box,
 			gc.dm_mut().resize(position, None);
 		}
 	});
+}
+
+fn setup_chapter_list(gc1: &GuiContext)
+{
+	{
+		let gc = gc1.clone();
+		gc1.inner.chapter_list.handle_item_click(move |is_book, index| {
+			let mut controller = gc.ctrl_mut();
+			let mut render_context = gc.ctx_mut();
+			if is_book {
+				let new_reading = ReadingInfo::new(&controller.reading.filename)
+					.with_inner_book(index);
+				let msg = controller.switch_book(new_reading, &mut render_context);
+				update_status(false, &msg, &gc.inner.status_bar);
+			} else if let Some(msg) = controller.goto_toc(index, &mut render_context) {
+				update_status(false, &msg, &gc.inner.status_bar);
+			}
+		});
+	}
+	{
+		let gc = gc1.clone();
+		gc1.inner.chapter_list.handle_cancel(move || {
+			toggle_sidebar(&gc);
+		});
+	}
 }
 
 fn switch_stack(tab_name: &str, gc: &GuiContext, toggle: bool) -> bool
@@ -1280,23 +1306,7 @@ impl GuiContext {
 			.build();
 
 		let status_bar = Label::new(None);
-		let (chapter_list, chapter_list_view) = {
-			let status_bar = status_bar.clone();
-			let ctrl2 = ctrl.clone();
-			let ctx = ctx.clone();
-			ChapterList::create(&icons, &ctrl, move |is_book, index| {
-				let mut controller = ctrl2.borrow_mut();
-				let mut render_context = ctx.borrow_mut();
-				if is_book {
-					let new_reading = ReadingInfo::new(&controller.reading.filename)
-						.with_inner_book(index);
-					let msg = controller.switch_book(new_reading, &mut render_context);
-					update_status(false, &msg, &status_bar);
-				} else if let Some(msg) = controller.goto_toc(index, &mut render_context) {
-					update_status(false, &msg, &status_bar);
-				}
-			})
-		};
+		let (chapter_list, chapter_list_view) = ChapterList::create(&icons, &i18n, &ctrl);
 
 		status_bar.set_label(&ctrl.borrow().status_msg());
 		let paned = Paned::new(Orientation::Horizontal);

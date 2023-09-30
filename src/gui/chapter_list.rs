@@ -5,6 +5,7 @@ use gtk4::graphene::Point;
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::{AdjustmentExt, BoxExt, EditableExt, ListBoxRowExt, WidgetExt};
 use crate::gui::{GuiController, README_TEXT_FILENAME, ChapterListSyncMode, IconMap, load_button_image};
+use crate::i18n::I18n;
 
 pub const BOOK_NAME_LABEL_CLASS: &str = "book-name";
 pub const TOC_LABEL_CLASS: &str = "toc";
@@ -33,6 +34,7 @@ impl ChapterListEntry {
 struct ChapterListInner {
 	collapse: Cell<bool>,
 	list: ListBox,
+	filter_input: SearchEntry,
 	ctrl: Rc<RefCell<GuiController>>,
 	syncing: Cell<bool>,
 	rows: RefCell<Vec<ChapterListEntry>>,
@@ -45,9 +47,8 @@ pub struct ChapterList {
 }
 
 impl ChapterList {
-	pub fn create<F>(icons: &Rc<IconMap>, ctrl: &Rc<RefCell<GuiController>>,
-		item_clicked: F) -> (Self, gtk4::Box)
-		where F: Fn(bool, usize) + 'static
+	pub fn create(icons: &Rc<IconMap>, i18n: &Rc<I18n>,
+		ctrl: &Rc<RefCell<GuiController>>) -> (Self, gtk4::Box)
 	{
 		let list = ListBox::builder()
 			.selection_mode(SelectionMode::Single)
@@ -58,7 +59,11 @@ impl ChapterList {
 		let rows = RefCell::new(vec![]);
 		let syncing = Default::default();
 		let collapse = Cell::new(false);
-		let filter_input = SearchEntry::new();
+		let filter_input = SearchEntry::builder()
+			.placeholder_text(i18n.msg("filter-chapter").as_ref())
+			.activates_default(true)
+			.enable_undo(true)
+			.build();
 		let filter_pattern = Rc::new(RefCell::new(String::new()));
 		let container = gtk4::Box::builder()
 			.orientation(Orientation::Vertical)
@@ -76,6 +81,7 @@ impl ChapterList {
 			inner: Rc::new(ChapterListInner {
 				collapse,
 				list,
+				filter_input: filter_input.clone(),
 				ctrl: ctrl.clone(),
 				syncing,
 				rows,
@@ -119,34 +125,45 @@ impl ChapterList {
 				}
 			});
 		}
-		{
-			let chapter_list2 = chapter_list.clone();
-			chapter_list.inner.list.connect_row_selected(move |_, row| {
-				if chapter_list2.inner.syncing.get() {
-					return;
-				}
-				if let Some(row) = row {
-					let entries = chapter_list2.inner.rows.borrow();
-					let row_index = row.index();
-					if row_index >= 0 {
-						if let Some(entry) = entries.get(row_index as usize) {
-							let index = entry.index;
-							let is_book = entry.book;
-							drop(entries);
-							if is_book {
-								chapter_list2.collapse(!chapter_list2.inner.collapse.get());
-								item_clicked(true, index);
-								chapter_list2.sync_chapter_list(ChapterListSyncMode::Reload);
-							} else {
-								item_clicked(false, index);
-							}
+
+		(chapter_list, container)
+	}
+
+	pub fn handle_item_click<F>(&self, item_clicked: F)
+		where F: Fn(bool, usize) + 'static
+	{
+		let chapter_list = self.clone();
+		self.inner.list.connect_row_selected(move |_, row| {
+			if chapter_list.inner.syncing.get() {
+				return;
+			}
+			if let Some(row) = row {
+				let entries = chapter_list.inner.rows.borrow();
+				let row_index = row.index();
+				if row_index >= 0 {
+					if let Some(entry) = entries.get(row_index as usize) {
+						let index = entry.index;
+						let is_book = entry.book;
+						drop(entries);
+						if is_book {
+							chapter_list.collapse(!chapter_list.inner.collapse.get());
+							item_clicked(true, index);
+							chapter_list.sync_chapter_list(ChapterListSyncMode::Reload);
+						} else {
+							item_clicked(false, index);
 						}
 					}
 				}
-			})
-		};
+			}
+		});
+	}
 
-		(chapter_list, container)
+	pub fn handle_cancel<F>(&self, cancel: F)
+		where F: Fn() + 'static
+	{
+		self.inner.filter_input.connect_stop_search(move |_| {
+			cancel();
+		});
 	}
 
 	#[inline]

@@ -28,5 +28,6 @@ cancel-title = 取消
 add-title = 新增
 remove-title = 删除
 invalid-path = 错误的{ $title }: { $path }
+filter-chapter = 过滤章节标题
 
 dictionary-no-definition = 无字典解释
