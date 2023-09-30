@@ -1,6 +1,6 @@
 use std::{env, fs};
 use std::borrow::Cow;
-use std::cell::{Cell, Ref, RefCell, RefMut};
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Read;
@@ -11,13 +11,13 @@ use std::rc::Rc;
 use ab_glyph::FontVec;
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
-use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, FilterListModel, gdk, GestureClick, HeaderBar, Image, Label, ListBox, Orientation, Paned, PolicyType, PopoverMenu, PositionType, SearchEntry, Stack, ToggleButton, Widget, Window};
+use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, PopoverMenu, PositionType, SearchEntry, Stack, ToggleButton, Widget, Window};
 use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle};
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
 use gtk4::glib;
-use gtk4::glib::{Bytes, closure_local, ExitCode, Object, ObjectExt, SignalHandlerId, StaticType};
-use gtk4::prelude::{ActionGroupExt, ActionMapExt, AdjustmentExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, IsA, ListBoxRowExt, ListModelExt, NativeExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
+use gtk4::glib::{Bytes, closure_local, ExitCode, ObjectExt, SignalHandlerId, StaticType};
+use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, IsA, NativeExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
 
@@ -27,6 +27,7 @@ use crate::color::Color32;
 use crate::common::{Position, reading_info, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container, title_for_filename};
 use crate::controller::Controller;
+use crate::gui::chapter_list::ChapterList;
 use crate::gui::dict::DictionaryManager;
 use crate::gui::render::RenderContext;
 use crate::gui::view::{GuiView, update_mouse_pointer};
@@ -232,14 +233,12 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 
 	let ctx = Rc::new(RefCell::new(render_context));
 	let ctrl = Rc::new(RefCell::new(controller));
-	let gc = GuiContext::new(app, &cfg, &ctrl, &ctx, dm, icons, i18n.clone(),
+	let (gc, chapter_list_view) = GuiContext::new(app, &cfg, &ctrl, &ctx, dm, icons, i18n.clone(),
 		dark_colors, bright_colors, css_provider);
 
 	// now setup ui
-	setup_sidebar(&gc, &view, &dict_view);
+	setup_sidebar(&gc, &view, &dict_view, chapter_list_view);
 	setup_view(&gc, &view);
-
-	chapter_list::init(&gc);
 
 	let (toolbar, render_btn, theme_btn, search_box)
 		= setup_toolbar(&gc, &view, &lookup_entry, strip_empty_lines, custom_color,
@@ -413,7 +412,9 @@ fn apply<F>(gc: &GuiContext, f: F)
 	let mut controller = gc.ctrl_mut();
 	let orig_inner_book = controller.reading.inner_book;
 	f(&mut controller, &mut gc.ctx_mut());
-	gc.update(&controller.status_msg(), ChapterListSyncMode::ReloadIfNeeded(orig_inner_book), &controller);
+	let msg = controller.status_msg();
+	drop(controller);
+	gc.update(&msg, ChapterListSyncMode::ReloadIfNeeded(orig_inner_book));
 }
 
 #[inline]
@@ -430,7 +431,8 @@ fn handle<T, F>(gc: &GuiContext, f: F)
 		Ok(_) => {
 			let controller = gc.ctrl();
 			let msg = controller.status_msg();
-			gc.update(&msg, ChapterListSyncMode::ReloadIfNeeded(orig_inner_book), &controller);
+			drop(controller);
+			gc.update(&msg, ChapterListSyncMode::ReloadIfNeeded(orig_inner_book));
 		}
 		Err(err) => gc.error(&err.to_string()),
 	}
@@ -676,13 +678,9 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 	}
 }
 
-fn setup_sidebar(gc: &GuiContext, view: &GuiView, dict_view: &gtk4::Box)
+fn setup_sidebar(gc: &GuiContext, view: &GuiView, dict_view: &gtk4::Box,
+	chapter_list_view: gtk4::Box)
 {
-	let chapter_list_view = gtk4::ScrolledWindow::builder()
-		.child(gc.chapter_list())
-		.hscrollbar_policy(PolicyType::Never)
-		.build();
-
 	let i18n = gc.i18n();
 	let stack = gc.sidebar_stack();
 	stack.add_titled(
@@ -787,11 +785,11 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					glib::Propagation::Proceed
 				}
 				(Key::c, MODIFIER_NONE) => {
-					gc.inner.chapter_syncing.replace(true);
+					gc.inner.chapter_list.block_reactive(true);
 					if switch_stack(SIDEBAR_CHAPTER_LIST_NAME, &gc, true) {
-						gc.scroll_to_current_chapter();
+						gc.inner.chapter_list.scroll_to_current();
 					}
-					gc.inner.chapter_syncing.replace(false);
+					gc.inner.chapter_list.block_reactive(false);
 					glib::Propagation::Stop
 				}
 				(Key::d, MODIFIER_NONE) => {
@@ -1236,7 +1234,6 @@ struct GuiContextInner {
 	ctx: Rc<RefCell<RenderContext>>,
 	dm: Rc<RefCell<DictionaryManager>>,
 	opener: Rc<RefCell<Opener>>,
-	chapter_syncing: Rc<Cell<bool>>,
 	window: ApplicationWindow,
 	menu: Menu,
 	action_group: SimpleActionGroup,
@@ -1246,8 +1243,7 @@ struct GuiContextInner {
 	sidebar_btn: Button,
 	custom_color_btn: ToggleButton,
 	custom_color_handler_id: SignalHandlerId,
-	chapter_list: ListBox,
-	chapter_model: FilterListModel,
+	chapter_list: ChapterList,
 	icons: Rc<IconMap>,
 	i18n: Rc<I18n>,
 	dark_colors: Colors,
@@ -1271,7 +1267,8 @@ impl GuiContext {
 		cfg: &Rc<RefCell<Configuration>>, ctrl: &Rc<RefCell<GuiController>>,
 		ctx: &Rc<RefCell<RenderContext>>, dm: Rc<RefCell<DictionaryManager>>,
 		icons: Rc<IconMap>, i18n: Rc<I18n>,
-		dark_colors: Colors, bright_colors: Colors, css_provider: CssProvider) -> Self
+		dark_colors: Colors, bright_colors: Colors, css_provider: CssProvider)
+		-> (Self, gtk4::Box)
 	{
 		let window = ApplicationWindow::builder()
 			.application(app)
@@ -1281,9 +1278,25 @@ impl GuiContext {
 			.title(package_name!())
 			.build();
 
-		let (chapter_list, chapter_model) = chapter_list::create();
-
 		let status_bar = Label::new(None);
+		let (chapter_list, chapter_list_view) = {
+			let status_bar = status_bar.clone();
+			let ctrl2 = ctrl.clone();
+			let ctx = ctx.clone();
+			ChapterList::create(&icons, &ctrl, move |is_book, index| {
+				let mut controller = ctrl2.borrow_mut();
+				let mut render_context = ctx.borrow_mut();
+				if is_book {
+					let new_reading = ReadingInfo::new(&controller.reading.filename)
+						.with_inner_book(index);
+					let msg = controller.switch_book(new_reading, &mut render_context);
+					update_status(false, &msg, &status_bar);
+				} else if let Some(msg) = controller.goto_toc(index, &mut render_context) {
+					update_status(false, &msg, &status_bar);
+				}
+			})
+		};
+
 		status_bar.set_label(&ctrl.borrow().status_msg());
 		let paned = Paned::new(Orientation::Horizontal);
 		let sidebar_stack = Stack::builder()
@@ -1316,7 +1329,6 @@ impl GuiContext {
 			ctx: ctx.clone(),
 			dm,
 			opener: Rc::new(RefCell::new(Default::default())),
-			chapter_syncing: Rc::new(Cell::new(false)),
 			window,
 			menu: Menu::new(),
 			action_group: SimpleActionGroup::new(),
@@ -1327,14 +1339,13 @@ impl GuiContext {
 			custom_color_btn,
 			custom_color_handler_id,
 			chapter_list,
-			chapter_model,
 			icons,
 			i18n,
 			dark_colors,
 			bright_colors,
 			css_provider,
 		};
-		GuiContext { inner: Rc::new(inner) }
+		(GuiContext { inner: Rc::new(inner) }, chapter_list_view)
 	}
 
 	#[inline]
@@ -1440,18 +1451,6 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn chapter_list(&self) -> &ListBox
-	{
-		&self.inner.chapter_list
-	}
-
-	#[inline]
-	fn chapter_model(&self) -> &FilterListModel
-	{
-		&self.inner.chapter_model
-	}
-
-	#[inline]
 	fn dark_colors(&self) -> &Colors
 	{
 		&self.inner.dark_colors
@@ -1494,12 +1493,11 @@ impl GuiContext {
 							render_context.custom_color = custom_color;
 							update_title(self.win(), &controller.reading.filename);
 							controller.redraw(&mut render_context);
+							drop(controller);
 							self.update(
 								&msg,
-								ChapterListSyncMode::Reload,
-								&controller);
+								ChapterListSyncMode::Reload);
 							drop(configuration);
-							drop(controller);
 							drop(render_context);
 							self.reload_history();
 						}
@@ -1550,105 +1548,33 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn update(&self, msg: &str, chapter_list_sync_mode: ChapterListSyncMode, controller: &GuiController)
+	fn update(&self, msg: &str, chapter_list_sync_mode: ChapterListSyncMode)
 	{
 		self.message(msg);
-		self.sync_chapter_list(chapter_list_sync_mode, controller);
+		self.inner.chapter_list.sync_chapter_list(chapter_list_sync_mode);
 	}
 
 	#[inline]
 	fn message(&self, msg: &str)
 	{
-		self.update_status(false, msg);
-	}
-
-	#[inline]
-	fn item(&self, position: u32) -> Option<Object>
-	{
-		self.inner.chapter_model.item(position)
-	}
-
-	#[inline]
-	fn is_chapter_syncing(&self) -> bool
-	{
-		self.inner.chapter_syncing.get()
-	}
-
-	fn sync_chapter_list(&self, sync_mode: ChapterListSyncMode, controller: &GuiController)
-	{
-		#[inline]
-		fn do_sync(gc: &GuiContext, sync_mode: ChapterListSyncMode, controller: &GuiController)
-		{
-			let chapter_list = &gc.inner.chapter_list;
-			let chapter_model = &gc.inner.chapter_model;
-
-			let inner_book = controller.reading.inner_book;
-			if match sync_mode {
-				ChapterListSyncMode::NoReload => false,
-				ChapterListSyncMode::Reload => true,
-				ChapterListSyncMode::ReloadIfNeeded(orig_inner_book) => orig_inner_book != inner_book,
-			} {
-				chapter_list::load_model(chapter_list, chapter_model, controller, gc);
-				return;
-			}
-
-			let toc_index = controller.toc_index() as u64;
-			if let Some(row) = chapter_list.selected_row() {
-				let index = row.index();
-				if index >= 0 {
-					if let Some(obj) = chapter_model.item(index as u32) {
-						let entry = chapter_list::entry_cast(&obj);
-						if entry.index() == toc_index {
-							return;
-						}
-					}
-				}
-			}
-
-			for i in 0..chapter_model.n_items() {
-				if let Some(obj) = chapter_model.item(i) {
-					let entry = chapter_list::entry_cast(&obj);
-					if !entry.book() && entry.index() == toc_index {
-						if let Some(row) = chapter_list.row_at_index(i as i32) {
-							chapter_list.select_row(Some(&row));
-						}
-					}
-				}
-			}
-		}
-		self.inner.chapter_syncing.replace(true);
-		do_sync(self, sync_mode, controller);
-		self.scroll_to_current_chapter();
-		self.inner.chapter_syncing.replace(false);
+		update_status(false, msg, &self.inner.status_bar);
 	}
 
 	#[inline]
 	fn error(&self, msg: &str)
 	{
-		self.update_status(true, msg);
+		update_status(true, msg, &self.inner.status_bar);
 	}
+}
 
-	fn update_status(&self, error: bool, msg: &str)
-	{
-		if error {
-			let markup = format!("<span foreground='red'>{msg}</span>");
-			self.inner.status_bar.set_markup(&markup);
-		} else {
-			self.inner.status_bar.set_text(msg);
-		};
-	}
-
-	fn scroll_to_current_chapter(&self)
-	{
-		if let Some(row) = self.chapter_list().selected_row() {
-			if let Some((_, y)) = row.translate_coordinates(self.chapter_list(), 0., 0.) {
-				if let Some(adj) = self.chapter_list().adjustment() {
-					let (_, height) = row.preferred_size();
-					adj.set_value(y - (adj.page_size() - height.height() as f64) / 2.);
-				}
-			}
-		}
-	}
+fn update_status(error: bool, msg: &str, status_bar: &Label)
+{
+	if error {
+		let markup = format!("<span foreground='red'>{msg}</span>");
+		status_bar.set_markup(&markup);
+	} else {
+		status_bar.set_text(msg);
+	};
 }
 
 fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>,

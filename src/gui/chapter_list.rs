@@ -1,74 +1,224 @@
-use gtk4::{Align, CustomFilter, Filter, FilterListModel, gdk, GestureClick, Image, Label, ListBox, ListBoxRow, Orientation, SelectionMode};
+use std::cell::{Cell, Ref, RefCell};
+use std::rc::Rc;
+use gtk4::{Align, CustomFilter, Filter, FilterChange, FilterListModel, gdk, GestureClick, Image, Label, ListBox, ListBoxRow, Orientation, PolicyType, SearchEntry, SelectionMode};
 use gtk4::gio::ListStore;
 use gtk4::glib::{Cast, Object};
 use gtk4::glib;
 use gtk4::pango::EllipsizeMode;
-use gtk4::prelude::{BoxExt, ListBoxRowExt, ListModelExt, WidgetExt};
-use crate::gui::{GuiController, README_TEXT_FILENAME, GuiContext, ChapterListSyncMode};
-use crate::ReadingInfo;
+use gtk4::prelude::{AdjustmentExt, BoxExt, EditableExt, FilterExt, ListBoxRowExt, ListModelExt, WidgetExt};
+use crate::gui::{GuiController, README_TEXT_FILENAME, ChapterListSyncMode, IconMap};
 
 pub const BOOK_NAME_LABEL_CLASS: &str = "book-name";
 pub const TOC_LABEL_CLASS: &str = "toc";
 
-pub fn create() -> (ListBox, FilterListModel)
-{
-	let model = ListStore::new::<ChapterListEntry>();
-	let chapter_list = ListBox::builder()
-		.selection_mode(SelectionMode::Single)
-		.build();
-	chapter_list.add_css_class("navigation-sidebar");
-	chapter_list.add_css_class("boxed-list");
-	(chapter_list, FilterListModel::new(Some(model), None::<Filter>))
+pub struct ChapterListInner {
+	collapse: Rc<Cell<bool>>,
+	list: ListBox,
+	model: FilterListModel,
+	ctrl: Rc<RefCell<GuiController>>,
+	syncing: Rc<Cell<bool>>,
 }
 
-pub(super) fn init(gc: &GuiContext)
-{
-	let chapter_list = gc.chapter_list();
-	let model = gc.chapter_model();
+#[derive(Clone)]
+pub struct ChapterList {
+	inner: Rc<ChapterListInner>,
+}
+
+impl ChapterList {
+	pub fn create<F>(icons: &Rc<IconMap>, ctrl: &Rc<RefCell<GuiController>>,
+		item_clicked: F) -> (Self, gtk4::Box)
+		where F: Fn(bool, usize) + 'static
 	{
-		let gc = gc.clone();
-		chapter_list.bind_model(Some(model), move |obj| {
-			gtk4::Widget::from(create_list_row(obj, &gc))
+		let model = ListStore::new::<ChapterListEntry>();
+		let model = FilterListModel::new(Some(model), None::<Filter>);
+		let list = ListBox::builder()
+			.selection_mode(SelectionMode::Single)
+			.build();
+		list.add_css_class("navigation-sidebar");
+		list.add_css_class("boxed-list");
+		{
+			let icons = icons.clone();
+			list.bind_model(Some(&model), move |obj| {
+				gtk4::Widget::from(create_list_row(obj, &icons))
+			});
+		}
+		let syncing = Default::default();
+		let collapse = Rc::new(Cell::new(false));
+		let filter_input = SearchEntry::new();
+		let filter = {
+			let collapse = collapse.clone();
+			let filter_input = filter_input.clone();
+			let filter = CustomFilter::new(move |obj| {
+				let entry = obj.downcast_ref::<ChapterListEntry>().unwrap();
+				if collapse.get() && !entry.book() {
+					return false;
+				}
+				let text = filter_input.text();
+				let str = text.as_str().trim();
+				if str.is_empty() {
+					true
+				} else {
+					entry.title()
+						.to_lowercase()
+						.contains(&str.to_lowercase())
+				}
+			});
+			model.set_filter(Some(&filter));
+			filter
+		};
+		{
+			filter_input.connect_search_changed(move |_| {
+				filter.changed(FilterChange::Different);
+			});
+		}
+
+		let container = gtk4::Box::builder()
+			.orientation(Orientation::Vertical)
+			.spacing(0)
+			.vexpand(true)
+			.build();
+		container.append(&filter_input);
+		container.append(&gtk4::ScrolledWindow::builder()
+			.child(&list)
+			.hscrollbar_policy(PolicyType::Never)
+			.vexpand(true)
+			.build());
+
+		let chapter_list = ChapterList {
+			inner: Rc::new(ChapterListInner {
+				collapse,
+				list,
+				model,
+				ctrl: ctrl.clone(),
+				syncing,
+			})
+		};
+		load_model(&chapter_list);
+
+		{
+			let chapter_list2 = chapter_list.clone();
+			chapter_list.inner.list.connect_row_selected(move |_, row| {
+				if chapter_list2.inner.syncing.get() {
+					return;
+				}
+				if let Some(row) = row {
+					let model = &chapter_list2.inner.model;
+					let row_index = row.index();
+					if row_index >= 0 {
+						if let Some(obj) = model.item(row_index as u32) {
+							let entry = entry_cast(&obj);
+							if entry.book() {
+								chapter_list2.collapse(!chapter_list2.inner.collapse.get());
+								item_clicked(true, entry.index() as usize);
+								chapter_list2.sync_chapter_list(ChapterListSyncMode::Reload);
+							} else {
+								item_clicked(false, entry.index() as usize);
+							}
+						}
+					}
+				}
+			})
+		};
+
+		(chapter_list, container)
+	}
+
+	#[inline]
+	pub fn collapse(&self, yes: bool)
+	{
+		self.inner.collapse.replace(yes);
+		self.inner.model.filter().unwrap().changed(if yes {
+			FilterChange::MoreStrict
+		} else {
+			FilterChange::LessStrict
 		});
 	}
-	let controller = gc.ctrl();
-	load_model(chapter_list, model, &controller, gc);
 
-	let gc = gc.clone();
-	chapter_list.connect_row_selected(move |_, row| {
-		if gc.is_chapter_syncing() {
-			return;
+	#[inline]
+	pub fn block_reactive(&self, block: bool)
+	{
+		self.inner.syncing.replace(block);
+	}
+
+	pub fn scroll_to_current(&self)
+	{
+		let list = &self.inner.list;
+		if let Some(row) = list.selected_row() {
+			if let Some((_, y)) = row.translate_coordinates(list, 0., 0.) {
+				if let Some(adj) = list.adjustment() {
+					let (_, height) = row.preferred_size();
+					adj.set_value(y - (adj.page_size() - height.height() as f64) / 2.);
+				}
+			}
 		}
-		if let Some(row) = row {
-			let row_index = row.index();
-			if row_index >= 0 {
-				let mut render_context = gc.ctx_mut();
-				if let Some(obj) = gc.item(row_index as u32) {
+	}
+
+	pub(super) fn sync_chapter_list(&self, sync_mode: ChapterListSyncMode)
+	{
+		#[inline]
+		fn do_sync(sync_mode: ChapterListSyncMode, chapter_list: &ChapterList,
+			controller: &GuiController)
+		{
+			let inner_book = controller.reading.inner_book;
+			if match sync_mode {
+				ChapterListSyncMode::NoReload => false,
+				ChapterListSyncMode::Reload => true,
+				ChapterListSyncMode::ReloadIfNeeded(orig_inner_book) => orig_inner_book != inner_book,
+			} {
+				load_model(chapter_list);
+				return;
+			}
+
+			let list = &chapter_list.inner.list;
+			let model = &chapter_list.inner.model;
+			let toc_index = controller.toc_index() as u64;
+			if let Some(row) = list.selected_row() {
+				let index = row.index();
+				if index >= 0 {
+					if let Some(obj) = model.item(index as u32) {
+						let entry = entry_cast(&obj);
+						if entry.index() == toc_index {
+							return;
+						}
+					}
+				}
+			}
+
+			for i in 0..model.n_items() {
+				if let Some(obj) = model.item(i) {
 					let entry = entry_cast(&obj);
-					let mut controller = gc.ctrl_mut();
-					if entry.book() {
-						gc.chapter_model().set_filter(None::<&Filter>);
-						let new_reading = ReadingInfo::new(&controller.reading.filename)
-							.with_inner_book(entry.index() as usize);
-						let msg = controller.switch_book(new_reading, &mut render_context);
-						gc.update(&msg, ChapterListSyncMode::Reload, &controller);
-					} else if let Some(msg) = controller.goto_toc(entry.index() as usize, &mut render_context) {
-						gc.message(&msg);
+					if !entry.book() && entry.index() == toc_index {
+						if let Some(row) = list.row_at_index(i as i32) {
+							list.select_row(Some(&row));
+						}
 					}
 				}
 			}
 		}
-	});
+		self.block_reactive(true);
+		do_sync(sync_mode, &self, &self.ctrl());
+		self.scroll_to_current();
+		self.block_reactive(false);
+	}
+
+	#[inline]
+	fn ctrl(&self) -> Ref<GuiController>
+	{
+		self.inner.ctrl.borrow()
+	}
 }
 
-pub fn load_model(chapter_list: &ListBox, chapter_model: &FilterListModel,
-	controller: &GuiController, gc: &GuiContext)
+pub fn load_model(chapter_list: &ChapterList)
 {
-	let model = chapter_model.model().unwrap();
-	let model = model.downcast_ref::<ListStore>().unwrap();
+	chapter_list.collapse(false);
+	let model = &chapter_list.inner.model;
+	let model = model.model().unwrap();
+	let model = model
+		.downcast_ref::<ListStore>()
+		.unwrap();
 	model.remove_all();
-	chapter_model.set_filter(None::<&Filter>);
 
+	let controller = chapter_list.ctrl();
 	let current_toc = controller.toc_index();
 	let mut current_book_idx = -1;
 	let mut current_toc_idx = -1;
@@ -93,30 +243,28 @@ pub fn load_model(chapter_list: &ListBox, chapter_model: &FilterListModel,
 			model.append(&ChapterListEntry::new(bookname, index, true, false));
 		}
 	}
-	if let Some(row) = chapter_list.row_at_index(current_toc_idx) {
-		chapter_list.select_row(Some(&row));
+	let list = &chapter_list.inner.list;
+	if let Some(row) = list.row_at_index(current_toc_idx) {
+		list.select_row(Some(&row));
 	}
-	if let Some(row) = chapter_list.row_at_index(current_book_idx) {
+	if let Some(row) = list.row_at_index(current_book_idx) {
 		row.set_selectable(false);
 		let click = GestureClick::builder().button(gdk::BUTTON_PRIMARY).build();
-		let gc = gc.clone();
+		let chapter_list = chapter_list.clone();
 		click.connect_released(move |_, _, _, _, | {
-			let chapter_model = gc.chapter_model();
-			if chapter_model.filter().is_some() {
-				chapter_model.set_filter(None::<&Filter>);
-				gc.sync_chapter_list(ChapterListSyncMode::NoReload, &gc.ctrl());
+			let collapse = !chapter_list.inner.collapse.get();
+			if collapse {
+				chapter_list.collapse(true);
 			} else {
-				let filter = CustomFilter::new(|obj| {
-					obj.downcast_ref::<ChapterListEntry>().unwrap().book()
-				});
-				chapter_model.set_filter(Some(&filter));
+				chapter_list.collapse(false);
+				chapter_list.sync_chapter_list(ChapterListSyncMode::NoReload);
 			}
 		});
 		row.add_controller(click);
 	}
 }
 
-fn create_list_row(obj: &Object, gc: &GuiContext) -> ListBoxRow
+fn create_list_row(obj: &Object, icons: &IconMap) -> ListBoxRow
 {
 	let entry = entry_cast(obj);
 	let title = entry.title();
@@ -136,11 +284,11 @@ fn create_list_row(obj: &Object, gc: &GuiContext) -> ListBoxRow
 		} else {
 			"book_closed.svg"
 		};
-		Image::from_pixbuf(gc.icons().get(icon_name))
+		Image::from_pixbuf(icons.get(icon_name))
 	} else {
 		view.add_css_class(TOC_LABEL_CLASS);
 		label.set_label(&format!("    {}", title));
-		Image::from_pixbuf(gc.icons().get("chapter.svg"))
+		Image::from_pixbuf(icons.get("chapter.svg"))
 	};
 
 	view.append(&icon);
@@ -153,7 +301,7 @@ fn create_list_row(obj: &Object, gc: &GuiContext) -> ListBoxRow
 }
 
 #[inline]
-pub fn entry_cast(obj: &Object) -> &ChapterListEntry
+fn entry_cast(obj: &Object) -> &ChapterListEntry
 {
 	obj.downcast_ref::<ChapterListEntry>().expect("Needs to be ChapterListEntry")
 }
