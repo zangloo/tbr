@@ -25,9 +25,9 @@ jobs:
         id: cache
         with:
           path: c:/gnome
-          key: ${{ runner.os }}-gtk4-10
+          key: ${{ runner.os }}-gtk4-14.2
           restore-keys: |
-            ${{ runner.os }}-gtk4-10
+            ${{ runner.os }}-gtk4-14.2
       - name: Set up the PATH environment
         run: |
           echo "C:\pkg-config-lite-0.28-1\bin" >> $GITHUB_PATH
