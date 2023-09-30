@@ -221,7 +221,8 @@ pub fn load_model(chapter_list: &ChapterList)
 	let controller = chapter_list.ctrl();
 	let current_toc = controller.toc_index();
 	let mut current_book_idx = -1;
-	let mut current_toc_idx = -1;
+	let mut current_book_collapsable = true;
+	let mut selected_index = -1;
 	for (index, bn) in controller.container.inner_book_names().iter().enumerate() {
 		let bookname = bn.name();
 		if bookname == README_TEXT_FILENAME {
@@ -234,33 +235,38 @@ pub fn load_model(chapter_list: &ChapterList)
 				for (title, value) in toc {
 					let reading = value == current_toc;
 					if reading {
-						current_toc_idx = model.n_items() as i32;
+						selected_index = model.n_items() as i32;
 					}
 					model.append(&ChapterListEntry::new(title, value, false, reading));
 				}
+			} else {
+				selected_index = model.n_items() as i32 - 1;
+				current_book_collapsable = false;
 			}
 		} else {
 			model.append(&ChapterListEntry::new(bookname, index, true, false));
 		}
 	}
 	let list = &chapter_list.inner.list;
-	if let Some(row) = list.row_at_index(current_toc_idx) {
+	if let Some(row) = list.row_at_index(selected_index) {
 		list.select_row(Some(&row));
 	}
 	if let Some(row) = list.row_at_index(current_book_idx) {
-		row.set_selectable(false);
-		let click = GestureClick::builder().button(gdk::BUTTON_PRIMARY).build();
-		let chapter_list = chapter_list.clone();
-		click.connect_released(move |_, _, _, _, | {
-			let collapse = !chapter_list.inner.collapse.get();
-			if collapse {
-				chapter_list.collapse(true);
-			} else {
-				chapter_list.collapse(false);
-				chapter_list.sync_chapter_list(ChapterListSyncMode::NoReload);
-			}
-		});
-		row.add_controller(click);
+		if current_book_collapsable {
+			row.set_selectable(false);
+			let click = GestureClick::builder().button(gdk::BUTTON_PRIMARY).build();
+			let chapter_list = chapter_list.clone();
+			click.connect_released(move |_, _, _, _, | {
+				let collapse = !chapter_list.inner.collapse.get();
+				if collapse {
+					chapter_list.collapse(true);
+				} else {
+					chapter_list.collapse(false);
+					chapter_list.sync_chapter_list(ChapterListSyncMode::NoReload);
+				}
+			});
+			row.add_controller(click);
+		}
 	}
 }
 
