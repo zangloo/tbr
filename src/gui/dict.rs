@@ -278,7 +278,7 @@ impl DictionaryManager {
 	pub fn set_lookup(&mut self, lookup_text: String)
 	{
 		self.lookup_input.set_text(&lookup_text);
-		self.push_dict_word(lookup_text, false);
+		self.push_dict_word(lookup_text);
 	}
 
 	fn select_text(&mut self, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64)
@@ -333,7 +333,7 @@ impl DictionaryManager {
 		}
 	}
 
-	fn push_dict_word(&mut self, word: String, focus: bool)
+	fn push_dict_word(&mut self, word: String)
 	{
 		let current_index = if let Some(mut current_index) = self.current_index {
 			if word == self.words[current_index].0 {
@@ -352,9 +352,6 @@ impl DictionaryManager {
 		self.backward_btn.set_sensitive(self.words.len() > 1);
 		self.forward_btn.set_sensitive(false);
 		self.lookup(current_index, true);
-		if focus {
-			self.view.grab_focus();
-		}
 	}
 
 	fn lookup(&mut self, current_index: usize, init: bool)
@@ -484,7 +481,8 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 				return;
 			}
 			let mut dictionary_manager = dm.borrow_mut();
-			dictionary_manager.push_dict_word(lookup_pattern.to_string(), true);
+			dictionary_manager.push_dict_word(lookup_pattern.to_string());
+			dictionary_manager.view.grab_focus();
 		});
 	}
 
