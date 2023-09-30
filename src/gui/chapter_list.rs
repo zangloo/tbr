@@ -45,29 +45,32 @@ impl ChapterList {
 		let syncing = Default::default();
 		let collapse = Rc::new(Cell::new(false));
 		let filter_input = SearchEntry::new();
+		let filter_pattern = Rc::new(RefCell::new(String::new()));
 		let filter = {
 			let collapse = collapse.clone();
-			let filter_input = filter_input.clone();
+			let filter_pattern = filter_pattern.clone();
 			let filter = CustomFilter::new(move |obj| {
 				let entry = obj.downcast_ref::<ChapterListEntry>().unwrap();
 				if collapse.get() && !entry.book() {
 					return false;
 				}
-				let text = filter_input.text();
-				let str = text.as_str().trim();
-				if str.is_empty() {
+				let pattern: &String = &filter_pattern.borrow();
+				if pattern.is_empty() {
 					true
 				} else {
 					entry.title()
 						.to_lowercase()
-						.contains(&str.to_lowercase())
+						.contains(pattern)
 				}
 			});
 			model.set_filter(Some(&filter));
 			filter
 		};
 		{
-			filter_input.connect_search_changed(move |_| {
+			filter_input.connect_search_changed(move |input| {
+				let text = input.text();
+				let str = text.as_str().trim();
+				filter_pattern.replace(str.to_lowercase());
 				filter.changed(FilterChange::Different);
 			});
 		}
