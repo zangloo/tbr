@@ -329,21 +329,29 @@ fn create_list_row(entry: &ChapterListEntry, icons: &IconMap) -> ListBoxRow
 		.build();
 
 	let view = gtk4::Box::new(Orientation::Horizontal, 4);
-	let icon_name = if entry.book {
+	let icon = if entry.book {
 		view.add_css_class(BOOK_NAME_LABEL_CLASS);
 		label.set_label(title);
-		if entry.reading {
+		let icon_name = if entry.reading {
 			"book_reading.svg"
 		} else {
 			"book_closed.svg"
-		}
+		};
+		load_button_image(icon_name, icons, false)
 	} else {
 		view.add_css_class(TOC_LABEL_CLASS);
-		label.set_label(&format!("{}{}", "    ".repeat(entry.level), title));
-		"chapter.svg"
+		label.set_label(title);
+		let icon_name = if entry.level == 1 {
+			"toc.svg"
+		} else {
+			"chapter.svg"
+		};
+		let icon = load_button_image(icon_name, icons, false);
+		icon.set_margin_start(15 * entry.level as i32);
+		icon
 	};
 
-	view.append(&load_button_image(icon_name, icons, false));
+	view.append(&icon);
 	view.append(&label);
 
 	let row = ListBoxRow::new();
