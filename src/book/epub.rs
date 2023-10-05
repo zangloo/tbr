@@ -47,7 +47,6 @@ struct NavPoint {
 	pub label: Option<String>,
 	#[allow(dead_code)]
 	pub play_order: Option<usize>,
-	#[allow(dead_code)]
 	pub level: usize,
 	pub src_file: Option<String>,
 	pub src_anchor: Option<String>,
