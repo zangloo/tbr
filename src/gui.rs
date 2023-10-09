@@ -153,13 +153,21 @@ fn setup_fonts(font_paths: &Vec<PathConfig>) -> Result<Option<Vec<FontVec>>>
 		let mut fonts = vec![];
 		for config in font_paths {
 			if config.enabled {
-				let mut file = OpenOptions::new().read(true).open(&config.path)?;
-				let mut buf = vec![];
-				file.read_to_end(&mut buf)?;
-				fonts.push(FontVec::try_from_vec(buf)?);
+				// font file no more exists
+				if let Ok(mut file) = OpenOptions::new()
+					.read(true)
+					.open(&config.path) {
+					let mut buf = vec![];
+					file.read_to_end(&mut buf)?;
+					fonts.push(FontVec::try_from_vec(buf)?);
+				}
 			}
 		}
-		Ok(Some(fonts))
+		if fonts.len() > 0 {
+			Ok(Some(fonts))
+		} else {
+			Ok(None)
+		}
 	}
 }
 
