@@ -190,27 +190,27 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						newline_for_class(context, element);
 					}
 					local_name!("h1") => {
-						push_font_size(&mut element_styles, 6, true);
+						push_font_size(&mut element_styles, 6, false);
 						new_paragraph(child, context);
 					}
 					| local_name!("h2") => {
-						push_font_size(&mut element_styles, 5, true);
+						push_font_size(&mut element_styles, 5, false);
 						new_paragraph(child, context);
 					}
 					| local_name!("h3") => {
-						push_font_size(&mut element_styles, 4, true);
+						push_font_size(&mut element_styles, 4, false);
 						new_paragraph(child, context);
 					}
 					| local_name!("h4") => {
-						push_font_size(&mut element_styles, 3, true);
+						push_font_size(&mut element_styles, 3, false);
 						new_paragraph(child, context);
 					}
 					| local_name!("h5") => {
-						push_font_size(&mut element_styles, 2, true);
+						push_font_size(&mut element_styles, 2, false);
 						new_paragraph(child, context);
 					}
 					| local_name!("h6") => {
-						push_font_size(&mut element_styles, 1, true);
+						push_font_size(&mut element_styles, 1, false);
 						new_paragraph(child, context);
 					}
 					local_name!("p")
