@@ -300,6 +300,13 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 	file_resolver: Option<F>) -> HashMap<NodeId, Vec<TextStyle>>
 	where F: Fn(String) -> Option<&'a String>
 {
+	#[inline]
+	fn make_options<'a>() -> ParserOptions<'a, 'a>
+	{
+		let mut options = ParserOptions::default();
+		options.error_recovery = true;
+		options
+	}
 	let mut element_styles = HashMap::new();
 
 	// load embedded styles
@@ -309,7 +316,7 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 		while let Some(style) = style_iterator.next() {
 			let mut text_iterator = style.text();
 			while let Some(text) = text_iterator.next() {
-				if let Ok(style_sheet) = StyleSheet::parse(&text, ParserOptions::default()) {
+				if let Ok(style_sheet) = StyleSheet::parse(&text, make_options()) {
 					stylesheets.push(style_sheet);
 				}
 			}
@@ -323,7 +330,7 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 				if let Some(href) = element.value().attr("href") {
 					if href.to_lowercase().ends_with(".css") {
 						if let Some(content) = file_resolver(href.to_string()) {
-							if let Ok(style_sheet) = StyleSheet::parse(&content, ParserOptions::default()) {
+							if let Ok(style_sheet) = StyleSheet::parse(&content, make_options()) {
 								stylesheets.push(style_sheet);
 							}
 						}
