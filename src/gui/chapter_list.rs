@@ -159,10 +159,15 @@ impl ChapterList {
 	}
 
 	pub fn handle_cancel<F>(&self, cancel: F)
-		where F: Fn() + 'static
+		where F: Fn(bool) + 'static
 	{
-		self.inner.filter_input.connect_stop_search(move |_| {
-			cancel();
+		self.inner.filter_input.connect_stop_search(move |entry| {
+			if entry.text().is_empty() {
+				cancel(true);
+			} else {
+				entry.set_text("");
+				cancel(false);
+			}
 		});
 	}
 
@@ -244,7 +249,6 @@ impl ChapterList {
 		self.inner.ctrl.borrow()
 	}
 }
-
 
 pub fn load_entries(chapter_list: &ChapterList)
 {

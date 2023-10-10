@@ -742,8 +742,13 @@ fn setup_chapter_list(gc1: &GuiContext)
 	}
 	{
 		let gc = gc1.clone();
-		gc1.inner.chapter_list.handle_cancel(move || {
-			toggle_sidebar(&gc);
+		gc1.inner.chapter_list.handle_cancel(move |empty| {
+			// when search entry has no text, empty is true
+			if empty {
+				toggle_sidebar(&gc);
+			} else {
+				gc.ctrl().render.grab_focus();
+			}
 		});
 	}
 }
