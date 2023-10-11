@@ -215,8 +215,13 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let icons = load_icons();
 	let icons = Rc::new(icons);
 
-	let mut render_context = RenderContext::new(colors, configuration.gui.font_size,
-		reading.custom_color, book.leading_space(), configuration.gui.strip_empty_lines);
+	let mut render_context = RenderContext::new(
+		colors,
+		configuration.gui.font_size,
+		reading.custom_color,
+		book.leading_space(),
+		configuration.gui.strip_empty_lines,
+		configuration.gui.ignore_font_weight);
 	let view = GuiView::new(
 		"main",
 		configuration.render_han,
@@ -1180,8 +1185,9 @@ fn update_title(window: &ApplicationWindow, filename: &str)
 }
 
 fn apply_settings(locale: &str, fonts: Vec<PathConfig>,
-	dictionaries: Vec<PathConfig>, cache_dict: bool, gc: &GuiContext,
-	dictionary_manager: &mut DictionaryManager) -> Result<(), (String, String)>
+	dictionaries: Vec<PathConfig>, cache_dict: bool, ignore_font_weight: bool,
+	gc: &GuiContext, dictionary_manager: &mut DictionaryManager)
+	-> Result<(), (String, String)>
 {
 	fn paths_modified(orig: &Vec<PathConfig>, new: &Vec<PathConfig>) -> bool
 	{
@@ -1201,6 +1207,13 @@ fn apply_settings(locale: &str, fonts: Vec<PathConfig>,
 	let i18n = gc.i18n();
 	// need restart
 	configuration.gui.lang = locale.to_owned();
+
+	let ignore_font_weight = if configuration.gui.ignore_font_weight != ignore_font_weight {
+		configuration.gui.ignore_font_weight = ignore_font_weight;
+		Some(ignore_font_weight)
+	} else {
+		None
+	};
 
 	let new_fonts = if paths_modified(&configuration.gui.fonts, &fonts) {
 		let new_fonts = match setup_fonts(&fonts) {
@@ -1227,14 +1240,19 @@ fn apply_settings(locale: &str, fonts: Vec<PathConfig>,
 		configuration.gui.cache_dict = cache_dict;
 	};
 
-	if let Some(new_fonts) = new_fonts {
-		let fonts_data = Rc::new(new_fonts);
-		dictionary_manager.set_fonts(fonts_data.clone());
-		let mut controller = gc.ctrl_mut();
+	if ignore_font_weight.is_some() || new_fonts.is_some() {
 		let mut render_context = gc.ctx_mut();
-		controller.render.set_fonts(fonts_data, &mut render_context);
+		let mut controller = gc.ctrl_mut();
+		if let Some(new_fonts) = new_fonts {
+			let fonts_data = Rc::new(new_fonts);
+			dictionary_manager.set_fonts(fonts_data.clone());
+			configuration.gui.fonts = fonts;
+			controller.render.set_fonts(fonts_data, &mut render_context);
+		}
+		if let Some(ignore_font_weight) = ignore_font_weight {
+			render_context.ignore_font_weight = ignore_font_weight;
+		}
 		controller.redraw(&mut render_context);
-		configuration.gui.fonts = fonts;
 	}
 	Ok(())
 }

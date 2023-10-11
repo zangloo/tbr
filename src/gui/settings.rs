@@ -51,6 +51,15 @@ pub(super) fn show(gc: &GuiContext) -> Window
 		locale_dropdown
 	};
 
+	let ignore_font_weight_cb = {
+		let cb = CheckButton::builder()
+			.label(i18n.msg("ignore-font-weight"))
+			.active(configuration.gui.ignore_font_weight)
+			.build();
+		main.append(&cb);
+		cb
+	};
+
 	let font_list = {
 		let title = i18n.msg("font-files");
 		let (label, view, font_list, font_add_btn) = create_list(
@@ -168,15 +177,16 @@ pub(super) fn show(gc: &GuiContext) -> Window
 					.unwrap_or(locales.get(0).unwrap())
 					.locale
 			};
+			let ignore_font_weight = ignore_font_weight_cb.is_active();
 			let fonts = collect_path_list(&font_list, |path|
 				path.exists() && path.is_file());
 			let dictionaries = collect_path_list(&dict_list, |path|
 				stardict::no_cache(path).is_ok());
-			let cache_dict = cache_dict_cb.activate();
+			let cache_dict = cache_dict_cb.is_active();
 
 			if let Err((title, message)) = apply_settings(
-				locale, fonts, dictionaries, cache_dict, &gc,
-				&mut gc.dm_mut()) {
+				locale, fonts, dictionaries, cache_dict, ignore_font_weight,
+				&gc, &mut gc.dm_mut()) {
 				AlertDialog::builder()
 					.modal(true)
 					.message(&title)

@@ -174,6 +174,8 @@ struct GuiConfiguration {
 	cache_dict: bool,
 	#[serde(default)]
 	strip_empty_lines: bool,
+	#[serde(default)]
+	ignore_font_weight: bool,
 }
 
 #[cfg(feature = "gui")]
@@ -188,6 +190,7 @@ impl Default for GuiConfiguration
 			dictionaries: vec![],
 			cache_dict: false,
 			strip_empty_lines: false,
+			ignore_font_weight: false,
 		}
 	}
 }

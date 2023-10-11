@@ -21,6 +21,7 @@ tab-dictionary = dictionary
 font-files = font files
 dictionary-file = dictionary file(ifo)
 cache-dictionary = cache dictionaries data
+ignore-font-weight = ignore font weight for rendering
 settings-dialog-title = settings
 settings-dialog = show settings dialog
 ok-title = Ok

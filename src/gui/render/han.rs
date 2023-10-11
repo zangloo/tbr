@@ -11,6 +11,7 @@ use crate::common::{HAN_COMPACT_CHARS, HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, vec2};
 use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, scale_font_size, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, hline, CharDrawData, ScrollSizing, ScrolledDrawData};
+use crate::gui::render::imp::load_font_weight;
 
 pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
@@ -109,11 +110,12 @@ impl GuiRender for GuiHanRender
 				let char = text.char_at(i).unwrap();
 				let char = self.map_char(char);
 				let font_size = scale_font_size(context.font_size, char_style.font_scale);
+				let font_weight = load_font_weight(char_style.font_weight, context);
 				let (size, draw_size, draw_offset) = self.measure_char(
 					pango,
 					char,
 					font_size,
-					char_style.font_weight,
+					font_weight,
 					&char_style.font_family,
 					book.font_family_names(),
 					context);
@@ -144,7 +146,7 @@ impl GuiRender for GuiHanRender
 				let cell = CharCell {
 					char,
 					font_size,
-					font_weight: char_style.font_weight,
+					font_weight,
 					font_family: char_style.font_family,
 					color,
 					background,

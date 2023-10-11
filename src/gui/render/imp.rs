@@ -350,11 +350,15 @@ pub struct RenderContext
 
 	// method for redraw with scrolling
 	pub scroll_redraw_method: ScrollRedrawMethod,
+
+	// ignore font weight
+	pub ignore_font_weight: bool,
 }
 
 impl RenderContext {
 	pub fn new(colors: Colors, font_size: u8, custom_color: bool,
-		leading_chars: usize, strip_empty_lines: bool) -> Self
+		leading_chars: usize, strip_empty_lines: bool, ignore_font_weight: bool)
+		-> Self
 	{
 		RenderContext {
 			colors,
@@ -363,6 +367,7 @@ impl RenderContext {
 			default_font_measure: Pos2::ZERO,
 			custom_color,
 			strip_empty_lines,
+			ignore_font_weight,
 			render_rect: Rect::NOTHING,
 			leading_chars,
 			leading_space: 0.0,
@@ -832,6 +837,16 @@ pub fn scale_font_size(font_size: u8, scale: f32) -> f32
 		9.0
 	} else {
 		scaled_size
+	}
+}
+
+#[inline]
+pub fn load_font_weight(font_weight: u8, render_context: &RenderContext) -> u8
+{
+	if render_context.ignore_font_weight {
+		DEFAULT_FONT_WEIGHT
+	} else {
+		font_weight
 	}
 }
 

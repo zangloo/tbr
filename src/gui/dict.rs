@@ -193,7 +193,13 @@ impl DictionaryManager {
 		fonts: Rc<Option<Vec<FontVec>>>, i18n: &Rc<I18n>, icons: &Rc<IconMap>)
 		-> (Rc<RefCell<Self>>, gtk4::Box, SearchEntry)
 	{
-		let mut render_context = RenderContext::new(create_colors(), font_size, true, 0, false);
+		let mut render_context = RenderContext::new(
+			create_colors(),
+			font_size,
+			true,
+			0,
+			false,
+			false);
 		let book = DictionaryBook::default();
 		let view = GuiView::new("dict", false, fonts, &mut render_context);
 		let backward_btn = create_button("backward_disabled.svg", "", icons, false);

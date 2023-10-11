@@ -21,6 +21,7 @@ tab-dictionary = 字典
 font-files = 字体文件
 dictionary-file = 字典文件(ifo)
 cache-dictionary = 缓存字典数据
+ignore-font-weight = 渲染时忽略字体粗体设置
 settings-dialog-title = 设置
 settings-dialog = 参数设置
 ok-title = 确定

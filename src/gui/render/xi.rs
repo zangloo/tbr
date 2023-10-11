@@ -11,6 +11,7 @@ use crate::common::with_leading;
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2};
 use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, RenderChar, update_for_highlight, ImageDrawingData, PointerPosition, TextDecoration, RenderCell, CharCell, hline, vline, CharDrawData, ScrollSizing, ScrolledDrawData};
+use crate::gui::render::imp::load_font_weight;
 
 pub(super) struct GuiXiRender {
 	images: HashMap<String, ImageDrawingData>,
@@ -135,11 +136,12 @@ impl GuiRender for GuiXiRender
 				}
 				let char = text.char_at(i).unwrap();
 				let font_size = scale_font_size(context.font_size, char_style.font_scale);
+				let font_weight = load_font_weight(char_style.font_weight, context);
 				let (cell_size, _draw_size, _draw_offset) = self.measure_char(
 					pango,
 					char,
 					font_size,
-					char_style.font_weight,
+					font_weight,
 					&char_style.font_family,
 					book.font_family_names(),
 					context);
@@ -169,7 +171,7 @@ impl GuiRender for GuiXiRender
 				let cell = CharCell {
 					char: if blank_char { ' ' } else { char },
 					font_size,
-					font_weight: char_style.font_weight,
+					font_weight,
 					font_family: char_style.font_family,
 					color,
 					background,
