@@ -10,6 +10,7 @@ use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use lightningcss::properties::{border, font, Property};
 use lightningcss::properties::border::{Border, BorderSideWidth};
 use lightningcss::properties::font::{AbsoluteFontWeight, FontFamily, FontSize, FontWeight};
+use lightningcss::properties::text::TextDecorationLine;
 use lightningcss::rules::CssRule;
 use lightningcss::stylesheet::{ParserOptions, StyleSheet};
 use lightningcss::traits::Parse;
@@ -144,6 +145,8 @@ const DIV_PUSH_CLASSES: [&str; 3] = ["contents", "toc", "mulu"];
 
 fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 {
+	const LINE_TO_REMOVE: TextStyle = TextStyle::Line(TextDecorationLine::Underline);
+
 	for child in children {
 		match child.value() {
 			Node::Text(contents) => {
@@ -171,6 +174,13 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 					child.id(),
 					context);
 				match element.name.local {
+					local_name!("table") => {
+						// will not render table
+						// remove line and border styles
+						element_styles.remove(&TextStyle::Border);
+						element_styles.remove(&LINE_TO_REMOVE);
+						convert_dom_to_lines(child.children(), context);
+					}
 					local_name!("title") => {
 						// title is in head, no other text should parsed
 						reset_lines(context);
@@ -419,12 +429,21 @@ fn convert_style(property: &Property, font_families: &mut IndexSet<String>) -> O
 {
 	match property {
 		Property::Border(border) => border_style(border),
-		Property::BorderWidth(width)
-		if border_width(&width.top)
-			| border_width(&width.left)
-			| border_width(&width.right)
-			| border_width(&width.bottom) => {
-			Some(TextStyle::Border)
+		Property::BorderBottom(line)
+		if border_width(&line.width) => Some(TextStyle::Line(TextDecorationLine::Underline)),
+		Property::BorderWidth(width) => {
+			let top = border_width(&width.top);
+			let left = border_width(&width.left);
+			let right = border_width(&width.right);
+			let bottom = border_width(&width.bottom);
+			match (top, left, right, bottom) {
+				(false, false, false, true) => Some(TextStyle::Line(TextDecorationLine::Underline)),
+				(true, true, true, true) => Some(TextStyle::Border),
+				(true, _, _, _) => Some(TextStyle::Border),
+				(_, true, _, _) => Some(TextStyle::Border),
+				(_, _, true, _) => Some(TextStyle::Border),
+				_ => None,
+			}
 		}
 		Property::FontSize(size) => Some(font_size(size)),
 		Property::FontWeight(weight) => Some(font_weight(weight)),
