@@ -213,6 +213,14 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						push_font_size(&mut element_styles, 1, false);
 						new_paragraph(child, context);
 					}
+					local_name!("small") => {
+						push_font_size(&mut element_styles, 2, true);
+						convert_dom_to_lines(child.children(), context);
+					}
+					local_name!("big") => {
+						push_font_size(&mut element_styles, 4, true);
+						convert_dom_to_lines(child.children(), context);
+					}
 					local_name!("p")
 					| local_name!("blockquote")
 					| local_name!("tr")
