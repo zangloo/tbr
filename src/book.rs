@@ -3,6 +3,7 @@ use std::cmp;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::OpenOptions;
+use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::ops::Range;
 use std::slice::Iter;
@@ -52,6 +53,31 @@ pub enum TextStyle {
 	Link(String),
 	Color(Color32),
 	BackgroundColor(Color32),
+}
+
+impl Hash for TextStyle {
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		match self {
+			TextStyle::Line(_) => state.write_u8(1),
+			TextStyle::Border => state.write_u8(2),
+			TextStyle::FontSize { .. } => state.write_u8(3),
+			TextStyle::FontWeight(_) => state.write_u8(4),
+			TextStyle::FontFamily(_) => state.write_u8(5),
+			TextStyle::Image(_) => state.write_u8(6),
+			TextStyle::Link(_) => state.write_u8(7),
+			TextStyle::Color(_) => state.write_u8(8),
+			TextStyle::BackgroundColor(_) => state.write_u8(9),
+		};
+	}
+}
+
+impl Eq for TextStyle {}
+
+impl PartialEq<Self> for TextStyle {
+	fn eq(&self, other: &Self) -> bool
+	{
+		std::mem::discriminant(self) == std::mem::discriminant(other)
+	}
 }
 
 #[cfg(feature = "gui")]
@@ -593,5 +619,46 @@ impl ChapterError
 	pub fn anyhow(msg: String) -> anyhow::Error
 	{
 		anyhow::Error::new(ChapterError::new(msg))
+	}
+}
+
+#[cfg(test)]
+mod test {
+	use indexmap::IndexSet;
+	use crate::book::{FontWeightValue, TextDecorationLine, TextStyle};
+	use crate::color::Color32;
+
+	#[test]
+	fn test() {
+		let mut set = IndexSet::new();
+		set.insert(TextStyle::Link("keep me".to_string()));
+		set.insert(TextStyle::Border);
+
+		assert!(set.insert(TextStyle::Line(TextDecorationLine::all())));
+		assert_eq!(set.insert(TextStyle::Border), false);
+		assert!(set.insert(TextStyle::FontSize { scale: 1., relative: true }));
+		assert!(set.insert(TextStyle::FontWeight(FontWeightValue::Lighter)));
+		assert!(set.insert(TextStyle::FontFamily(1)));
+		assert!(set.insert(TextStyle::Image("image".to_string())));
+		assert_eq!(set.insert(TextStyle::Link("link".to_string())), false);
+		assert!(set.insert(TextStyle::Color(Color32::from_rgb(0, 0, 0))));
+		assert!(set.insert(TextStyle::BackgroundColor(Color32::from_rgb(0, 0, 0))));
+		assert_eq!(set.len(), 9);
+		if let TextStyle::Link(link) = set.get_index(0).unwrap() {
+			assert_eq!("keep me", link);
+		} else {
+			panic!("failed");
+		}
+		let replaced = set.replace(TextStyle::Link("no way".to_string()));
+		if let TextStyle::Link(link) = replaced.unwrap() {
+			assert_eq!("keep me", link);
+		} else {
+			panic!("failed");
+		}
+		if let TextStyle::Link(link) = set.get_index(0).unwrap() {
+			assert_eq!("no way", link);
+		} else {
+			panic!("failed");
+		}
 	}
 }

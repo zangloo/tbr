@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use ego_tree::iter::Children;
 use ego_tree::{NodeId, NodeRef};
 use indexmap::IndexSet;
+use lightningcss::declaration::DeclarationBlock;
 use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use lightningcss::properties::{border, font, Property};
 use lightningcss::properties::border::{Border, BorderSideWidth};
@@ -36,10 +37,11 @@ impl Default for HtmlContent
 	}
 }
 
-struct ParseContext {
+struct ParseContext<'a> {
 	title: Option<String>,
 	content: HtmlContent,
-	element_styles: HashMap<NodeId, Vec<TextStyle>>,
+	element_styles: HashMap<NodeId, IndexSet<TextStyle>>,
+	font_family: &'a mut IndexSet<String>,
 }
 
 pub(crate) fn html_content(text: Vec<u8>, font_family: &mut IndexSet<String>) -> Result<HtmlContent>
@@ -58,6 +60,7 @@ pub(crate) fn html_str_content<'a, F>(str: &str, font_family: &mut IndexSet<Stri
 		title: None,
 		content: Default::default(),
 		element_styles,
+		font_family,
 	};
 
 	let body_selector = match Selector::parse("body") {
@@ -124,14 +127,17 @@ fn new_paragraph(child: NodeRef<Node>, context: &mut ParseContext)
 }
 
 #[inline]
-fn push_font_size(styles: &mut Vec<TextStyle>, font_level: u8, relative: bool)
+fn push_font_size(styles: &mut IndexSet<TextStyle>, font_level: u8, relative: bool)
 {
-	for style in styles.iter() {
-		if let TextStyle::FontSize { .. } = style {
-			return;
-		}
-	}
-	styles.push(font_size_level(font_level, relative));
+	// not insert dup ones
+	styles.insert(font_size_level(font_level, relative));
+}
+
+#[inline]
+fn replace_font_size(styles: &mut IndexSet<TextStyle>, font_level: u8, relative: bool)
+{
+	// replace if exists
+	styles.replace(font_size_level(font_level, relative));
 }
 
 const DIV_PUSH_CLASSES: [&str; 3] = ["contents", "toc", "mulu"];
@@ -160,11 +166,10 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 				if let Some(id) = element.id() {
 					context.content.id_map.insert(id.to_string(), position.clone());
 				}
-				let mut element_styles = if let Some(styles) = context.element_styles.remove(&child.id()) {
-					styles
-				} else {
-					vec![]
-				};
+				let mut element_styles = load_element_styles(
+					element,
+					child.id(),
+					context);
 				match element.name.local {
 					local_name!("title") => {
 						// title is in head, no other text should parsed
@@ -233,13 +238,13 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 					local_name!("font") => {
 						if let Some(level_text) = element.attr("size") {
 							if let Ok(level) = level_text.parse::<u8>() {
-								push_font_size(&mut element_styles, level, true);
+								replace_font_size(&mut element_styles, level, true);
 							}
 						}
 						if let Some(color_text) = element.attr("color") {
 							if let Ok(color) = CssColor::parse_string(color_text) {
 								if let Some(color) = css_color(&color) {
-									element_styles.push(TextStyle::Color(color));
+									element_styles.replace(TextStyle::Color(color));
 								}
 							}
 						}
@@ -247,7 +252,7 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 					}
 					local_name!("a") => {
 						if let Some(href) = element.attr("href") {
-							element_styles.push(TextStyle::Link(href.to_string()));
+							element_styles.replace(TextStyle::Link(href.to_string()));
 						}
 						convert_dom_to_lines(child.children(), context);
 					}
@@ -289,6 +294,28 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 	}
 }
 
+#[inline]
+fn load_element_styles(element: &Element, node_id: NodeId, context: &mut ParseContext) -> IndexSet<TextStyle>
+{
+	let mut element_styles = IndexSet::new();
+	if let Some(style) = element.attr("style") {
+		if let Ok(declaration) = DeclarationBlock::parse_string(style, style_parse_options()) {
+			for property in &declaration.declarations {
+				if let Some(style) = convert_style(property, context.font_family) {
+					element_styles.insert(style);
+				}
+			}
+		}
+	}
+	if let Some(styles) = context.element_styles.remove(&node_id) {
+		for style in styles {
+			// will not insert dup styles
+			element_styles.insert(style);
+		}
+	};
+	element_styles
+}
+
 fn add_image(href: &str, context: &mut ParseContext)
 {
 	let line = context.content.lines.last_mut().unwrap();
@@ -304,17 +331,18 @@ fn reset_lines(context: &mut ParseContext)
 	context.content.lines.push(Line::default());
 }
 
+#[inline]
+fn style_parse_options<'a>() -> ParserOptions<'a, 'a>
+{
+	let mut options = ParserOptions::default();
+	options.error_recovery = true;
+	options
+}
+
 fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
-	file_resolver: Option<F>) -> HashMap<NodeId, Vec<TextStyle>>
+	file_resolver: Option<F>) -> HashMap<NodeId, IndexSet<TextStyle>>
 	where F: Fn(String) -> Option<&'a String>
 {
-	#[inline]
-	fn make_options<'a>() -> ParserOptions<'a, 'a>
-	{
-		let mut options = ParserOptions::default();
-		options.error_recovery = true;
-		options
-	}
 	let mut element_styles = HashMap::new();
 
 	// load embedded styles
@@ -324,7 +352,7 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 		while let Some(style) = style_iterator.next() {
 			let mut text_iterator = style.text();
 			while let Some(text) = text_iterator.next() {
-				if let Ok(style_sheet) = StyleSheet::parse(&text, make_options()) {
+				if let Ok(style_sheet) = StyleSheet::parse(&text, style_parse_options()) {
 					stylesheets.push(style_sheet);
 				}
 			}
@@ -338,7 +366,7 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 				if let Some(href) = element.value().attr("href") {
 					if href.to_lowercase().ends_with(".css") {
 						if let Some(content) = file_resolver(href.to_string()) {
-							if let Ok(style_sheet) = StyleSheet::parse(&content, make_options()) {
+							if let Ok(style_sheet) = StyleSheet::parse(&content, style_parse_options()) {
 								stylesheets.push(style_sheet);
 							}
 						}
@@ -354,10 +382,10 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 	for style_sheet in stylesheets {
 		for rule in &style_sheet.rules.0 {
 			if let CssRule::Style(style_rule) = rule {
-				let mut styles = vec![];
+				let mut styles = IndexSet::new();
 				for property in &style_rule.declarations.declarations {
 					if let Some(style) = convert_style(property, font_families) {
-						styles.push(style);
+						styles.insert(style);
 					}
 				}
 				if styles.len() == 0 {
@@ -366,9 +394,14 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 				let selector_str = style_rule.selectors.to_string();
 				if let Ok(selector) = Selector::parse(&selector_str) {
 					for element in document.select(&selector) {
-						let mut styles = styles.clone();
+						let styles = styles.clone();
 						match element_styles.entry(element.id()) {
-							Entry::Occupied(o) => o.into_mut().append(&mut styles),
+							Entry::Occupied(o) => {
+								let orig = o.into_mut();
+								for new_style in styles {
+									orig.insert(new_style);
+								}
+							}
 							Entry::Vacant(v) => { v.insert(styles); }
 						};
 					}
