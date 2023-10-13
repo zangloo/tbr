@@ -1,5 +1,5 @@
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use anyhow::{anyhow, Result};
 use ego_tree::iter::Children;
@@ -41,7 +41,7 @@ impl Default for HtmlContent
 struct ParseContext<'a> {
 	title: Option<String>,
 	content: HtmlContent,
-	element_styles: HashMap<NodeId, IndexSet<TextStyle>>,
+	element_styles: HashMap<NodeId, HashSet<TextStyle>>,
 	font_family: &'a mut IndexSet<String>,
 }
 
@@ -128,14 +128,14 @@ fn new_paragraph(child: NodeRef<Node>, context: &mut ParseContext)
 }
 
 #[inline]
-fn push_font_size(styles: &mut IndexSet<TextStyle>, font_level: u8, relative: bool)
+fn push_font_size(styles: &mut HashSet<TextStyle>, font_level: u8, relative: bool)
 {
 	// not insert dup ones
 	styles.insert(font_size_level(font_level, relative));
 }
 
 #[inline]
-fn replace_font_size(styles: &mut IndexSet<TextStyle>, font_level: u8, relative: bool)
+fn replace_font_size(styles: &mut HashSet<TextStyle>, font_level: u8, relative: bool)
 {
 	// replace if exists
 	styles.replace(font_size_level(font_level, relative));
@@ -305,9 +305,9 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 }
 
 #[inline]
-fn load_element_styles(element: &Element, node_id: NodeId, context: &mut ParseContext) -> IndexSet<TextStyle>
+fn load_element_styles(element: &Element, node_id: NodeId, context: &mut ParseContext) -> HashSet<TextStyle>
 {
-	let mut element_styles = IndexSet::new();
+	let mut element_styles = HashSet::new();
 	if let Some(style) = element.attr("style") {
 		if let Ok(declaration) = DeclarationBlock::parse_string(style, style_parse_options()) {
 			for property in &declaration.declarations {
@@ -350,7 +350,7 @@ fn style_parse_options<'a>() -> ParserOptions<'a, 'a>
 }
 
 fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
-	file_resolver: Option<F>) -> HashMap<NodeId, IndexSet<TextStyle>>
+	file_resolver: Option<F>) -> HashMap<NodeId, HashSet<TextStyle>>
 	where F: Fn(String) -> Option<&'a String>
 {
 	let mut element_styles = HashMap::new();
@@ -392,7 +392,7 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 	for style_sheet in stylesheets {
 		for rule in &style_sheet.rules.0 {
 			if let CssRule::Style(style_rule) = rule {
-				let mut styles = IndexSet::new();
+				let mut styles = HashSet::new();
 				for property in &style_rule.declarations.declarations {
 					if let Some(style) = convert_style(property, font_families) {
 						styles.insert(style);

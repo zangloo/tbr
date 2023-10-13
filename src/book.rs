@@ -624,13 +624,13 @@ impl ChapterError
 
 #[cfg(test)]
 mod test {
-	use indexmap::IndexSet;
+	use std::collections::HashSet;
 	use crate::book::{FontWeightValue, TextDecorationLine, TextStyle};
 	use crate::color::Color32;
 
 	#[test]
 	fn test() {
-		let mut set = IndexSet::new();
+		let mut set = HashSet::new();
 		set.insert(TextStyle::Link("keep me".to_string()));
 		set.insert(TextStyle::Border);
 
@@ -644,7 +644,7 @@ mod test {
 		assert!(set.insert(TextStyle::Color(Color32::from_rgb(0, 0, 0))));
 		assert!(set.insert(TextStyle::BackgroundColor(Color32::from_rgb(0, 0, 0))));
 		assert_eq!(set.len(), 9);
-		if let TextStyle::Link(link) = set.get_index(0).unwrap() {
+		if let TextStyle::Link(link) = set.get(&TextStyle::Link("not me".to_string())).unwrap() {
 			assert_eq!("keep me", link);
 		} else {
 			panic!("failed");
@@ -655,7 +655,7 @@ mod test {
 		} else {
 			panic!("failed");
 		}
-		if let TextStyle::Link(link) = set.get_index(0).unwrap() {
+		if let TextStyle::Link(link) = set.get(&TextStyle::Link("not me".to_string())).unwrap() {
 			assert_eq!("no way", link);
 		} else {
 			panic!("failed");
