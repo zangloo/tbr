@@ -108,13 +108,13 @@ impl Listable for ReadingInfo {
 	}
 }
 
-#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
 pub struct PathConfig {
 	pub enabled: bool,
 	pub path: PathBuf,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 #[cfg(feature = "gui")]
 pub struct GuiConfiguration {
 	pub fonts: Vec<PathConfig>,
@@ -147,14 +147,15 @@ impl Default for GuiConfiguration
 
 pub struct Configuration {
 	pub render_han: bool,
-	pub current: Option<String>,
 	pub dark_theme: bool,
 	history: PathBuf,
 	#[cfg(feature = "gui")]
 	pub gui: GuiConfiguration,
 
+	pub current: Option<String>,
 	config_file: PathBuf,
 	history_db: Connection,
+	orig: RawConfig,
 }
 
 impl Configuration {
@@ -162,14 +163,15 @@ impl Configuration {
 	{
 		let raw_config = RawConfig {
 			render_han: self.render_han,
-			current: self.current.clone(),
 			dark_theme: self.dark_theme,
 			history: self.history.clone(),
 			#[cfg(feature = "gui")]
 			gui: self.gui.clone(),
 		};
-		let text = toml::to_string(&raw_config)?;
-		fs::write(&self.config_file, text)?;
+		if self.orig != raw_config {
+			let text = toml::to_string(&raw_config)?;
+			fs::write(&self.config_file, text)?;
+		}
 		Ok(())
 	}
 
@@ -292,14 +294,16 @@ pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config
 	let (configuration, themes) =
 		if config_file.as_path().is_file() {
 			let string = fs::read_to_string(&config_file)?;
-			let mut raw_config: RawConfig = toml::from_str(&string)?;
-			if let Some(filename) = &filename {
-				raw_config.current = file_path(filename);
-			}
+			let raw_config: RawConfig = toml::from_str(&string)?;
+			let mut current = if let Some(filename) = &filename {
+				file_path(filename)
+			} else {
+				None
+			};
 			let history_db = load_history_db(&raw_config.history)?;
-			if raw_config.current.is_none() {
+			if current.is_none() {
 				if let Some(latest_reading) = query(&history_db, 1, &None)?.pop() {
-					raw_config.current = Some(latest_reading.filename);
+					current = Some(latest_reading.filename);
 				}
 			}
 			let theme_file = config_dir.join("dark.toml");
@@ -307,34 +311,44 @@ pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config
 			let theme_file = config_dir.join("bright.toml");
 			let bright = process_theme_result(load_theme_file(theme_file))?;
 			let themes = Themes { dark, bright };
+			let orig = raw_config.clone();
 			let configuration = Configuration {
 				render_han: raw_config.render_han,
-				current: raw_config.current,
 				dark_theme: raw_config.dark_theme,
 				history: raw_config.history,
 				#[cfg(feature = "gui")]
 				gui: raw_config.gui,
+				current,
 				config_file,
 				history_db,
+				orig,
 			};
 			(configuration, themes)
 		} else {
 			let themes = create_default_theme_files(config_dir)?;
 			fs::create_dir_all(cache_dir)?;
-			let filepath = filename
+			let current = filename
 				.map_or(None, |filename| file_path(&filename));
 			let history = config_dir.join("history.sqlite");
 			let history_db = load_history_db(&history)?;
+			let orig = RawConfig {
+				render_han: false,
+				dark_theme: false,
+				history: history.clone(),
+				#[cfg(feature = "gui")]
+				gui: Default::default(),
+			};
 			(Configuration {
 				render_han: false,
-				current: filepath,
 				dark_theme: false,
 				history,
 				#[cfg(feature = "gui")]
 				gui: Default::default(),
 
+				current,
 				config_file,
 				history_db,
+				orig,
 			}, themes)
 		};
 	return Ok((configuration, themes));
@@ -469,10 +483,9 @@ order by ts desc
 	Ok(list)
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct RawConfig {
 	pub render_han: bool,
-	pub current: Option<String>,
 	pub dark_theme: bool,
 	history: PathBuf,
 	#[cfg(feature = "gui")]
