@@ -16,9 +16,9 @@ pub(crate) fn list_dialog<'a, F, I, T: Listable>(title: &str, iterator: I, curre
 		});
 	let mut selected = 0;
 	for (idx, info) in iterator.enumerate() {
-		let index = info.index();
-		select_view.add_item(info.title(), index);
-		if current_value == index {
+		let id = info.id();
+		select_view.add_item(info.title(), id);
+		if current_value == id {
 			selected = idx;
 		}
 	}

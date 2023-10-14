@@ -407,7 +407,7 @@ impl<'a> Listable for TocInfo<'a> {
 	}
 
 	#[inline]
-	fn index(&self) -> usize
+	fn id(&self) -> usize
 	{
 		self.index
 	}

@@ -5,7 +5,6 @@ use std::borrow::Borrow;
 use unicode_width::UnicodeWidthChar;
 
 use crate::book::Line;
-use crate::ReadingInfo;
 
 pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 36] = [
 	(' ', '　'),
@@ -94,17 +93,6 @@ pub struct TraceInfo {
 	pub chapter: usize,
 	pub line: usize,
 	pub offset: usize,
-}
-
-pub fn reading_info(history: &mut Vec<ReadingInfo>, current: &str) -> (bool, ReadingInfo) {
-	let mut i = 0;
-	while i < history.len() {
-		if history[i].filename.eq(current) {
-			return (true, history.remove(i));
-		}
-		i += 1;
-	}
-	(false, ReadingInfo::new(&current))
 }
 
 pub fn with_leading(text: &Line) -> bool {

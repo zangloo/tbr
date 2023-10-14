@@ -7,8 +7,7 @@ use cursive::traits::Resizable;
 use cursive::view::{Nameable, SizeConstraint};
 use cursive::views::{EditView, LinearLayout, OnEventView, TextView, ViewRef};
 
-use crate::{Configuration, ReadingInfo, version_string, description, version, Themes};
-use crate::common::reading_info;
+use crate::{Configuration, version_string, description, version, Themes};
 use crate::list::{list_dialog, ListIterator};
 use view::ReadingView;
 
@@ -29,7 +28,7 @@ struct TerminalContext {
 
 pub trait Listable {
 	fn title(&self) -> &str;
-	fn index(&self) -> usize;
+	fn id(&self) -> usize;
 }
 
 impl<'a> Listable for (&'a str, usize) {
@@ -40,7 +39,7 @@ impl<'a> Listable for (&'a str, usize) {
 	}
 
 	#[inline]
-	fn index(&self) -> usize
+	fn id(&self) -> usize
 	{
 		self.1
 	}
@@ -52,7 +51,7 @@ pub fn start(mut configuration: Configuration, themes: Themes) -> Result<()> {
 	}
 	let current = configuration.current.as_ref().unwrap();
 	println!("Loading {} ...", current);
-	let (_history, reading) = reading_info(&mut configuration.history, current);
+	let (_history, reading) = configuration.reading(current)?;
 	let mut app = Cursive::new();
 	let theme = themes.get(configuration.dark_theme);
 	app.set_theme(theme.clone());
@@ -103,7 +102,7 @@ pub fn start(mut configuration: Configuration, themes: Themes) -> Result<()> {
 	let controller_context: TerminalContext = app.take_user_data().unwrap();
 	configuration = controller_context.configuration;
 	configuration.current = Some(reading_now.filename.clone());
-	configuration.history.push(reading_now);
+	configuration.save_reading(&reading_now)?;
 	configuration.save()?;
 	Ok(())
 }
@@ -142,8 +141,7 @@ fn select_book(s: &mut Cursive) {
 		if reading_now.inner_book == selected {
 			return;
 		}
-		let new_reading = ReadingInfo::new(&reading_now.filename)
-			.with_inner_book(selected);
+		let new_reading = reading_now.with_inner_book(selected);
 		let msg = reading_view.switch_book(new_reading);
 		update_status(s, &msg);
 	});
@@ -152,39 +150,40 @@ fn select_book(s: &mut Cursive) {
 
 fn select_history(s: &mut Cursive)
 {
+	#[inline]
+	fn chk<T, F>(result: Result<T>, f: F) -> String
+		where F: FnOnce(T) -> String
+	{
+		match result {
+			Ok(v) => f(v),
+			Err(err) => err.to_string(),
+		}
+	}
+
 	let option = s.with_user_data(|controller_context: &mut TerminalContext| {
 		let configuration = &mut controller_context.configuration;
-		let history = &configuration.history;
+		let history = match configuration.history() {
+			Ok(history) => history,
+			Err(_) => {
+				// update_status(s, &err.to_string());
+				return None;
+			}
+		};
 		let size = history.len();
 		if size == 0 {
 			return None;
 		}
-		let li = ListIterator::new(|position| {
-			if position >= size {
-				return None;
-			}
-			let option = history.get(size - position - 1);
-			match option {
-				Some(ri) => Some((&ri.filename as &str, position)),
-				None => None,
-			}
-		});
-		let dialog = list_dialog("Reopen", li, 0, |s, selected| {
+		let dialog = list_dialog("Reopen", history.into_iter(), 0, |s, selected| {
 			let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
 			let reading_now = reading_view.reading_info();
 			let msg = s.with_user_data(|controller_context: &mut TerminalContext| {
 				let configuration = &mut controller_context.configuration;
-				let history = &mut configuration.history;
-				let position = history.len() - selected - 1;
-				let reading = &mut history[position];
-				match reading_view.switch_container(reading.clone()) {
-					Ok(msg) => {
-						history.remove(position);
-						history.push(reading_now);
-						msg
-					}
-					Err(e) => e.to_string(),
-				}
+				chk(configuration.reading_by_id(selected as i64), |reading|
+					chk(reading_view.switch_container(reading), |msg| {
+						configuration.current = Some(reading_view.reading_info().filename);
+						chk(configuration.save_reading(&reading_now), |()|
+							msg)
+					}))
 			}).unwrap();
 			update_status(s, &msg);
 		});

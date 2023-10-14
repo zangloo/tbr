@@ -2936,6 +2936,7 @@ dependencies = [
  "pangocairo",
  "rand",
  "resvg",
+ "rusqlite",
  "rust-embed",
  "scraper",
  "serde",

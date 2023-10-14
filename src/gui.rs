@@ -25,7 +25,7 @@ use resvg::usvg::TreeParsing;
 use crate::{Asset, BookToOpen, Configuration, I18n, package_name, PathConfig, ReadingInfo, Themes};
 use crate::book::{Book, Colors, Line};
 use crate::color::Color32;
-use crate::common::{Position, reading_info, txt_lines};
+use crate::common::{Position, txt_lines};
 use crate::container::{BookContent, BookName, Container, load_book, load_container, title_for_filename};
 use crate::controller::Controller;
 use crate::gui::chapter_list::ChapterList;
@@ -184,7 +184,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let mut configuration = cfg.borrow_mut();
 	let conf_ref: &mut Configuration = &mut configuration;
 	let reading = if let Some(current) = &conf_ref.current {
-		Some(reading_info(&mut conf_ref.history, current).1)
+		Some(conf_ref.reading(current)?.1)
 	} else {
 		None
 	};
@@ -736,7 +736,7 @@ fn setup_chapter_list(gc1: &GuiContext)
 			let mut controller = gc.ctrl_mut();
 			let mut render_context = gc.ctx_mut();
 			if is_book {
-				let new_reading = ReadingInfo::new(&controller.reading.filename)
+				let new_reading = controller.reading.clone()
 					.with_inner_book(index);
 				let msg = controller.switch_book(new_reading, &mut render_context);
 				update_status(false, &msg, &gc.inner.status_bar);
@@ -879,7 +879,9 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 			if controller.reading.filename != README_TEXT_FILENAME {
 				let mut configuration = gc.cfg_mut();
 				configuration.current = Some(controller.reading.filename.clone());
-				configuration.history.push(controller.reading.clone());
+				if let Err(e) = configuration.save_reading(&controller.reading) {
+					eprintln!("Failed save reading info: {}", e.to_string());
+				}
 			}
 			let configuration = gc.cfg();
 			if let Err(e) = configuration.save() {
@@ -1524,31 +1526,35 @@ impl GuiContext {
 				if filepath != controller.reading.filename {
 					let mut configuration = self.cfg_mut();
 					let mut render_context = self.ctx_mut();
-					let reading_now = controller.reading.clone();
-					let (history, new_reading) = reading_info(&mut configuration.history, filepath);
-					let history_entry = if history { Some(new_reading.clone()) } else { None };
-					match controller.switch_container(new_reading, &mut render_context) {
-						Ok(msg) => {
-							configuration.history.push(reading_now);
-							let custom_color = controller.reading.custom_color;
-							self.update_custom_color(custom_color);
-							render_context.custom_color = custom_color;
-							update_title(self.win(), &controller.reading.filename);
-							controller.redraw(&mut render_context);
-							drop(controller);
-							self.update(
-								&msg,
-								ChapterListSyncMode::Reload);
-							drop(configuration);
-							drop(render_context);
-							self.reload_history();
-						}
-						Err(e) => {
-							if let Some(history_entry) = history_entry {
-								configuration.history.push(history_entry);
-							}
+					let reading = &controller.reading;
+					if reading.filename != README_TEXT_FILENAME {
+						if let Err(e) = configuration.save_reading(reading) {
 							self.error(&e.to_string());
+							return;
 						}
+					}
+					match configuration.reading(filepath) {
+						Ok((_, new_reading)) =>
+							match controller.switch_container(new_reading, &mut render_context) {
+								Ok(msg) => {
+									let custom_color = controller.reading.custom_color;
+									self.update_custom_color(custom_color);
+									render_context.custom_color = custom_color;
+									update_title(self.win(), &controller.reading.filename);
+									controller.redraw(&mut render_context);
+									configuration.current = Some(controller.reading.filename.clone());
+									drop(controller);
+									self.update(
+										&msg,
+										ChapterListSyncMode::Reload);
+									drop(configuration);
+									drop(render_context);
+									self.reload_history();
+								}
+								Err(e) =>
+									self.error(&e.to_string()),
+							}
+						Err(err) => self.error(&err.to_string()),
 					}
 				}
 			}
@@ -1561,11 +1567,16 @@ impl GuiContext {
 			self.action_group().remove_action(&a);
 		}
 		self.menu().remove_all();
-		for (idx, ri) in self.cfg().history.iter().rev().enumerate() {
-			if idx == 20 {
-				break;
+		match self.cfg().history() {
+			Ok(infos) => {
+				for (idx, ri) in infos.iter().enumerate() {
+					if idx == 20 {
+						break;
+					}
+					self.add_history_entry(idx, &ri.filename);
+				}
 			}
-			self.add_history_entry(idx, &ri.filename);
+			Err(err) => self.error(&err.to_string()),
 		}
 	}
 

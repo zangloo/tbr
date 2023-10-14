@@ -230,7 +230,8 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			let book_index = self.reading.inner_book + 1;
 			let book_count = self.container.inner_book_names().len();
 			if book_index < book_count {
-				let reading = ReadingInfo::new(&self.reading.filename)
+				let reading = self.reading
+					.clone()
 					.with_inner_book(book_index);
 				self.do_switch_book(reading, context)?;
 			}
@@ -250,7 +251,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				self.redraw_at(position.line, position.offset, context);
 			} else {
 				if reading.inner_book > 0 {
-					let mut new_reading = ReadingInfo::new(&reading.filename)
+					let mut new_reading = reading.clone()
 						.with_inner_book(reading.inner_book - 1)
 						.with_last_chapter();
 					self.book = load_book(&self.container_manager, &mut self.container, &mut new_reading)?;

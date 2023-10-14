@@ -8,10 +8,12 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
+use std::str::FromStr;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use cursive::theme::{Error, load_theme_file, load_toml, Theme};
 use dirs::{cache_dir, config_dir};
+use rusqlite::{Connection, Row};
 use rust_embed::RustEmbed;
 use serde_derive::{Deserialize, Serialize};
 use toml;
@@ -21,6 +23,7 @@ use crate::common::Position;
 use crate::container::ContainerManager;
 #[cfg(feature = "i18n")]
 use crate::i18n::I18n;
+use crate::terminal::Listable;
 
 mod terminal;
 mod common;
@@ -75,25 +78,23 @@ struct Cli {
 #[include = "*.png"]
 struct Asset;
 
-#[derive(Serialize, Deserialize)]
 pub struct ReadingInfo {
+	row_id: i64,
 	filename: String,
 	inner_book: usize,
 	chapter: usize,
 	line: usize,
 	position: usize,
-	#[serde(default)]
 	custom_color: bool,
-	#[serde(default)]
 	strip_empty_lines: bool,
-	ts: u64,
 }
 
 impl ReadingInfo {
 	#[inline]
-	pub(crate) fn new(filename: &str) -> Self
+	fn new(filename: &str) -> Self
 	{
 		ReadingInfo {
+			row_id: 0,
 			filename: String::from(filename),
 			inner_book: 0,
 			chapter: 0,
@@ -101,7 +102,6 @@ impl ReadingInfo {
 			position: 0,
 			custom_color: true,
 			strip_empty_lines: false,
-			ts: 0,
 		}
 	}
 	#[inline]
@@ -114,6 +114,9 @@ impl ReadingInfo {
 	pub(crate) fn with_inner_book(mut self, inner_book: usize) -> Self
 	{
 		self.inner_book = inner_book;
+		self.chapter = 0;
+		self.line = 0;
+		self.position = 0;
 		self
 	}
 	#[inline]
@@ -143,6 +146,7 @@ impl Clone for ReadingInfo {
 	fn clone(&self) -> Self
 	{
 		ReadingInfo {
+			row_id: self.row_id,
 			filename: self.filename.clone(),
 			inner_book: self.inner_book,
 			chapter: self.chapter,
@@ -150,7 +154,22 @@ impl Clone for ReadingInfo {
 			position: self.position,
 			custom_color: self.custom_color,
 			strip_empty_lines: self.strip_empty_lines,
-			ts: ReadingInfo::now(),
+		}
+	}
+}
+
+impl Listable for ReadingInfo {
+	fn title(&self) -> &str {
+		&self.filename
+	}
+
+	fn id(&self) -> usize
+	{
+		let rowid = self.row_id;
+		if rowid < 0 {
+			0
+		} else {
+			rowid as usize
 		}
 	}
 }
@@ -170,11 +189,8 @@ struct GuiConfiguration {
 	#[serde(default = "default_locale")]
 	lang: String,
 	dictionaries: Vec<PathConfig>,
-	#[serde(default)]
 	cache_dict: bool,
-	#[serde(default)]
 	strip_empty_lines: bool,
-	#[serde(default)]
 	ignore_font_weight: bool,
 }
 
@@ -195,17 +211,18 @@ impl Default for GuiConfiguration
 	}
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Configuration {
 	render_han: bool,
 	current: Option<String>,
-	history: Vec<ReadingInfo>,
 	dark_theme: bool,
 	#[cfg(feature = "gui")]
 	#[serde(default)]
 	gui: GuiConfiguration,
 	#[serde(skip)]
 	config_file: PathBuf,
+	#[serde(skip, default = "default_history_db")]
+	history_db: Connection,
 }
 
 impl Configuration {
@@ -213,6 +230,142 @@ impl Configuration {
 	{
 		let text = toml::to_string(self)?;
 		fs::write(&self.config_file, text)?;
+		Ok(())
+	}
+
+	fn map(row: &Row) -> rusqlite::Result<ReadingInfo>
+	{
+		Ok(ReadingInfo {
+			row_id: row.get(0)?,
+			filename: row.get(1)?,
+			inner_book: row.get(2)?,
+			chapter: row.get(3)?,
+			line: row.get(4)?,
+			position: row.get(5)?,
+			custom_color: row.get(6)?,
+			strip_empty_lines: row.get(7)?,
+		})
+	}
+
+	fn query(&self, limit: usize, exclude: &Option<String>) -> Result<Vec<ReadingInfo>>
+	{
+		let mut stmt = self.history_db.prepare("
+select row_id,
+       filename,
+       inner_book,
+       chapter,
+       line,
+       position,
+       custom_color,
+       strip_empty_lines,
+       ts
+from history
+order by ts desc
+")?;
+		let iter = stmt.query_map([], Configuration::map)?;
+		let mut list = vec![];
+		for info in iter {
+			let info = info?;
+			let path = PathBuf::from_str(&info.filename)?;
+			if !path.exists() {
+				continue;
+			}
+			if let Some(exclude) = exclude {
+				if *exclude == info.filename {
+					continue;
+				}
+			}
+			list.push(info);
+			if list.len() >= limit {
+				break;
+			}
+		}
+		Ok(list)
+	}
+
+	pub fn history(&self) -> Result<Vec<ReadingInfo>>
+	{
+		Ok(self.query(20, &self.current)?)
+	}
+
+	pub fn latest_reading(&self) -> Result<Option<ReadingInfo>>
+	{
+		Ok(self.query(1, &None)?.pop())
+	}
+
+	pub fn reading(&self, filename: &str) -> Result<(bool, ReadingInfo)>
+	{
+		let mut stmt = self.history_db.prepare("
+select row_id,
+       filename,
+       inner_book,
+       chapter,
+       line,
+       position,
+       custom_color,
+       strip_empty_lines,
+       ts
+from history
+where filename = ?
+")?;
+		let mut iter = stmt.query_map([filename], Configuration::map)?;
+		if let Some(info) = iter.next() {
+			Ok((true, info?))
+		} else {
+			Ok((false, ReadingInfo::new(filename)))
+		}
+	}
+
+	pub fn reading_by_id(&self, row_id: i64) -> Result<ReadingInfo>
+	{
+		let mut stmt = self.history_db.prepare("
+select row_id,
+       filename,
+       inner_book,
+       chapter,
+       line,
+       position,
+       custom_color,
+       strip_empty_lines,
+       ts
+from history
+where row_id = ?
+")?;
+		let mut iter = stmt.query_map([row_id], Configuration::map)?;
+		if let Some(info) = iter.next() {
+			Ok(info?)
+		} else {
+			panic!("Reading history not exists");
+		}
+	}
+
+	pub fn save_reading(&self, reading: &ReadingInfo) -> Result<()>
+	{
+		let ts = ReadingInfo::now();
+		if reading.row_id == 0 {
+			self.history_db.execute("
+insert into history (filename, inner_book, chapter, line, position,
+                     custom_color, strip_empty_lines, ts)
+values (?, ?, ?, ?, ?, ?, ?, ?)
+", (&reading.filename, reading.inner_book, reading.chapter, reading.line,
+				reading.position, reading.custom_color, reading.strip_empty_lines,
+				ts))?;
+		} else {
+			self.history_db.execute("
+update history
+set filename          = ?,
+    inner_book        = ?,
+    chapter           = ?,
+    line              = ?,
+    position          = ?,
+    custom_color      = ?,
+    strip_empty_lines = ?,
+    ts                = ?
+where row_id = ?
+", (&reading.filename, reading.inner_book, reading.chapter, reading.line,
+				reading.position, reading.custom_color, reading.strip_empty_lines,
+				ts, reading.row_id))?;
+		}
 		Ok(())
 	}
 }
@@ -270,7 +423,11 @@ fn main() -> Result<()> {
 			}),
 			|name| BookToOpen::Cmd(name));
 	#[allow(unused_mut)]
-		let (mut configuration, mut themes) = load_config(&filename, config_file, &config_dir, &cache_dir)?;
+		let (mut configuration, mut themes) = load_config(
+		&filename,
+		config_file,
+		&config_dir,
+		&cache_dir)?;
 	#[cfg(feature = "gui")]
 	if !cli.terminal {
 		if let Some((c, t)) = gui::start(configuration, themes, filename)? {
@@ -300,7 +457,9 @@ fn file_path(filename: &str) -> Option<String> {
 	}
 }
 
-fn load_config(filename: &BookToOpen, config_file: PathBuf, themes_dir: &PathBuf, cache_dir: &PathBuf) -> Result<(Configuration, Themes)> {
+fn load_config(filename: &BookToOpen, config_file: PathBuf, themes_dir: &PathBuf,
+	cache_dir: &PathBuf) -> Result<(Configuration, Themes)>
+{
 	let (configuration, themes) =
 		if config_file.as_path().is_file() {
 			let string = fs::read_to_string(&config_file)?;
@@ -308,28 +467,10 @@ fn load_config(filename: &BookToOpen, config_file: PathBuf, themes_dir: &PathBuf
 			if let Some(filename) = filename.name() {
 				configuration.current = file_path(filename);
 			}
-			let mut idx = 0 as usize;
-			let mut found_current = false;
-			// remove non-exists history
-			while idx < configuration.history.len() {
-				let name = &configuration.history[idx].filename;
-				let path = PathBuf::from(&name);
-				if !path.exists() {
-					configuration.history.remove(idx);
-				} else {
-					if !found_current {
-						if let Some(current) = &configuration.current {
-							if name.eq(current) {
-								found_current = true;
-							}
-						}
-					}
-					idx = idx + 1;
+			if configuration.current.is_none() {
+				if let Some(latest_reading) = configuration.latest_reading()? {
+					configuration.current = Some(latest_reading.filename);
 				}
-			}
-			if configuration.current.is_none() && configuration.history.len() > 0 {
-				let ri = configuration.history.last().unwrap();
-				configuration.current = Some(ri.filename.clone());
 			}
 			let theme_file = themes_dir.join("dark.toml");
 			let dark = process_theme_result(load_theme_file(theme_file))?;
@@ -347,11 +488,11 @@ fn load_config(filename: &BookToOpen, config_file: PathBuf, themes_dir: &PathBuf
 			(Configuration {
 				render_han: false,
 				current: filepath,
-				history: vec![],
 				dark_theme: false,
 				#[cfg(feature = "gui")]
 				gui: Default::default(),
 				config_file,
+				history_db: default_history_db(),
 			}, themes)
 		};
 	return Ok((configuration, themes));
@@ -392,4 +533,56 @@ fn default_locale() -> String
 {
 	use sys_locale::get_locale;
 	get_locale().unwrap_or_else(|| String::from(i18n::DEFAULT_LOCALE))
+}
+
+#[inline]
+fn chk<T>(result: rusqlite::Result<T>) -> T
+{
+	match result {
+		Ok(result) => result,
+		Err(err) => panic!("Failed on history db: {}", err.to_string()),
+	}
+}
+
+
+#[inline]
+fn default_history_db() -> Connection
+{
+	#[inline]
+	fn open(path: PathBuf) -> Connection
+	{
+		match Connection::open(&path) {
+			Ok(conn) => conn,
+			Err(err) => panic!("Failed open history db: {}", err.to_string()),
+		}
+	}
+
+	// config_dir is validated before deserialize
+	let config_dir = config_dir().unwrap();
+	let my_dir = config_dir.join(package_name!());
+	let history_db = my_dir.join("history.sqlite");
+	if !history_db.exists() {
+		// init db
+		let conn = open(history_db);
+		chk(conn.execute("
+create table info ( version integer )
+			", ()));
+		chk(conn.execute("
+create table history
+(
+    row_id            integer primary key,
+    filename          varchar,
+    inner_book        unsigned big int,
+    chapter           unsigned big int,
+    line              unsigned big int,
+    position          unsigned big int,
+    custom_color      unsigned big int,
+    strip_empty_lines unsigned big int,
+    ts                unsigned big int,
+    unique (filename)
+)", ()));
+		conn
+	} else {
+		open(history_db)
+	}
 }
