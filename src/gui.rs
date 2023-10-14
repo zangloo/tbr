@@ -22,7 +22,7 @@ use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExt
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
 
-use crate::{Asset, BookToOpen, I18n, package_name};
+use crate::{Asset, I18n, package_name};
 use crate::book::{Book, Colors, Line};
 use crate::color::Color32;
 use crate::common::{Position, txt_lines};
@@ -1674,8 +1674,8 @@ pub fn mouse_pointer(view: &impl IsA<Widget>) -> Option<(f32, f32)>
 	}
 }
 
-pub fn start(configuration: Configuration, themes: Themes,
-	book_to_open: BookToOpen) -> Result<Option<(Configuration, Themes)>>
+pub fn start(configuration: Configuration, themes: Themes)
+	-> Result<Option<(Configuration, Themes)>>
 {
 	#[cfg(unix)]
 	if !setup_env()? {
@@ -1684,7 +1684,7 @@ pub fn start(configuration: Configuration, themes: Themes,
 
 	let app = Application::builder()
 		.application_id(APP_ID)
-		.flags(ApplicationFlags::HANDLES_OPEN)
+		.flags(ApplicationFlags::NON_UNIQUE)
 		.build();
 
 	let gui_context = Rc::new(RefCell::new(None::<GuiContext>));
@@ -1695,39 +1695,12 @@ pub fn start(configuration: Configuration, themes: Themes,
 		let cfg = cfg.clone();
 		let themes = themes.clone();
 		app.connect_activate(move |app| {
-			let gui_context = gui_context.borrow_mut();
-			if let Some(gc) = gui_context.as_ref() {
-				gc.win().present();
-			} else {
-				show(app, &cfg, &themes, gui_context);
-			}
+			show(app, &cfg, &themes, gui_context.borrow_mut());
 		});
-	}
-	{
-		app.connect_open(move |app, files, _| {
-			let gui_context = gui_context.borrow_mut();
-			if let Some(gc) = gui_context.as_ref() {
-				if files.len() > 0 {
-					if let Some(path) = files[0].path() {
-						gc.open_file(&path)
-					}
-				}
-				gc.win().present();
-			} else {
-				show(app, &cfg, &themes, gui_context);
-			}
-		});
-	}
-	if let BookToOpen::Env(filename) = book_to_open {
-		if let Err(err) = app.register(None::<&Cancellable>) {
-			bail!("Failed start tbr: {}", err);
-		} else {
-			app.open(&[File::for_path(filename.clone())], "");
-		}
 	}
 
-	if app.run() == ExitCode::FAILURE {
-		bail!("Failed start tbr");
+	if app.run_with_args::<String>(&[]) == ExitCode::FAILURE {
+		bail!("Failed start tbr")
 	}
 
 	Ok(None)

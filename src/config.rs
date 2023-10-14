@@ -286,32 +286,14 @@ impl Themes {
 	}
 }
 
-pub enum BookToOpen {
-	None,
-	Cmd(String),
-	Env(String),
-}
-
-impl BookToOpen {
-	#[inline]
-	fn name(&self) -> Option<&str>
-	{
-		match self {
-			BookToOpen::None => None,
-			BookToOpen::Cmd(name) => Some(name),
-			BookToOpen::Env(name) => Some(name)
-		}
-	}
-}
-
-pub(super) fn load_config(filename: &BookToOpen, config_file: PathBuf, config_dir: &PathBuf,
+pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config_dir: &PathBuf,
 	cache_dir: &PathBuf) -> Result<(Configuration, Themes)>
 {
 	let (configuration, themes) =
 		if config_file.as_path().is_file() {
 			let string = fs::read_to_string(&config_file)?;
 			let mut raw_config: RawConfig = toml::from_str(&string)?;
-			if let Some(filename) = filename.name() {
+			if let Some(filename) = &filename {
 				raw_config.current = file_path(filename);
 			}
 			let history_db = load_history_db(&raw_config.history)?;
@@ -339,8 +321,8 @@ pub(super) fn load_config(filename: &BookToOpen, config_file: PathBuf, config_di
 		} else {
 			let themes = create_default_theme_files(config_dir)?;
 			fs::create_dir_all(cache_dir)?;
-			let filepath = filename.name()
-				.map_or(None, |filename| file_path(filename));
+			let filepath = filename
+				.map_or(None, |filename| file_path(&filename));
 			let history = config_dir.join("history.sqlite");
 			let history_db = load_history_db(&history)?;
 			(Configuration {

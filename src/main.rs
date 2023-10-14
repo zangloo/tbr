@@ -12,7 +12,7 @@ use rust_embed::RustEmbed;
 
 use crate::book::BookLoader;
 use crate::common::Position;
-use crate::config::{BookToOpen, load_config};
+use crate::config::load_config;
 use crate::container::ContainerManager;
 #[cfg(feature = "i18n")]
 use crate::i18n::I18n;
@@ -84,19 +84,19 @@ fn main() -> Result<()> {
 	let config_file = config_dir.join("tbr.toml");
 	let filename = cli.filename
 		.map_or_else(
-			|| env::var(TBR_BOOK_ENV_KEY).map_or(BookToOpen::None, |name| {
-				BookToOpen::Env(name)
+			|| env::var(TBR_BOOK_ENV_KEY).map_or(None, |name| {
+				Some(name)
 			}),
-			|name| BookToOpen::Cmd(name));
+			|name| Some(name));
 	#[allow(unused_mut)]
 		let (mut configuration, mut themes) = load_config(
-		&filename,
+		filename,
 		config_file,
 		&config_dir,
 		&cache_dir)?;
 	#[cfg(feature = "gui")]
 	if !cli.terminal {
-		if let Some((c, t)) = gui::start(configuration, themes, filename)? {
+		if let Some((c, t)) = gui::start(configuration, themes)? {
 			configuration = c;
 			themes = t;
 		} else {
