@@ -4,9 +4,9 @@ use cursive::event::{Event, EventResult, Key, MouseButton, MouseEvent};
 use cursive::theme::{ColorStyle, PaletteColor};
 
 
-use crate::ReadingInfo;
 use crate::book::{Book, Line};
 use crate::common::{char_width, Position};
+use crate::config::ReadingInfo;
 use crate::container::Container;
 use crate::controller::{Controller, HighlightInfo, HighlightMode, Render};
 use crate::terminal::update_status_callback;

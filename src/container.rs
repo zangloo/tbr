@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Result};
 
 use crate::book::{Book, LoadingChapter, EMPTY_CHAPTER_CONTENT};
-use crate::{BookLoader, ReadingInfo};
+use crate::BookLoader;
+use crate::config::ReadingInfo;
 use crate::container::zip::ZipLoader;
 
 mod zip;

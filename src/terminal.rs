@@ -7,8 +7,9 @@ use cursive::traits::Resizable;
 use cursive::view::{Nameable, SizeConstraint};
 use cursive::views::{EditView, LinearLayout, OnEventView, TextView, ViewRef};
 
-use crate::{Configuration, version_string, description, version, Themes};
+use crate::{version_string, description, version};
 use crate::list::{list_dialog, ListIterator};
+use crate::config::{Configuration, Themes};
 use view::ReadingView;
 
 pub mod view;

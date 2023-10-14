@@ -2,9 +2,10 @@ use std::marker::PhantomData;
 use anyhow::{anyhow, Result};
 use fancy_regex::Regex;
 
-use crate::{ContainerManager, Position, ReadingInfo};
+use crate::{ContainerManager, Position};
 use crate::book::{Book, Line};
 use crate::common::TraceInfo;
+use crate::config::ReadingInfo;
 use crate::container::{Container, load_book, load_container};
 
 const TRACE_SIZE: usize = 100;

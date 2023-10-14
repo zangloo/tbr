@@ -5,7 +5,8 @@ use gtk4::gio::{Cancellable, File, ListStore};
 use gtk4::glib::{Cast, Object};
 use gtk4::prelude::{BoxExt, ButtonExt, CheckButtonExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, WidgetExt};
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
-use crate::{I18n, PathConfig};
+use crate::config::PathConfig;
+use crate::I18n;
 use crate::gui::{apply_settings, create_button, DICT_FILE_EXTENSIONS, FONT_FILE_EXTENSIONS, GuiContext, IconMap};
 
 pub(super) fn show(gc: &GuiContext) -> Window
@@ -396,7 +397,7 @@ mod imp {
 	use std::cell::RefCell;
 	use gtk4::glib;
 	use gtk4::subclass::prelude::*;
-	use crate::PathConfig;
+	use crate::config::PathConfig;
 
 	#[derive(Default)]
 	pub struct PathConfigEntry {

@@ -22,10 +22,11 @@ use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExt
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
 
-use crate::{Asset, BookToOpen, Configuration, I18n, package_name, PathConfig, ReadingInfo, Themes};
+use crate::{Asset, BookToOpen, I18n, package_name};
 use crate::book::{Book, Colors, Line};
 use crate::color::Color32;
 use crate::common::{Position, txt_lines};
+use crate::config::{Configuration, PathConfig, ReadingInfo, Themes};
 use crate::container::{BookContent, BookName, Container, load_book, load_container, title_for_filename};
 use crate::controller::Controller;
 use crate::gui::chapter_list::ChapterList;
