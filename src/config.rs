@@ -4,12 +4,11 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use cursive::theme::{Error, load_theme_file, load_toml, Theme};
-use dirs::config_dir;
 use rusqlite::{Connection, Row};
 use serde_derive::{Deserialize, Serialize};
 #[cfg(feature = "i18n")]
 use crate::i18n;
-use crate::{Asset, package_name};
+use crate::Asset;
 use crate::common::Position;
 use crate::terminal::Listable;
 
@@ -146,24 +145,30 @@ impl Default for GuiConfiguration
 	}
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct Configuration {
 	pub render_han: bool,
 	pub current: Option<String>,
 	pub dark_theme: bool,
+	history: PathBuf,
 	#[cfg(feature = "gui")]
-	#[serde(default)]
 	pub gui: GuiConfiguration,
-	#[serde(skip)]
+
 	config_file: PathBuf,
-	#[serde(skip, default = "default_history_db")]
 	history_db: Connection,
 }
 
 impl Configuration {
 	pub fn save(&self) -> Result<()>
 	{
-		let text = toml::to_string(self)?;
+		let raw_config = RawConfig {
+			render_han: self.render_han,
+			current: self.current.clone(),
+			dark_theme: self.dark_theme,
+			history: self.history.clone(),
+			#[cfg(feature = "gui")]
+			gui: self.gui.clone(),
+		};
+		let text = toml::to_string(&raw_config)?;
 		fs::write(&self.config_file, text)?;
 		Ok(())
 	}
@@ -182,50 +187,9 @@ impl Configuration {
 		})
 	}
 
-	fn query(&self, limit: usize, exclude: &Option<String>) -> Result<Vec<ReadingInfo>>
-	{
-		let mut stmt = self.history_db.prepare("
-select row_id,
-       filename,
-       inner_book,
-       chapter,
-       line,
-       position,
-       custom_color,
-       strip_empty_lines,
-       ts
-from history
-order by ts desc
-")?;
-		let iter = stmt.query_map([], Configuration::map)?;
-		let mut list = vec![];
-		for info in iter {
-			let info = info?;
-			let path = PathBuf::from_str(&info.filename)?;
-			if !path.exists() {
-				continue;
-			}
-			if let Some(exclude) = exclude {
-				if *exclude == info.filename {
-					continue;
-				}
-			}
-			list.push(info);
-			if list.len() >= limit {
-				break;
-			}
-		}
-		Ok(list)
-	}
-
 	pub fn history(&self) -> Result<Vec<ReadingInfo>>
 	{
-		Ok(self.query(20, &self.current)?)
-	}
-
-	pub fn latest_reading(&self) -> Result<Option<ReadingInfo>>
-	{
-		Ok(self.query(1, &None)?.pop())
+		Ok(query(&self.history_db, 20, &self.current)?)
 	}
 
 	pub fn reading(&self, filename: &str) -> Result<(bool, ReadingInfo)>
@@ -340,42 +304,55 @@ impl BookToOpen {
 	}
 }
 
-pub(super) fn load_config(filename: &BookToOpen, config_file: PathBuf, themes_dir: &PathBuf,
+pub(super) fn load_config(filename: &BookToOpen, config_file: PathBuf, config_dir: &PathBuf,
 	cache_dir: &PathBuf) -> Result<(Configuration, Themes)>
 {
 	let (configuration, themes) =
 		if config_file.as_path().is_file() {
 			let string = fs::read_to_string(&config_file)?;
-			let mut configuration: Configuration = toml::from_str(&string)?;
+			let mut raw_config: RawConfig = toml::from_str(&string)?;
 			if let Some(filename) = filename.name() {
-				configuration.current = file_path(filename);
+				raw_config.current = file_path(filename);
 			}
-			if configuration.current.is_none() {
-				if let Some(latest_reading) = configuration.latest_reading()? {
-					configuration.current = Some(latest_reading.filename);
+			let history_db = load_history_db(&raw_config.history)?;
+			if raw_config.current.is_none() {
+				if let Some(latest_reading) = query(&history_db, 1, &None)?.pop() {
+					raw_config.current = Some(latest_reading.filename);
 				}
 			}
-			let theme_file = themes_dir.join("dark.toml");
+			let theme_file = config_dir.join("dark.toml");
 			let dark = process_theme_result(load_theme_file(theme_file))?;
-			let theme_file = themes_dir.join("bright.toml");
+			let theme_file = config_dir.join("bright.toml");
 			let bright = process_theme_result(load_theme_file(theme_file))?;
 			let themes = Themes { dark, bright };
-			configuration.config_file = config_file;
+			let configuration = Configuration {
+				render_han: raw_config.render_han,
+				current: raw_config.current,
+				dark_theme: raw_config.dark_theme,
+				history: raw_config.history,
+				#[cfg(feature = "gui")]
+				gui: raw_config.gui,
+				config_file,
+				history_db,
+			};
 			(configuration, themes)
 		} else {
-			let themes = create_default_theme_files(themes_dir)?;
+			let themes = create_default_theme_files(config_dir)?;
 			fs::create_dir_all(cache_dir)?;
 			let filepath = filename.name()
 				.map_or(None, |filename| file_path(filename));
-
+			let history = config_dir.join("history.sqlite");
+			let history_db = load_history_db(&history)?;
 			(Configuration {
 				render_han: false,
 				current: filepath,
 				dark_theme: false,
+				history,
 				#[cfg(feature = "gui")]
 				gui: Default::default(),
+
 				config_file,
-				history_db: default_history_db(),
+				history_db,
 			}, themes)
 		};
 	return Ok((configuration, themes));
@@ -445,24 +422,11 @@ fn chk<T>(result: rusqlite::Result<T>) -> T
 
 
 #[inline]
-fn default_history_db() -> Connection
+fn load_history_db(path: &PathBuf) -> Result<Connection>
 {
-	#[inline]
-	fn open(path: PathBuf) -> Connection
-	{
-		match Connection::open(&path) {
-			Ok(conn) => conn,
-			Err(err) => panic!("Failed open history db: {}", err.to_string()),
-		}
-	}
-
-	// config_dir is validated before deserialize
-	let config_dir = config_dir().unwrap();
-	let my_dir = config_dir.join(package_name!());
-	let history_db = my_dir.join("history.sqlite");
-	if !history_db.exists() {
+	let connection = if !path.exists() {
 		// init db
-		let conn = open(history_db);
+		let conn = Connection::open(path)?;
 		chk(conn.execute("
 create table info ( version integer )
 			", ()));
@@ -482,6 +446,54 @@ create table history
 )", ()));
 		conn
 	} else {
-		open(history_db)
+		Connection::open(path)?
+	};
+	Ok(connection)
+}
+
+fn query(conn: &Connection, limit: usize, exclude: &Option<String>) -> Result<Vec<ReadingInfo>>
+{
+	let mut stmt = conn.prepare("
+select row_id,
+       filename,
+       inner_book,
+       chapter,
+       line,
+       position,
+       custom_color,
+       strip_empty_lines,
+       ts
+from history
+order by ts desc
+")?;
+	let iter = stmt.query_map([], Configuration::map)?;
+	let mut list = vec![];
+	for info in iter {
+		let info = info?;
+		let path = PathBuf::from_str(&info.filename)?;
+		if !path.exists() {
+			continue;
+		}
+		if let Some(exclude) = exclude {
+			if *exclude == info.filename {
+				continue;
+			}
+		}
+		list.push(info);
+		if list.len() >= limit {
+			break;
+		}
 	}
+	Ok(list)
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RawConfig {
+	pub render_han: bool,
+	pub current: Option<String>,
+	pub dark_theme: bool,
+	history: PathBuf,
+	#[cfg(feature = "gui")]
+	#[serde(default)]
+	pub gui: GuiConfiguration,
 }
