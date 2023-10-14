@@ -1,4 +1,4 @@
-use std::{env, fs};
+use std::env;
 use std::borrow::Cow;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
@@ -1265,6 +1265,7 @@ fn apply_settings(locale: &str, fonts: Vec<PathConfig>,
 fn setup_env() -> Result<bool>
 {
 	use dirs::home_dir;
+	use std::fs;
 
 	// any better way to know if a usable backend for gtk4 available?
 	if !env::var("WAYLAND_DISPLAY")
