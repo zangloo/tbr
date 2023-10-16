@@ -240,7 +240,7 @@ where row_id = ?
 		}
 	}
 
-	pub fn save_reading(&self, reading: &ReadingInfo) -> Result<()>
+	pub fn save_reading(&self, reading: &mut ReadingInfo) -> Result<()>
 	{
 		let ts = ReadingInfo::now();
 		if reading.row_id == 0 {
@@ -251,6 +251,7 @@ values (?, ?, ?, ?, ?, ?, ?, ?)
 ", (&reading.filename, reading.inner_book, reading.chapter, reading.line,
 				reading.position, reading.custom_color, reading.strip_empty_lines,
 				ts))?;
+			reading.row_id = self.history_db.last_insert_rowid();
 		} else {
 			self.history_db.execute("
 update history

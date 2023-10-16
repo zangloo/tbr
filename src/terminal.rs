@@ -99,11 +99,11 @@ pub fn start(mut configuration: Configuration, themes: Themes) -> Result<()> {
 	app.add_fullscreen_layer(layout);
 	app.run();
 	let reading_view: ViewRef<ReadingView> = app.find_name(TEXT_VIEW_NAME).unwrap();
-	let reading_now = reading_view.reading_info();
+	let mut reading_now = reading_view.reading_info();
 	let controller_context: TerminalContext = app.take_user_data().unwrap();
 	configuration = controller_context.configuration;
 	configuration.current = Some(reading_now.filename.clone());
-	configuration.save_reading(&reading_now)?;
+	configuration.save_reading(&mut reading_now)?;
 	configuration.save()?;
 	Ok(())
 }
@@ -176,13 +176,13 @@ fn select_history(s: &mut Cursive)
 		}
 		let dialog = list_dialog("Reopen", history.into_iter(), 0, |s, selected| {
 			let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
-			let reading_now = reading_view.reading_info();
+			let mut reading_now = reading_view.reading_info();
 			let msg = s.with_user_data(|controller_context: &mut TerminalContext| {
 				let configuration = &mut controller_context.configuration;
 				chk(configuration.reading_by_id(selected as i64), |reading|
 					chk(reading_view.switch_container(reading), |msg| {
 						configuration.current = Some(reading_view.reading_info().filename);
-						chk(configuration.save_reading(&reading_now), |()|
+						chk(configuration.save_reading(&mut reading_now), |()|
 							msg)
 					}))
 			}).unwrap();

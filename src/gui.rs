@@ -876,11 +876,11 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 	{
 		let gc = gc.clone();
 		window.connect_close_request(move |_| {
-			let controller = gc.ctrl();
+			let mut controller = gc.ctrl_mut();
 			if controller.reading.filename != README_TEXT_FILENAME {
 				let mut configuration = gc.cfg_mut();
 				configuration.current = Some(controller.reading.filename.clone());
-				if let Err(e) = configuration.save_reading(&controller.reading) {
+				if let Err(e) = configuration.save_reading(&mut controller.reading) {
 					eprintln!("Failed save reading info: {}", e.to_string());
 				}
 			}
@@ -1528,7 +1528,7 @@ impl GuiContext {
 				if filepath != controller.reading.filename {
 					let mut configuration = self.cfg_mut();
 					let mut render_context = self.ctx_mut();
-					let reading = &controller.reading;
+					let reading = &mut controller.reading;
 					if reading.filename != README_TEXT_FILENAME {
 						if let Err(e) = configuration.save_reading(reading) {
 							self.error(&e.to_string());
