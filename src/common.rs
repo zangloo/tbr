@@ -41,8 +41,8 @@ pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 36] = [
 	('}', '︸'),
 	('〖', '︘'),
 	('〗', '︗'),
-	('～','ⸯ'),
-	('~','ⸯ'),
+	('～', 'ⸯ'),
+	('~', 'ⸯ'),
 ];
 
 #[allow(unused)]
@@ -206,4 +206,26 @@ pub fn char_width(ch: char) -> usize {
 		Some(w) => w,
 		None => 0,
 	}
+}
+
+#[macro_export]
+macro_rules! frozen_map_get {
+    ($map:expr, $key:ident, ||$resolver:block) => ({
+	    let value = if let Some(value) = $map.get(&$key) {
+		    value
+	    } else {
+		    let value = $resolver?;
+		    $map.insert($key, value)
+	    };
+	    Some(value)
+    });
+    ($map:expr, $key:ident, true, ||$resolver:block) => ({
+	    let value = if let Some(value) = $map.get(&$key) {
+		    value
+	    } else {
+		    let value = $resolver?;
+		    $map.insert($key.clone(), value)
+	    };
+	    Some(value)
+    });
 }

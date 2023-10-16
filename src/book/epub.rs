@@ -17,6 +17,7 @@ use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader, TocInfo};
 use crate::html_convertor::html_str_content;
 use crate::list::ListIterator;
 use crate::common::{Position, TraceInfo};
+use crate::frozen_map_get;
 
 struct ManifestItem {
 	#[allow(dead_code)]
@@ -63,7 +64,7 @@ struct EpubBook<R: Read + Seek> {
 	content_opf: ContentOPF,
 	toc: Vec<NavPoint>,
 	chapter_cache: HashMap<usize, Chapter>,
-	css_cache: HashMap<String, String>,
+	css_cache: FrozenMap<String, String>,
 	images: FrozenMap<String, Vec<u8>>,
 	font_families: IndexSet<String>,
 	chapter_index: usize,
@@ -197,7 +198,7 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 	{
 		let iter = ListIterator::new(|index| {
 			let toc = self.toc.get(index)?;
-			Some(TocInfo{title:toc_title(toc), index, level: toc.level })
+			Some(TocInfo { title: toc_title(toc), index, level: toc.level })
 		});
 		Some(Box::new(iter))
 	}
@@ -241,12 +242,9 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 		if let Ok(path) = chapter_path(self.current_chapter(), &self.content_opf) {
 			let cwd = path_cwd(path);
 			let full_path = concat_path(cwd, href)?;
-			let bytes = if let Some(bytes) = self.images.get(&full_path) {
-				bytes
-			} else {
-				let bytes = zip_content(&mut self.zip.borrow_mut(), &full_path).ok()?;
-				self.images.insert(full_path.clone(), bytes)
-			};
+			let bytes = frozen_map_get!(self.images, full_path, true, ||{
+				zip_content(&mut self.zip.borrow_mut(), &full_path).ok()
+			})?;
 			Some((Cow::Owned(full_path), bytes))
 		} else {
 			None
@@ -279,8 +277,6 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 		let content_opf_text = zip_string(&mut zip, &content_opf_path)?;
 		let content_opf = parse_content_opf(&content_opf_text, &content_opf_dir, &zip)
 			.ok_or(anyhow!("Malformatted content.opf file"))?;
-
-		let css_cache = load_cache(&mut zip, &content_opf.manifest);
 
 		let mut toc = match content_opf.manifest.get(content_opf.toc_id.as_ref().unwrap_or(&"ncx".to_string())) {
 			Some(ManifestItem { href, .. }) => {
@@ -340,7 +336,7 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 			toc,
 			chapter_cache,
 			chapter_index,
-			css_cache,
+			css_cache: Default::default(),
 			images: Default::default(),
 			font_families: Default::default(),
 		};
@@ -356,11 +352,11 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 				let full_path = chapter_path(chapter_index, &self.content_opf)?;
 				let cwd = path_cwd(full_path);
 				let html_str = zip_string(&mut self.zip.borrow_mut(), full_path)?;
-				let css_cache = &self.css_cache;
-				let html_content = html_str_content(&html_str, &mut self.font_families, Some(|path: String| {
+				let html_content = html_str_content(&html_str, &mut self.font_families, Some(|path: &str| {
 					let full_path = concat_path(cwd.clone(), &path)?;
-					let content = css_cache.get(&full_path)?;
-					Some(content)
+					frozen_map_get!(self.css_cache, full_path, || {
+						zip_string(&mut self.zip.borrow_mut(), &full_path).ok()
+					})
 				}))?;
 				let chapter = Chapter {
 					lines: html_content.lines,
@@ -428,21 +424,6 @@ fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Ve
 		}
 		Err(e) => Err(anyhow!("failed load {}: {}", name, e.to_string())),
 	}
-}
-
-
-fn load_cache<R: Read + Seek>(zip: &mut ZipArchive<R>, manifest: &Manifest) -> HashMap<String, String>
-{
-	let mut css_cache = HashMap::new();
-	for (_, item) in manifest {
-		if item.media_type == "text/css" {
-			if let Ok(content) = zip_string(zip, &item.href) {
-				css_cache.insert(item.href.clone(), content);
-			}
-			continue;
-		}
-	}
-	css_cache
 }
 
 fn parse_nav_points(nav_points_element: &Element, level: usize, nav_points: &mut Vec<NavPoint>, cwd: &PathBuf)

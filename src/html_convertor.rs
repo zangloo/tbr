@@ -22,7 +22,6 @@ use scraper::node::Element;
 
 use crate::book::{EMPTY_CHAPTER_CONTENT, FontWeightValue, IMAGE_CHAR, Line, TextStyle};
 use crate::color::Color32;
-use crate::common::plain_text;
 use crate::common::Position;
 
 pub struct HtmlContent {
@@ -45,15 +44,15 @@ struct ParseContext<'a> {
 	font_family: &'a mut IndexSet<String>,
 }
 
-pub(crate) fn html_content(text: Vec<u8>, font_family: &mut IndexSet<String>) -> Result<HtmlContent>
+#[inline]
+pub(crate) fn html_content(text: &str, font_family: &mut IndexSet<String>) -> Result<HtmlContent>
 {
-	let text = plain_text(text, false)?;
-	html_str_content(&text, font_family, None::<fn(String) -> Option<&'static String>>)
+	html_str_content(&text, font_family, None::<fn(&str) -> Option<&'static str>>)
 }
 
 pub(crate) fn html_str_content<'a, F>(str: &str, font_family: &mut IndexSet<String>,
 	file_resolver: Option<F>) -> Result<HtmlContent>
-	where F: Fn(String) -> Option<&'a String>
+	where F: Fn(&str) -> Option<&'a str>
 {
 	let document = Html::parse_document(str);
 	let element_styles = load_styles(&document, font_family, file_resolver);
@@ -351,7 +350,7 @@ fn style_parse_options<'a>() -> ParserOptions<'a, 'a>
 
 fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 	file_resolver: Option<F>) -> HashMap<NodeId, HashSet<TextStyle>>
-	where F: Fn(String) -> Option<&'a String>
+	where F: Fn(&str) -> Option<&'a str>
 {
 	let mut element_styles = HashMap::new();
 
@@ -375,7 +374,7 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 			for element in selection.into_iter() {
 				if let Some(href) = element.value().attr("href") {
 					if href.to_lowercase().ends_with(".css") {
-						if let Some(content) = file_resolver(href.to_string()) {
+						if let Some(content) = file_resolver(href) {
 							if let Ok(style_sheet) = StyleSheet::parse(&content, style_parse_options()) {
 								stylesheets.push(style_sheet);
 							}
