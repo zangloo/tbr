@@ -52,10 +52,38 @@ pub(super) fn show(gc: &GuiContext) -> Window
 		locale_dropdown
 	};
 
+	let render_han_cb = {
+		let han = configuration.render_han;
+		let han_cb = CheckButton::builder()
+			.label(i18n.msg("render-han"))
+			.active(han)
+			.build();
+		let xi_cb = CheckButton::builder()
+			.label(i18n.msg("render-xi"))
+			.active(!han)
+			.group(&han_cb)
+			.build();
+		let b = gtk4::Box::new(Orientation::Horizontal, 10);
+		b.append(&title_label(&i18n.msg("settings-render-label")));
+		b.append(&han_cb);
+		b.append(&xi_cb);
+		main.append(&b);
+		han_cb
+	};
+
 	let ignore_font_weight_cb = {
 		let cb = CheckButton::builder()
 			.label(i18n.msg("ignore-font-weight"))
 			.active(configuration.gui.ignore_font_weight)
+			.build();
+		main.append(&cb);
+		cb
+	};
+
+	let strip_empty_lines_cb = {
+		let cb = CheckButton::builder()
+			.label(i18n.msg("strip-empty-lines"))
+			.active(configuration.gui.strip_empty_lines)
 			.build();
 		main.append(&cb);
 		cb
@@ -171,6 +199,7 @@ pub(super) fn show(gc: &GuiContext) -> Window
 		let locale_dropdown = locale_dropdown.clone();
 		let gc = gc.clone();
 		ok_btn.connect_clicked(move |_| {
+			let render_han = render_han_cb.is_active();
 			let locale = {
 				let idx = locale_dropdown.selected();
 				let locales = gc.i18n().locales();
@@ -179,6 +208,7 @@ pub(super) fn show(gc: &GuiContext) -> Window
 					.locale
 			};
 			let ignore_font_weight = ignore_font_weight_cb.is_active();
+			let strip_empty_lines = strip_empty_lines_cb.is_active();
 			let fonts = collect_path_list(&font_list, |path|
 				path.exists() && path.is_file());
 			let dictionaries = collect_path_list(&dict_list, |path|
@@ -186,7 +216,8 @@ pub(super) fn show(gc: &GuiContext) -> Window
 			let cache_dict = cache_dict_cb.is_active();
 
 			if let Err((title, message)) = apply_settings(
-				locale, fonts, dictionaries, cache_dict, ignore_font_weight,
+				render_han, locale, fonts, dictionaries, cache_dict,
+				ignore_font_weight, strip_empty_lines,
 				&gc, &mut gc.dm_mut()) {
 				AlertDialog::builder()
 					.modal(true)

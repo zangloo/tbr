@@ -3,6 +3,7 @@ readme = A terminal and gui e-book reader for linux and windows，support epub, 
 copy-content = copy content
 lookup-dictionary = lookup dictionary
 add-bookmark = add bookmark
+settings-render-label = render mode
 render-han = han
 render-xi = horizontal
 sidebar-on = show sidebar

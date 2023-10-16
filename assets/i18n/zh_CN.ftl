@@ -3,6 +3,7 @@ readme = 可以在linux以及windows上使用的桌面阅读器，支持epub，h
 copy-content = 复制内容
 lookup-dictionary = 查阅字典
 add-bookmark = 增加书签
+settings-render-label = 渲染方式
 render-han = 直排
 render-xi = 横排
 sidebar-on = 显示侧边栏

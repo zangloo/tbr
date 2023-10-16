@@ -240,10 +240,8 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 
 	let controller = Controller::from_data(reading, container_manager, container, book, Box::new(view.clone()));
 
-	let (render_icon, render_tooltip) = get_render_icon(configuration.render_han, &i18n);
 	let (theme_icon, theme_tooltip) = get_theme_icon(configuration.dark_theme, &i18n);
 	let custom_color = controller.reading.custom_color;
-	let strip_empty_lines = configuration.gui.strip_empty_lines;
 	drop(configuration);
 
 	let ctx = Rc::new(RefCell::new(render_context));
@@ -256,9 +254,9 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	setup_view(&gc, &view);
 	setup_chapter_list(&gc);
 
-	let (toolbar, render_btn, theme_btn, search_box)
-		= setup_toolbar(&gc, &view, &lookup_entry, strip_empty_lines, custom_color,
-		render_icon, &render_tooltip, theme_icon, &theme_tooltip);
+	let (toolbar, theme_btn, search_box)
+		= setup_toolbar(&gc, &view, &lookup_entry, custom_color,
+		theme_icon, &theme_tooltip);
 
 	{
 		let gc = gc.clone();
@@ -393,7 +391,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		view.add_controller(key_event);
 	}
 
-	setup_window(&gc, toolbar, view, render_btn, theme_btn, search_box, filename);
+	setup_window(&gc, toolbar, view, theme_btn, search_box, filename);
 	Ok(gc)
 }
 
@@ -787,8 +785,7 @@ fn switch_stack(tab_name: &str, gc: &GuiContext, toggle: bool) -> bool
 
 #[inline]
 fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
-	render_btn: Button, theme_btn: Button, search_box: SearchEntry,
-	filename: String)
+	theme_btn: Button, search_box: SearchEntry, filename: String)
 {
 	let header_bar = HeaderBar::new();
 	header_bar.set_height_request(32);
@@ -857,7 +854,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					}
 				}
 				(Key::x, ModifierType::CONTROL_MASK) => {
-					switch_render(&render_btn, &gc);
+					switch_render(&gc);
 					glib::Propagation::Stop
 				}
 				(Key::t, MODIFIER_NONE) => {
@@ -896,15 +893,6 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 }
 
 #[inline(always)]
-fn get_render_icon<'a>(render_han: bool, i18n: &'a I18n) -> (&'static str, Cow<'a, str>) {
-	if render_han {
-		("render_xi.svg", i18n.msg("render-xi"))
-	} else {
-		("render_han.svg", i18n.msg("render-han"))
-	}
-}
-
-#[inline(always)]
 fn get_theme_icon(dark_theme: bool, i18n: &I18n) -> (&'static str, Cow<str>) {
 	if dark_theme {
 		("theme_bright.svg", i18n.msg("theme-bright"))
@@ -927,13 +915,11 @@ fn toggle_sidebar(gc: &GuiContext)
 	paned.set_position(position);
 }
 
-fn switch_render(render_btn: &Button, gc: &GuiContext)
+fn switch_render(gc: &GuiContext)
 {
 	let mut configuration = gc.cfg_mut();
 	let render_han = !configuration.render_han;
 	configuration.render_han = render_han;
-	let (render_icon, render_tooltip) = get_render_icon(render_han, gc.i18n());
-	update_button(render_btn, render_icon, &render_tooltip, gc.icons());
 	let mut controller = gc.ctrl_mut();
 	let mut render_context = gc.ctx_mut();
 	controller.render.reload_render(render_han, &mut render_context);
@@ -960,10 +946,8 @@ fn switch_theme(theme_btn: &Button, gc: &GuiContext)
 
 #[inline]
 fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
-	strip_empty_lines: bool, custom_color: bool,
-	render_icon: &str, render_tooltip: &str,
-	theme_icon: &str, theme_tooltip: &str,
-) -> (gtk4::Box, Button, Button, SearchEntry)
+	custom_color: bool, theme_icon: &str, theme_tooltip: &str)
+	-> (gtk4::Box, Button, SearchEntry)
 {
 	let i18n = gc.i18n();
 	let icons = gc.icons();
@@ -1047,15 +1031,6 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	});
 	toolbar.append(&history_button);
 
-	let render_button = create_button(render_icon, render_tooltip, &icons, false);
-	{
-		let gc = gc.clone();
-		render_button.connect_clicked(move |btn| {
-			switch_render(btn, &gc);
-		});
-		toolbar.append(&render_button);
-	}
-
 	let theme_button = create_button(theme_icon, theme_tooltip, &icons, false);
 	{
 		let gc = gc.clone();
@@ -1069,25 +1044,6 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 		let custom_color_button = gc.custom_color_btn();
 		custom_color_button.set_active(custom_color);
 		toolbar.append(custom_color_button);
-	}
-
-	{
-		let strip_empty_lines_button = create_toggle_button(
-			strip_empty_lines,
-			"strip.svg",
-			"strip-empty-lines",
-			icons,
-			i18n,
-		);
-		let gc = gc.clone();
-		strip_empty_lines_button.connect_toggled(move |btn| {
-			let strip_empty_lines = btn.is_active();
-			gc.cfg_mut().gui.strip_empty_lines = strip_empty_lines;
-			let render_context = &mut gc.ctx_mut();
-			render_context.strip_empty_lines = strip_empty_lines;
-			gc.ctrl_mut().redraw(render_context);
-		});
-		toolbar.append(&strip_empty_lines_button);
 	}
 
 	let settings_button = create_button("setting.svg", &i18n.msg("settings-dialog"), &icons, false);
@@ -1110,7 +1066,7 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	status_bar.set_halign(Align::End);
 	status_bar.set_hexpand(true);
 
-	(toolbar, render_button, theme_button, search_box)
+	(toolbar, theme_button, search_box)
 }
 
 #[inline]
@@ -1187,8 +1143,9 @@ fn update_title(window: &ApplicationWindow, filename: &str)
 	window.set_title(Some(&title));
 }
 
-fn apply_settings(locale: &str, fonts: Vec<PathConfig>,
+fn apply_settings(render_han: bool, locale: &str, fonts: Vec<PathConfig>,
 	dictionaries: Vec<PathConfig>, cache_dict: bool, ignore_font_weight: bool,
+	strip_empty_lines: bool,
 	gc: &GuiContext, dictionary_manager: &mut DictionaryManager)
 	-> Result<(), (String, String)>
 {
@@ -1211,11 +1168,22 @@ fn apply_settings(locale: &str, fonts: Vec<PathConfig>,
 	// need restart
 	configuration.gui.lang = locale.to_owned();
 
-	let ignore_font_weight = if configuration.gui.ignore_font_weight != ignore_font_weight {
-		configuration.gui.ignore_font_weight = ignore_font_weight;
-		Some(ignore_font_weight)
+	let mut redraw = false;
+	let reload_render = if configuration.render_han != render_han {
+		configuration.render_han = render_han;
+		redraw = true;
+		true
 	} else {
-		None
+		false
+	};
+
+	if configuration.gui.ignore_font_weight != ignore_font_weight {
+		configuration.gui.ignore_font_weight = ignore_font_weight;
+		redraw = true;
+	};
+	if configuration.gui.strip_empty_lines != strip_empty_lines {
+		configuration.gui.strip_empty_lines = strip_empty_lines;
+		redraw = true;
 	};
 
 	let new_fonts = if paths_modified(&configuration.gui.fonts, &fonts) {
@@ -1231,6 +1199,7 @@ fn apply_settings(locale: &str, fonts: Vec<PathConfig>,
 				return Err((t, message));
 			}
 		};
+		redraw = true;
 		Some(new_fonts)
 	} else {
 		None
@@ -1243,18 +1212,20 @@ fn apply_settings(locale: &str, fonts: Vec<PathConfig>,
 		configuration.gui.cache_dict = cache_dict;
 	};
 
-	if ignore_font_weight.is_some() || new_fonts.is_some() {
+	if redraw {
 		let mut render_context = gc.ctx_mut();
 		let mut controller = gc.ctrl_mut();
+		if reload_render {
+			controller.render.reload_render(configuration.render_han, &mut render_context);
+		}
 		if let Some(new_fonts) = new_fonts {
 			let fonts_data = Rc::new(new_fonts);
 			dictionary_manager.set_fonts(fonts_data.clone());
 			configuration.gui.fonts = fonts;
 			controller.render.set_fonts(fonts_data, &mut render_context);
 		}
-		if let Some(ignore_font_weight) = ignore_font_weight {
-			render_context.ignore_font_weight = ignore_font_weight;
-		}
+		render_context.ignore_font_weight = ignore_font_weight;
+		render_context.strip_empty_lines = strip_empty_lines;
 		controller.redraw(&mut render_context);
 	}
 	Ok(())
