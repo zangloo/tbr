@@ -735,9 +735,7 @@ fn setup_chapter_list(gc1: &GuiContext)
 			let mut controller = gc.ctrl_mut();
 			let mut render_context = gc.ctx_mut();
 			if is_book {
-				let new_reading = controller.reading.clone()
-					.with_inner_book(index);
-				let msg = controller.switch_book(new_reading, &mut render_context);
+				let msg = controller.switch_book(index, &mut render_context);
 				update_status(false, &msg, &gc.inner.status_bar);
 			} else if let Some(msg) = controller.goto_toc(index, &mut render_context) {
 				update_status(false, &msg, &gc.inner.status_bar);
@@ -855,6 +853,10 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 				}
 				(Key::x, ModifierType::CONTROL_MASK) => {
 					switch_render(&gc);
+					glib::Propagation::Stop
+				}
+				(Key::r, ModifierType::CONTROL_MASK) => {
+					gc.reload_book();
 					glib::Propagation::Stop
 				}
 				(Key::t, MODIFIER_NONE) => {
@@ -1030,6 +1032,15 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 		history_menu.popup();
 	});
 	toolbar.append(&history_button);
+
+	{
+		let reload_button = create_button("reload.svg", &i18n.msg("reload"), &icons, false);
+		let gc = gc.clone();
+		reload_button.connect_clicked(move |_| {
+			gc.reload_book();
+		});
+		toolbar.append(&reload_button);
+	}
 
 	let theme_button = create_button(theme_icon, theme_tooltip, &icons, false);
 	{
@@ -1551,6 +1562,14 @@ impl GuiContext {
 			}
 			Err(err) => self.error(&err.to_string()),
 		}
+	}
+
+	fn reload_book(&self)
+	{
+		let mut controller = self.ctrl_mut();
+		let inner_book = controller.reading.inner_book;
+		let msg = controller.switch_book(inner_book, &mut self.ctx_mut());
+		update_status(false, &msg, &self.inner.status_bar);
 	}
 
 	#[inline]

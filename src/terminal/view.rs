@@ -233,9 +233,9 @@ impl ReadingView {
 	}
 
 	#[inline]
-	pub fn switch_book(&mut self, reading: ReadingInfo) -> String
+	pub fn switch_book(&mut self, inner_book: usize) -> String
 	{
-		self.controller.switch_book(reading, &mut self.render_context)
+		self.controller.switch_book(inner_book, &mut self.render_context)
 	}
 
 	#[inline]

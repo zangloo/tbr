@@ -142,8 +142,7 @@ fn select_book(s: &mut Cursive) {
 		if reading_now.inner_book == selected {
 			return;
 		}
-		let new_reading = reading_now.with_inner_book(selected);
-		let msg = reading_view.switch_book(new_reading);
+		let msg = reading_view.switch_book(selected);
 		update_status(s, &msg);
 	});
 	s.add_layer(dialog);

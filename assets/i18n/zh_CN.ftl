@@ -11,6 +11,7 @@ sidebar-off = 隐藏侧边栏
 file-open = 开卷
 file-open-title = 选择书籍
 history = 最近阅读
+reload = 重新加载
 theme-dark = 夜光模式
 theme-bright = 日光模式
 lang = 语言

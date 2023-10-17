@@ -11,6 +11,7 @@ sidebar-off = hide sidebar
 file-open = open book
 file-open-title = open e-book
 history = recently reading
+reload = reload content
 theme-dark = dark theme
 theme-bright = bright theme
 lang = language

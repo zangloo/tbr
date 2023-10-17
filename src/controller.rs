@@ -191,16 +191,20 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		Ok(self.status_msg())
 	}
 
-	pub fn switch_book(&mut self, reading: ReadingInfo, context: &mut C) -> String
+	pub fn switch_book(&mut self, inner_book: usize, context: &mut C) -> String
 	{
-		match self.do_switch_book(reading, context) {
+		match self.do_switch_book(inner_book, context) {
 			Ok(..) => self.status_msg(),
 			Err(e) => e.to_string(),
 		}
 	}
 
-	fn do_switch_book(&mut self, mut reading: ReadingInfo, context: &mut C) -> Result<()>
+	fn do_switch_book(&mut self, inner_book: usize, context: &mut C) -> Result<()>
 	{
+		let mut reading = self.reading.clone();
+		if reading.inner_book != inner_book {
+			reading = reading.with_inner_book(inner_book);
+		}
 		let book = load_book(&self.container_manager, &mut self.container, &mut reading)?;
 		self.book = book;
 		self.reading = reading;
@@ -231,10 +235,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			let book_index = self.reading.inner_book + 1;
 			let book_count = self.container.inner_book_names().len();
 			if book_index < book_count {
-				let reading = self.reading
-					.clone()
-					.with_inner_book(book_index);
-				self.do_switch_book(reading, context)?;
+				self.do_switch_book(book_index, context)?;
 			}
 		}
 		Ok(())
