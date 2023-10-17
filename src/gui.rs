@@ -859,6 +859,10 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					gc.reload_book();
 					glib::Propagation::Stop
 				}
+				(Key::o, ModifierType::CONTROL_MASK) => {
+					gc.open_dialog();
+					glib::Propagation::Stop
+				}
 				(Key::t, MODIFIER_NONE) => {
 					switch_theme(&theme_btn, &gc);
 					glib::Propagation::Stop
@@ -991,26 +995,10 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	}
 
 	let file_button = create_button("file_open.svg", &i18n.msg("file-open"), &icons, false);
-	let file_dialog = FileDialog::new();
-	file_dialog.set_title(&i18n.msg("file-open-title"));
-	file_dialog.set_modal(true);
-	let filter = FileFilter::new();
-	for ext in gc.ctrl().container_manager.book_loader.extension() {
-		filter.add_suffix(&ext[1..]);
-	}
-	file_dialog.set_default_filter(Some(&filter));
-
 	{
 		let gc = gc.clone();
 		file_button.connect_clicked(move |_| {
-			let gc2 = gc.clone();
-			file_dialog.open(Some(gc.win()), None::<&Cancellable>, move |result| {
-				if let Ok(file) = result {
-					if let Some(path) = file.path() {
-						gc2.open_file(&path);
-					}
-				}
-			});
+			gc.open_dialog();
 		});
 		toolbar.append(&file_button);
 	}
@@ -1293,6 +1281,7 @@ struct GuiContextInner {
 	dark_colors: Colors,
 	bright_colors: Colors,
 	css_provider: CssProvider,
+	file_dialog: FileDialog,
 }
 
 enum ChapterListSyncMode {
@@ -1325,7 +1314,8 @@ impl GuiContext {
 		let status_bar = Label::new(None);
 		let (chapter_list, chapter_list_view) = ChapterList::create(&icons, &i18n, &ctrl);
 
-		status_bar.set_label(&ctrl.borrow().status_msg());
+		let controller = ctrl.borrow();
+		status_bar.set_label(&controller.status_msg());
 		let paned = Paned::new(Orientation::Horizontal);
 		let sidebar_stack = Stack::builder()
 			.vexpand(true)
@@ -1351,6 +1341,15 @@ impl GuiContext {
 			})
 		};
 
+		let file_dialog = FileDialog::new();
+		file_dialog.set_title(&i18n.msg("file-open-title"));
+		file_dialog.set_modal(true);
+		let filter = FileFilter::new();
+		for ext in controller.container_manager.book_loader.extension() {
+			filter.add_suffix(&ext[1..]);
+		}
+		file_dialog.set_default_filter(Some(&filter));
+
 		let inner = GuiContextInner {
 			cfg: cfg.clone(),
 			ctrl: ctrl.clone(),
@@ -1372,6 +1371,7 @@ impl GuiContext {
 			dark_colors,
 			bright_colors,
 			css_provider,
+			file_dialog,
 		};
 		(GuiContext { inner: Rc::new(inner) }, chapter_list_view)
 	}
@@ -1500,6 +1500,18 @@ impl GuiContext {
 	fn status_bar(&self) -> &Label
 	{
 		&self.inner.status_bar
+	}
+
+	fn open_dialog(&self)
+	{
+		let gc = self.clone();
+		self.inner.file_dialog.open(Some(self.win()), None::<&Cancellable>, move |result| {
+			if let Ok(file) = result {
+				if let Some(path) = file.path() {
+					gc.open_file(&path);
+				}
+			}
+		});
 	}
 
 	fn open_file(&self, path: &PathBuf)
