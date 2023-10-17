@@ -879,6 +879,10 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					settings::show(&gc);
 					glib::Propagation::Stop
 				}
+				(Key::w, ModifierType::CONTROL_MASK) => {
+					gc.win().close();
+					glib::Propagation::Stop
+				}
 				_ => {
 					// println!("window pressed, key: {key}, modifier: {modifier}");
 					glib::Propagation::Proceed
