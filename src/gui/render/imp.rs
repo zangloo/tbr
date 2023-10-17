@@ -755,24 +755,23 @@ pub trait GuiRender {
 				let measures = self.measure_char(
 					layout, 'S', font_size, font_weight, font_family_idx, font_family_names, render_context);
 				self.cache_insert(SPACE, font_size, font_weight, font_family_idx, CharDrawData::Space(measures.size));
-				return measures;
+				measures
 			}
 			FULL_SPACE => {
 				let measures = self.measure_char(
 					layout, HAN_CHAR, font_size, font_weight, font_family_idx, font_family_names, render_context);
 				self.cache_insert(FULL_SPACE, font_size, font_weight, font_family_idx, CharDrawData::Space(measures.size));
-				return measures;
+				measures
 			}
-			_ => {}
+			_ => self.measure_char(
+				layout,
+				char,
+				font_size,
+				font_weight,
+				font_family_idx,
+				font_family_names,
+				render_context)
 		}
-		self.measure_char(
-			layout,
-			char,
-			font_size,
-			font_weight,
-			font_family_idx,
-			font_family_names,
-			render_context)
 	}
 
 	fn measure_char(&mut self, layout: &PangoContext, char: char, font_size: f32,
