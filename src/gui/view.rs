@@ -499,6 +499,7 @@ mod imp {
 		{
 			context.leading_chars = book.leading_space();
 			let mut render = self.render.borrow_mut();
+			render.image_cache_mut().clear();
 			render.reset_render_context(context);
 		}
 
