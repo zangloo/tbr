@@ -44,6 +44,8 @@ mod chapter_list;
 
 pub const DEFAULT_FONT_WEIGHT: u8 = 4;
 
+pub const MODIFIER_NONE: ModifierType = ModifierType::empty();
+
 const APP_ID: &str = "net.lzrj.tbr";
 const ICON_SIZE: i32 = 32;
 const INLINE_ICON_SIZE: i32 = 16;
@@ -277,7 +279,6 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		let gc = gc.clone();
 		let key_event = EventControllerKey::new();
 		key_event.connect_key_pressed(move |_, key, _, modifier| {
-			const MODIFIER_NONE: ModifierType = ModifierType::empty();
 			match (key, modifier) {
 				(Key::space | Key::Page_Down, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
@@ -801,7 +802,6 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 	{
 		let gc = gc.clone();
 		window_key_event.connect_key_released(move |_, key, _, _| {
-			const MODIFIER_NONE: ModifierType = ModifierType::empty();
 			match key {
 				Key::Control_L => {
 					let view = &gc.ctrl().render;
@@ -816,7 +816,6 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 	{
 		let gc = gc.clone();
 		window_key_event.connect_key_pressed(move |_, key, _, modifier| {
-			const MODIFIER_NONE: ModifierType = ModifierType::empty();
 			match (key, modifier) {
 				(Key::Control_L, MODIFIER_NONE) => {
 					let view = &gc.ctrl().render;
@@ -869,6 +868,15 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 				}
 				(Key::t, MODIFIER_NONE) => {
 					switch_theme(&theme_btn, &gc);
+					glib::Propagation::Stop
+				}
+				(Key::T, ModifierType::SHIFT_MASK) => {
+					let active = gc.inner.custom_color_btn.is_active();
+					gc.inner.custom_color_btn.set_active(!active);
+					glib::Propagation::Stop
+				}
+				(Key::s, ModifierType::CONTROL_MASK) => {
+					settings::show(&gc);
 					glib::Propagation::Stop
 				}
 				_ => {

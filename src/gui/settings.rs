@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 use gtk4::{AlertDialog, Align, Button, CheckButton, DropDown, EventControllerKey, FileDialog, FileFilter, glib, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode, Separator, StringList, Window};
-use gtk4::gdk::{Key, ModifierType};
+use gtk4::gdk::Key;
 use gtk4::gio::{Cancellable, File, ListStore};
 use gtk4::glib::{Cast, Object};
 use gtk4::prelude::{BoxExt, ButtonExt, CheckButtonExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, WidgetExt};
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
 use crate::config::PathConfig;
 use crate::I18n;
-use crate::gui::{apply_settings, create_button, DICT_FILE_EXTENSIONS, FONT_FILE_EXTENSIONS, GuiContext, IconMap};
+use crate::gui::{apply_settings, create_button, DICT_FILE_EXTENSIONS, FONT_FILE_EXTENSIONS, GuiContext, MODIFIER_NONE, IconMap};
 
 pub(super) fn show(gc: &GuiContext) -> Window
 {
@@ -260,7 +260,6 @@ pub(super) fn show(gc: &GuiContext) -> Window
 	{
 		let dialog = dialog.clone();
 		key_event.connect_key_pressed(move |_, key, _, modifier| {
-			const MODIFIER_NONE: ModifierType = ModifierType::empty();
 			match (key, modifier) {
 				(Key::Escape, MODIFIER_NONE) => {
 					dialog.close();

@@ -18,7 +18,7 @@ use crate::color::Color32;
 use crate::common::{txt_lines, Position};
 use crate::config::PathConfig;
 use crate::controller::{highlight_selection, HighlightInfo, Render};
-use crate::gui::{copy_to_clipboard, create_button, IconMap};
+use crate::gui::{copy_to_clipboard, create_button, IconMap, MODIFIER_NONE};
 use crate::gui::render::{RenderContext, ScrollRedrawMethod};
 use crate::gui::view::{GuiView, ScrollPosition};
 use crate::html_convertor::{html_content, HtmlContent};
@@ -560,7 +560,6 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 		let dm = dm.clone();
 		let key_event = EventControllerKey::new();
 		key_event.connect_key_pressed(move |_, key, _, modifier| {
-			const MODIFIER_NONE: ModifierType = ModifierType::empty();
 			match (key, modifier) {
 				(Key::space | Key::Page_Down, MODIFIER_NONE) =>
 					scroll_to(&dm, ScrollPosition::PageNext),
