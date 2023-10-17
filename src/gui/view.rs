@@ -511,14 +511,14 @@ mod imp {
 				None
 			} else {
 				let mut render = self.render.borrow_mut();
-				let (render_lines, next) = render.gui_redraw(book, lines, line, offset, highlight,
-					pango, context);
 				let mut data = self.data.borrow_mut();
 				sync_font_family_names(
 					&mut data,
 					book.font_family_names(),
 					&mut render,
 				);
+				let (render_lines, next) = render.gui_redraw(book, lines, line, offset, highlight,
+					pango, context);
 				data.render_lines = render_lines;
 				next
 			}
