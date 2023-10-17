@@ -10,8 +10,7 @@ use crate::color::Color32;
 use crate::common::{HAN_COMPACT_CHARS, HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, vec2};
-use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, scale_font_size, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, hline, CharDrawData, ScrollSizing, ScrolledDrawData};
-use crate::gui::render::imp::load_font_weight;
+use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, hline, CharDrawData, ScrollSizing, ScrolledDrawData};
 
 pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
@@ -109,23 +108,21 @@ impl GuiRender for GuiHanRender
 				}
 				let char = text.char_at(i).unwrap();
 				let char = self.map_char(char);
-				let font_size = scale_font_size(context.font_size, char_style.font_scale);
-				let font_weight = load_font_weight(char_style.font_weight, context);
-				let (size, draw_size, draw_offset) = self.measure_char(
+				let measures = self.measure_char(
 					pango,
 					char,
-					font_size,
-					font_weight,
+					char_style.font_scale,
+					char_style.font_weight,
 					&char_style.font_family,
 					book.font_family_names(),
 					context);
 				let (char_height, y_offset) = if self.compact_chars.contains(&char) {
-					(draw_size.y * 2., -draw_offset.y + (draw_size.y / 2.))
+					(measures.draw_size.y * 2., -measures.draw_offset.y + (measures.draw_size.y / 2.))
 				} else {
-					(size.y, 0.)
+					(measures.size.y, 0.)
 				};
-				let mut cell_offset = vec2(-draw_offset.x, y_offset);
-				let cell_size = vec2(draw_size.x, char_height);
+				let mut cell_offset = vec2(-measures.draw_offset.x, y_offset);
+				let cell_size = vec2(measures.draw_size.x, char_height);
 				let color = char_style.color.clone();
 				let mut rect = Rect::new(self.baseline - cell_size.x, top, cell_size.x, cell_size.y);
 				if let Some(range) = &char_style.border {
@@ -145,8 +142,8 @@ impl GuiRender for GuiHanRender
 				let background = update_for_highlight(line, i, char_style.background.clone(), &context.colors, highlight);
 				let cell = CharCell {
 					char,
-					font_size,
-					font_weight,
+					font_size: measures.font_size,
+					font_weight: measures.font_weight,
 					font_family: char_style.font_family,
 					color,
 					background,

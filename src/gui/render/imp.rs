@@ -414,6 +414,14 @@ pub struct ScrollSizing {
 	pub page_size: f32,
 }
 
+pub struct CharMeasures {
+	pub size: Vec2,
+	pub draw_size: Vec2,
+	pub draw_offset: Pos2,
+	pub font_size: f32,
+	pub font_weight: u8,
+}
+
 #[inline(always)]
 fn cache_key(char: char, font_size: u8, font_weight: u8, font_family_idx: &Option<u16>) -> u64
 {
@@ -711,62 +719,83 @@ pub trait GuiRender {
 	fn apply_font_modified(&mut self, pango: &PangoContext, render_context: &mut RenderContext)
 	{
 		self.cache_mut().clear();
-		let (size, _draw_size, _draw_offset) = self.measure_char(
+		let measures = self.measure_char(
 			pango,
 			HAN_CHAR,
-			render_context.font_size as f32,
+			1.,
 			DEFAULT_FONT_WEIGHT,
 			&None,
 			None,
 			render_context);
-		render_context.default_font_measure = size;
+		render_context.default_font_measure = measures.size;
 	}
 
-	fn measure_char(&mut self, layout: &PangoContext, char: char, font_size: f32,
-		font_weight: u8, font_family_index: &Option<u16>,
+	fn measure_char(&mut self, layout: &PangoContext, char: char, font_scale: f32,
+		font_weight: u8, font_family_idx: &Option<u16>,
 		font_family_names: Option<&IndexSet<String>>,
-		render_context: &mut RenderContext)
-		-> (Vec2, Vec2, Pos2)
+		render_context: &mut RenderContext) -> CharMeasures
 	{
 		const SPACE: char = ' ';
 		const FULL_SPACE: char = '　';
-		if let Some(data) = self.cache_get(char, font_size, font_weight, font_family_index) {
-			return (data.size(), data.draw_size(), data.offset());
+
+		let font_size = scale_font_size(render_context.font_size, font_scale);
+		let font_weight = load_font_weight(font_weight, render_context);
+
+		if let Some(data) = self.cache_get(char, font_size, font_weight, font_family_idx) {
+			return CharMeasures {
+				size: data.size(),
+				draw_size: data.draw_size(),
+				draw_offset: data.offset(),
+				font_size,
+				font_weight,
+			};
 		}
 		match char {
 			SPACE => {
-				let (size, draw_size, draw_offset) = self.measure_char(
-					layout, 'S', font_size, font_weight, font_family_index, font_family_names, render_context);
-				self.cache_insert(SPACE, font_size, font_weight, font_family_index, CharDrawData::Space(size));
-				return (size, draw_size, draw_offset);
+				let measures = self.measure_char(
+					layout, 'S', font_size, font_weight, font_family_idx, font_family_names, render_context);
+				self.cache_insert(SPACE, font_size, font_weight, font_family_idx, CharDrawData::Space(measures.size));
+				return measures;
 			}
 			FULL_SPACE => {
-				let (size, draw_size, draw_offset) = self.measure_char(
-					layout, HAN_CHAR, font_size, font_weight, font_family_index, font_family_names, render_context);
-				self.cache_insert(FULL_SPACE, font_size, font_weight, font_family_index, CharDrawData::Space(size));
-				return (size, draw_size, draw_offset);
+				let measures = self.measure_char(
+					layout, HAN_CHAR, font_size, font_weight, font_family_idx, font_family_names, render_context);
+				self.cache_insert(FULL_SPACE, font_size, font_weight, font_family_idx, CharDrawData::Space(measures.size));
+				return measures;
 			}
 			_ => {}
 		}
 		// fallback to pango render with custom weight or family
 		if let (true, true, Some(draw_data)) = (
 			font_weight == DEFAULT_FONT_WEIGHT,
-			font_family_index.is_none(),
+			font_family_idx.is_none(),
 			OutlineDrawData::measure(char, font_size, &render_context.fonts)) {
-			let data = (draw_data.size, draw_data.draw_size, draw_data.draw_offset);
-			self.cache_insert(char, font_size, font_weight, font_family_index, CharDrawData::Outline(draw_data));
-			data
+			let measures = CharMeasures {
+				size: draw_data.size,
+				draw_size: draw_data.draw_size,
+				draw_offset: draw_data.draw_offset,
+				font_size,
+				font_weight,
+			};
+			self.cache_insert(char, font_size, font_weight, font_family_idx, CharDrawData::Outline(draw_data));
+			measures
 		} else {
 			let draw_data = PangoDrawData::measure(
 				char,
 				font_size,
 				font_weight,
-				font_family_index,
+				font_family_idx,
 				font_family_names,
 				layout);
-			let data = (draw_data.size, draw_data.draw_size, draw_data.draw_offset);
-			self.cache_insert(char, font_size, font_weight, font_family_index, CharDrawData::Pango(draw_data));
-			data
+			let measures = CharMeasures {
+				size: draw_data.size,
+				draw_size: draw_data.draw_size,
+				draw_offset: draw_data.draw_offset,
+				font_size,
+				font_weight,
+			};
+			self.cache_insert(char, font_size, font_weight, font_family_idx, CharDrawData::Pango(draw_data));
+			measures
 		}
 	}
 }
@@ -830,7 +859,7 @@ pub fn update_for_highlight(render_line: usize, offset: usize, background: Optio
 }
 
 #[inline]
-pub fn scale_font_size(font_size: u8, scale: f32) -> f32
+fn scale_font_size(font_size: u8, scale: f32) -> f32
 {
 	let scaled_size = font_size as f32 * scale;
 	if scaled_size < 9.0 {
@@ -841,7 +870,7 @@ pub fn scale_font_size(font_size: u8, scale: f32) -> f32
 }
 
 #[inline]
-pub fn load_font_weight(font_weight: u8, render_context: &RenderContext) -> u8
+fn load_font_weight(font_weight: u8, render_context: &RenderContext) -> u8
 {
 	if render_context.ignore_font_weight {
 		DEFAULT_FONT_WEIGHT

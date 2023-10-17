@@ -10,8 +10,7 @@ use crate::color::Color32;
 use crate::common::with_leading;
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2};
-use crate::gui::render::{RenderContext, RenderLine, GuiRender, scale_font_size, RenderChar, update_for_highlight, ImageDrawingData, PointerPosition, TextDecoration, RenderCell, CharCell, hline, vline, CharDrawData, ScrollSizing, ScrolledDrawData};
-use crate::gui::render::imp::load_font_weight;
+use crate::gui::render::{RenderContext, RenderLine, GuiRender, RenderChar, update_for_highlight, ImageDrawingData, PointerPosition, TextDecoration, RenderCell, CharCell, hline, vline, CharDrawData, ScrollSizing, ScrolledDrawData};
 
 pub(super) struct GuiXiRender {
 	images: HashMap<String, ImageDrawingData>,
@@ -135,22 +134,20 @@ impl GuiRender for GuiXiRender
 					left += context.leading_space;
 				}
 				let char = text.char_at(i).unwrap();
-				let font_size = scale_font_size(context.font_size, char_style.font_scale);
-				let font_weight = load_font_weight(char_style.font_weight, context);
-				let (cell_size, _draw_size, _draw_offset) = self.measure_char(
+				let measures = self.measure_char(
 					pango,
 					char,
-					font_size,
-					font_weight,
+					char_style.font_scale,
+					char_style.font_weight,
 					&char_style.font_family,
 					book.font_family_names(),
 					context);
 
-				let mut rect = Rect::new(left, self.baseline, cell_size.x, cell_size.y);
+				let mut rect = Rect::new(left, self.baseline, measures.size.x, measures.size.y);
 				let color = char_style.color.clone();
 				let background = update_for_highlight(line, i, char_style.background.clone(), &context.colors, highlight);
 				let cell_offset = if let Some(range) = &char_style.border {
-					let draw_width = cell_size.x;
+					let draw_width = measures.size.x;
 					let padding = draw_width / 4.0;
 					if range.len() == 1 {
 						rect.max.x += padding * 2.0;
@@ -170,13 +167,13 @@ impl GuiRender for GuiXiRender
 				let blank_char = char == ' ' || char == '\t';
 				let cell = CharCell {
 					char: if blank_char { ' ' } else { char },
-					font_size,
-					font_weight,
+					font_size: measures.font_size,
+					font_weight: measures.font_weight,
 					font_family: char_style.font_family,
 					color,
 					background,
 					cell_offset,
-					cell_size,
+					cell_size: measures.size,
 				};
 				let render_cell = if let Some((link_index, _)) = char_style.link {
 					RenderCell::Link(cell, link_index)
