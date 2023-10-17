@@ -863,6 +863,10 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					gc.open_dialog();
 					glib::Propagation::Stop
 				}
+				(Key::h, MODIFIER_NONE) => {
+					gc.show_history();
+					glib::Propagation::Stop
+				}
 				(Key::t, MODIFIER_NONE) => {
 					switch_theme(&theme_btn, &gc);
 					glib::Propagation::Stop
@@ -1004,23 +1008,16 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	}
 	gc.reload_history();
 
-	let history_button = create_button("history.svg", &i18n.msg("history"), &icons, false);
-	history_button.insert_action_group("popup", Some(gc.action_group()));
-	let menu_model = MenuModel::from(gc.menu().clone());
-	let history_menu = PopoverMenu::builder()
-		.menu_model(&menu_model)
-		.build();
-	history_menu.set_parent(&history_button);
-	history_menu.set_has_arrow(false);
-	let bv = view.clone();
-	history_menu.connect_visible_notify(move |_| {
-		bv.grab_focus();
-	});
-	history_button.connect_clicked(move |_| {
-		history_menu.popup();
-	});
-	toolbar.append(&history_button);
-
+	{
+		let history_button = create_button("history.svg", &i18n.msg("history"), &icons, false);
+		history_button.insert_action_group("popup", Some(gc.action_group()));
+		gc.inner.history_popover.set_parent(&history_button);
+		let gc = gc.clone();
+		history_button.connect_clicked(move |_| {
+			gc.show_history();
+		});
+		toolbar.append(&history_button);
+	}
 	{
 		let reload_button = create_button("reload.svg", &i18n.msg("reload"), &icons, false);
 		let gc = gc.clone();
@@ -1267,7 +1264,8 @@ struct GuiContextInner {
 	dm: Rc<RefCell<DictionaryManager>>,
 	opener: Rc<RefCell<Opener>>,
 	window: ApplicationWindow,
-	menu: Menu,
+	history_menu: Menu,
+	history_popover: PopoverMenu,
 	action_group: SimpleActionGroup,
 	status_bar: Label,
 	paned: Paned,
@@ -1350,6 +1348,17 @@ impl GuiContext {
 		}
 		file_dialog.set_default_filter(Some(&filter));
 
+		let action_group = SimpleActionGroup::new();
+		let history_menu = Menu::new();
+		let history_popover = PopoverMenu::builder()
+			.menu_model(&history_menu)
+			.has_arrow(false)
+			.build();
+		let view = controller.render.as_ref().clone();
+		history_popover.connect_visible_notify(move |_| {
+			view.grab_focus();
+		});
+
 		let inner = GuiContextInner {
 			cfg: cfg.clone(),
 			ctrl: ctrl.clone(),
@@ -1357,8 +1366,9 @@ impl GuiContext {
 			dm,
 			opener: Rc::new(RefCell::new(Default::default())),
 			window,
-			menu: Menu::new(),
-			action_group: SimpleActionGroup::new(),
+			history_menu,
+			history_popover,
+			action_group,
 			status_bar,
 			paned,
 			sidebar_stack,
@@ -1473,12 +1483,6 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn menu(&self) -> &Menu
-	{
-		&self.inner.menu
-	}
-
-	#[inline]
 	fn dark_colors(&self) -> &Colors
 	{
 		&self.inner.dark_colors
@@ -1500,6 +1504,12 @@ impl GuiContext {
 	fn status_bar(&self) -> &Label
 	{
 		&self.inner.status_bar
+	}
+
+	#[inline]
+	fn show_history(&self)
+	{
+		self.inner.history_popover.popup();
 	}
 
 	fn open_dialog(&self)
@@ -1562,14 +1572,15 @@ impl GuiContext {
 		for a in self.action_group().list_actions() {
 			self.action_group().remove_action(&a);
 		}
-		self.menu().remove_all();
+		let menu = &self.inner.history_menu;
+		menu.remove_all();
 		match self.cfg().history() {
 			Ok(infos) => {
 				for (idx, ri) in infos.iter().enumerate() {
 					if idx == 20 {
 						break;
 					}
-					self.add_history_entry(idx, &ri.filename);
+					self.add_history_entry(idx, &ri.filename, menu);
 				}
 			}
 			Err(err) => self.error(&err.to_string()),
@@ -1585,7 +1596,7 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn add_history_entry(&self, idx: usize, path_str: &String)
+	fn add_history_entry(&self, idx: usize, path_str: &String, menu: &Menu)
 	{
 		let path = PathBuf::from(&path_str);
 		if !path.exists() || !path.is_file() {
@@ -1601,7 +1612,7 @@ impl GuiContext {
 		}
 		self.action_group().add_action(&action);
 		let menu_action_name = format!("popup.{}", action_name);
-		self.menu().append(Some(&path_str), Some(&menu_action_name));
+		menu.append(Some(&path_str), Some(&menu_action_name));
 	}
 
 	#[inline]
