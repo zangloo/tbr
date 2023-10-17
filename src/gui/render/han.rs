@@ -108,7 +108,7 @@ impl GuiRender for GuiHanRender
 				}
 				let char = text.char_at(i).unwrap();
 				let char = self.map_char(char);
-				let measures = self.measure_char(
+				let measures = self.get_char_measures(
 					pango,
 					char,
 					char_style.font_scale,

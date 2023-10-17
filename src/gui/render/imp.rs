@@ -719,7 +719,7 @@ pub trait GuiRender {
 	fn apply_font_modified(&mut self, pango: &PangoContext, render_context: &mut RenderContext)
 	{
 		self.cache_mut().clear();
-		let measures = self.measure_char(
+		let measures = self.get_char_measures(
 			pango,
 			HAN_CHAR,
 			1.,
@@ -730,7 +730,7 @@ pub trait GuiRender {
 		render_context.default_font_measure = measures.size;
 	}
 
-	fn measure_char(&mut self, layout: &PangoContext, char: char, font_scale: f32,
+	fn get_char_measures(&mut self, layout: &PangoContext, char: char, font_scale: f32,
 		font_weight: u8, font_family_idx: &Option<u16>,
 		font_family_names: Option<&IndexSet<String>>,
 		render_context: &mut RenderContext) -> CharMeasures
@@ -753,18 +753,33 @@ pub trait GuiRender {
 		match char {
 			SPACE => {
 				let measures = self.measure_char(
-					layout, 'S', font_scale, font_weight, font_family_idx, font_family_names, render_context);
+					layout, 'S', font_size, font_weight, font_family_idx, font_family_names, render_context);
 				self.cache_insert(SPACE, font_size, font_weight, font_family_idx, CharDrawData::Space(measures.size));
 				return measures;
 			}
 			FULL_SPACE => {
 				let measures = self.measure_char(
-					layout, HAN_CHAR, font_scale, font_weight, font_family_idx, font_family_names, render_context);
+					layout, HAN_CHAR, font_size, font_weight, font_family_idx, font_family_names, render_context);
 				self.cache_insert(FULL_SPACE, font_size, font_weight, font_family_idx, CharDrawData::Space(measures.size));
 				return measures;
 			}
 			_ => {}
 		}
+		self.measure_char(
+			layout,
+			char,
+			font_size,
+			font_weight,
+			font_family_idx,
+			font_family_names,
+			render_context)
+	}
+
+	fn measure_char(&mut self, layout: &PangoContext, char: char, font_size: f32,
+		font_weight: u8, font_family_idx: &Option<u16>,
+		font_family_names: Option<&IndexSet<String>>,
+		render_context: &mut RenderContext) -> CharMeasures
+	{
 		// fallback to pango render with custom weight or family
 		if let (true, true, Some(draw_data)) = (
 			font_weight == DEFAULT_FONT_WEIGHT,

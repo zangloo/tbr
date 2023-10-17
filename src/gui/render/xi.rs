@@ -134,7 +134,7 @@ impl GuiRender for GuiXiRender
 					left += context.leading_space;
 				}
 				let char = text.char_at(i).unwrap();
-				let measures = self.measure_char(
+				let measures = self.get_char_measures(
 					pango,
 					char,
 					char_style.font_scale,
