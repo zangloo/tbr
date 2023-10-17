@@ -536,6 +536,7 @@ fn font_size(size: &FontSize) -> TextStyle
 			font::AbsoluteFontSize::Large => font_size_level(4, false),
 			font::AbsoluteFontSize::XLarge => font_size_level(5, false),
 			font::AbsoluteFontSize::XXLarge => font_size_level(6, false),
+			font::AbsoluteFontSize::XXXLarge => font_size_level(7, false),
 		}
 		FontSize::Relative(size) => match size {
 			font::RelativeFontSize::Smaller => font_size_level(2, true),
@@ -648,7 +649,7 @@ fn css_color(color: &CssColor) -> Option<Color32>
 		CssColor::LAB(_)
 		| CssColor::Predefined(_)
 		| CssColor::Float(_) => match &color.to_rgb() {
-			CssColor::RGBA(rgba) => Some(Color32::from_rgba_unmultiplied(
+			Ok(CssColor::RGBA(rgba)) => Some(Color32::from_rgba_unmultiplied(
 				rgba.red, rgba.green, rgba.blue, rgba.alpha)),
 			_ => panic!("should not happen")
 		}

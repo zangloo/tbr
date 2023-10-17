@@ -35,8 +35,8 @@ clap = { version = "4.2", features = ["derive"] }
 dirs = "5.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
-toml = "0.7"
-rust-embed = { version = "6.6", features = ["include-exclude"] }
+toml = "0.8"
+rust-embed = { version = "8.0", features = ["include-exclude"] }
 xmltree = "0.10"
 unicode-width = "0.1"
 fancy-regex = "0.11"
@@ -49,7 +49,7 @@ elsa = "1.8"
 
 markup5ever = "0.11"
 scraper = "0.17"
-lightningcss = "=1.0.0-alpha.41"
+lightningcss = "=1.0.0-alpha.49"
 ego-tree = "0.6"
 indexmap = "2.0"
 
@@ -60,7 +60,7 @@ sys-locale = { version = "0.3", optional = true }
 gtk4 = { version = "0.7", features = ["v4_12"], optional = true }
 pangocairo = { version = "0.18", optional = true }
 ab_glyph = { version = "0.2", optional = true }
-resvg = { version = "0.35", optional = true }
+resvg = { version = "0.36", optional = true }
 
 stardict = { version = "0.2", optional = true }
 #stardict = { git = "https://github.com/zangloo/stardict.git", optional = true }
