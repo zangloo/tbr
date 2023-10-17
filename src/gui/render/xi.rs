@@ -185,7 +185,7 @@ impl GuiRender for GuiXiRender
 			let draw_height = rect.height();
 			let draw_width = rect.width();
 
-			if left + draw_width > max_left {
+			if left + draw_width > max_left && !draw_chars.is_empty() {
 				left = context.render_rect.min.x;
 				// for unicode, can_break, or prev break not exists, or breaking content too long
 				if can_break || break_position.is_none()

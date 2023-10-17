@@ -156,7 +156,7 @@ impl GuiRender for GuiHanRender
 					(RenderCell::Char(cell), rect)
 				}
 			};
-			if top + rect.height() > max_top {
+			if top + rect.height() > max_top && !draw_chars.is_empty() {
 				let mut render_line = RenderLine::new(line, line_size, line_space);
 				line_size = 0.0;
 				line_space = 0.0;
