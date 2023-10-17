@@ -753,13 +753,13 @@ pub trait GuiRender {
 		match char {
 			SPACE => {
 				let measures = self.measure_char(
-					layout, 'S', font_size, font_weight, font_family_idx, font_family_names, render_context);
+					layout, 'S', font_scale, font_weight, font_family_idx, font_family_names, render_context);
 				self.cache_insert(SPACE, font_size, font_weight, font_family_idx, CharDrawData::Space(measures.size));
 				return measures;
 			}
 			FULL_SPACE => {
 				let measures = self.measure_char(
-					layout, HAN_CHAR, font_size, font_weight, font_family_idx, font_family_names, render_context);
+					layout, HAN_CHAR, font_scale, font_weight, font_family_idx, font_family_names, render_context);
 				self.cache_insert(FULL_SPACE, font_size, font_weight, font_family_idx, CharDrawData::Space(measures.size));
 				return measures;
 			}
