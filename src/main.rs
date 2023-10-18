@@ -32,6 +32,7 @@ mod color;
 #[cfg(feature = "open")]
 mod open;
 mod config;
+mod xhtml;
 
 const TBR_BOOK_ENV_KEY: &str = "TBR_BOOK";
 

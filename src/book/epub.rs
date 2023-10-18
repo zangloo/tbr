@@ -17,6 +17,7 @@ use crate::html_convertor::html_str_content;
 use crate::list::ListIterator;
 use crate::common::{Position, TraceInfo};
 use crate::frozen_map_get;
+use crate::xhtml::xhtml_to_html;
 
 struct ManifestItem {
 	#[allow(dead_code)]
@@ -351,7 +352,10 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 			Entry::Vacant(v) => {
 				let full_path = chapter_path(chapter_index, &self.content_opf)?;
 				let cwd = path_cwd(full_path);
-				let html_str = zip_string(&mut self.zip.borrow_mut(), full_path)?;
+				let mut html_str = zip_string(&mut self.zip.borrow_mut(), full_path)?;
+				if full_path.to_lowercase().ends_with(".xhtml") {
+					html_str = xhtml_to_html(&html_str)?;
+				}
 				let html_content = html_str_content(&html_str, &mut self.font_families, Some(|path: &str| {
 					let full_path = concat_path(cwd.clone(), &path)?;
 					frozen_map_get!(self.css_cache, full_path, || {
