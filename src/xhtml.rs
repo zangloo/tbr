@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use roxmltree::{Attributes, Children, Document, Node, NodeType};
+use roxmltree::{Children, Document, Node, NodeType};
 
 pub fn xhtml_to_html(xhtml: &str) -> Result<String>
 {
@@ -58,7 +58,7 @@ fn write_node<'a, 'i>(node: Node<'a, 'i>, html: &mut String)
 			let tag_name = node.tag_name().name();
 			html.push('<');
 			html.push_str(tag_name);
-			write_attrs(node.attributes(), html);
+			write_attrs(&node, html);
 			html.push('>');
 			if is_void_element(tag_name) {
 				return None;
@@ -87,12 +87,21 @@ fn write_node<'a, 'i>(node: Node<'a, 'i>, html: &mut String)
 }
 
 #[inline(always)]
-fn write_attrs(attrs: Attributes, html: &mut String)
+fn write_attrs(node: &Node, html: &mut String)
 {
 	const DOUBLE_QUOTA_ESCAPE: &str = "&quot;";
 
-	for attr in attrs {
+	for attr in node.attributes() {
 		html.push(' ');
+		if let Some(namespace) = attr.namespace() {
+			let prefix = if let Some(prefix) = node.lookup_prefix(namespace) {
+				prefix
+			} else {
+				namespace
+			};
+			html.push_str(prefix);
+			html.push(':');
+		}
 		html.push_str(attr.name());
 		html.push_str(r#"=""#);
 		for char in attr.value().chars() {
