@@ -40,8 +40,6 @@ mod settings;
 mod chapter_list;
 mod font;
 
-pub const DEFAULT_FONT_WEIGHT: u8 = 4;
-
 pub const MODIFIER_NONE: ModifierType = ModifierType::empty();
 
 const APP_ID: &str = "net.lzrj.tbr";

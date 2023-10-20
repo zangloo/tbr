@@ -7,7 +7,7 @@ use fontdb::{Database, Query};
 use indexmap::IndexMap;
 use ouroboros::self_referencing;
 use crate::config::PathConfig;
-use crate::gui::DEFAULT_FONT_WEIGHT;
+use crate::html_convertor::FontWeight;
 
 #[self_referencing]
 pub struct Fonts {
@@ -64,7 +64,7 @@ impl Fonts {
 		}
 	}
 
-	pub fn query(&self, char: char, font_size: f32, font_weight: u8,
+	pub fn query(&self, char: char, font_size: f32, font_weight: &FontWeight,
 		font_family_names: Option<&str>) -> Option<(&FontRef, OutlinedGlyph)>
 	{
 		fn get_glyph(char: char, font_size: f32, font: &FontRef) -> Option<OutlinedGlyph>
@@ -81,22 +81,10 @@ impl Fonts {
 			}
 			None
 		}
-		let font_weight = match font_weight {
-			1 |
-			2 |
-			3 |
-			4 |
-			5 |
-			6 |
-			7 |
-			8 |
-			9 => font_weight,
-			_ => DEFAULT_FONT_WEIGHT,
-		};
 		self.with_db(|db| {
 			let mut families = vec![];
 			// without custom family and weight, using custom fonts
-			if font_weight == DEFAULT_FONT_WEIGHT && font_family_names.is_none() {
+			if font_weight.is_default() && font_family_names.is_none() {
 				for (_, font) in self.borrow_fonts() {
 					if let Some(outlined) = get_glyph(char, font_size, font) {
 						return Some((font, outlined));
@@ -112,7 +100,7 @@ impl Fonts {
 			}
 			let query = Query {
 				families: &families,
-				weight: fontdb::Weight(font_weight as u16 * 100),
+				weight: fontdb::Weight(font_weight.outlined()),
 				stretch: Default::default(),
 				style: Default::default(),
 			};

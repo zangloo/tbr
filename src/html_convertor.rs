@@ -1,15 +1,17 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use anyhow::{anyhow, Result};
 use ego_tree::iter::Children;
 use ego_tree::{NodeId, NodeRef};
+use gtk4::pango;
 use indexmap::IndexSet;
 use lightningcss::declaration::DeclarationBlock;
 use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use lightningcss::properties::{border, font, Property};
 use lightningcss::properties::border::{Border, BorderSideWidth};
-use lightningcss::properties::font::{AbsoluteFontWeight, FontFamily, FontSize, FontWeight};
+use lightningcss::properties::font::{AbsoluteFontWeight, FontFamily, FontSize, FontWeight as CssFontWeight};
 use lightningcss::properties::text::TextDecorationLine;
 use lightningcss::rules::CssRule;
 use lightningcss::stylesheet::{ParserOptions, StyleSheet};
@@ -20,9 +22,186 @@ use lightningcss::values::percentage;
 use scraper::{Html, Node, Selector};
 use scraper::node::Element;
 
-use crate::book::{EMPTY_CHAPTER_CONTENT, FontWeightValue, IMAGE_CHAR, Line, TextStyle};
+use crate::book::{EMPTY_CHAPTER_CONTENT, IMAGE_CHAR, Line};
 use crate::color::Color32;
 use crate::common::Position;
+
+const DEFAULT_FONT_WEIGHT: u16 = 400;
+
+#[derive(Clone, Debug)]
+pub enum FontWeightValue {
+	Absolute(FontWeight),
+	Bolder,
+	Lighter,
+}
+
+/// https://developer.mozilla.org/en-US/docs/Web/CSS/font-weight
+impl From<&CssFontWeight> for FontWeightValue {
+	fn from(value: &CssFontWeight) -> Self
+	{
+		match value {
+			CssFontWeight::Absolute(weight) => match weight {
+				AbsoluteFontWeight::Weight(number) => {
+					let value: f32 = *number;
+					FontWeightValue::Absolute(FontWeight(value as u16))
+				}
+				AbsoluteFontWeight::Normal =>
+					FontWeightValue::Absolute(FontWeight::NORMAL),
+				AbsoluteFontWeight::Bold =>
+					FontWeightValue::Absolute(FontWeight::BOLD),
+			}
+			CssFontWeight::Bolder => FontWeightValue::Bolder,
+			CssFontWeight::Lighter => FontWeightValue::Lighter,
+		}
+	}
+}
+
+#[derive(Clone, Debug)]
+pub enum TextStyle {
+	Line(TextDecorationLine),
+	Border,
+	FontSize { scale: FontScale, relative: bool },
+	FontWeight(FontWeightValue),
+	FontFamily(u16),
+	Image(String),
+	Link(String),
+	Color(Color32),
+	BackgroundColor(Color32),
+}
+
+impl Hash for TextStyle {
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		match self {
+			TextStyle::Line(_) => state.write_u8(1),
+			TextStyle::Border => state.write_u8(2),
+			TextStyle::FontSize { .. } => state.write_u8(3),
+			TextStyle::FontWeight(_) => state.write_u8(4),
+			TextStyle::FontFamily(_) => state.write_u8(5),
+			TextStyle::Image(_) => state.write_u8(6),
+			TextStyle::Link(_) => state.write_u8(7),
+			TextStyle::Color(_) => state.write_u8(8),
+			TextStyle::BackgroundColor(_) => state.write_u8(9),
+		};
+	}
+}
+
+impl Eq for TextStyle {}
+
+impl PartialEq<Self> for TextStyle {
+	#[inline]
+	fn eq(&self, other: &Self) -> bool
+	{
+		std::mem::discriminant(self) == std::mem::discriminant(other)
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct FontScale(f32);
+
+impl Default for FontScale {
+	#[inline]
+	fn default() -> Self
+	{
+		FontScale(1.)
+	}
+}
+
+impl FontScale {
+	pub const DEFAULT: FontScale = FontScale(1.);
+}
+
+impl FontScale {
+	#[inline]
+	pub fn update(&mut self, scale: &FontScale, relative: bool)
+	{
+		if relative {
+			self.0 *= scale.0;
+		} else {
+			self.0 = scale.0;
+		}
+	}
+
+	#[inline]
+	pub fn scale(&self, font_size: f32) -> f32
+	{
+		font_size * self.0
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct FontWeight(u16);
+
+impl Default for FontWeight {
+	#[inline]
+	fn default() -> Self
+	{
+		FontWeight(DEFAULT_FONT_WEIGHT)
+	}
+}
+
+impl FontWeight {
+	pub const NORMAL: FontWeight = FontWeight(DEFAULT_FONT_WEIGHT);
+	pub const BOLD: FontWeight = FontWeight(700);
+}
+
+impl FontWeight {
+	#[inline]
+	pub fn key(&self) -> u8
+	{
+		(self.0 / 10) as u8
+	}
+
+	#[inline]
+	pub fn gtk(&self) -> pango::Weight
+	{
+		match self.0 / 100 {
+			1 => pango::Weight::Thin,
+			2 => pango::Weight::Light,
+			3 => pango::Weight::Book,
+			4 => pango::Weight::Normal,
+			5 => pango::Weight::Medium,
+			6 => pango::Weight::Semibold,
+			7 => pango::Weight::Bold,
+			8 => pango::Weight::Ultrabold,
+			9 => pango::Weight::Heavy,
+			_ => pango::Weight::Normal,
+		}
+	}
+
+	#[inline]
+	pub fn is_default(&self) -> bool
+	{
+		self.0 == DEFAULT_FONT_WEIGHT
+	}
+
+	#[inline]
+	pub fn outlined(&self) -> u16
+	{
+		self.0
+	}
+
+	#[inline]
+	pub fn update(&mut self, value: &FontWeightValue)
+	{
+		self.0 = match value {
+			FontWeightValue::Absolute(weight) => weight.0,
+			FontWeightValue::Bolder => if self.0 <= 300 {
+				400
+			} else if self.0 <= 500 {
+				700
+			} else {
+				900
+			}
+			FontWeightValue::Lighter => if self.0 <= 500 {
+				100
+			} else if self.0 <= 700 {
+				400
+			} else {
+				700
+			}
+		};
+	}
+}
 
 pub struct HtmlContent {
 	pub title: Option<String>,
@@ -32,6 +211,7 @@ pub struct HtmlContent {
 
 impl Default for HtmlContent
 {
+	#[inline]
 	fn default() -> Self {
 		HtmlContent { title: None, lines: vec![Line::default()], id_map: HashMap::new() }
 	}
@@ -445,7 +625,7 @@ fn convert_style(property: &Property, font_families: &mut IndexSet<String>) -> O
 			}
 		}
 		Property::FontSize(size) => Some(font_size(size)),
-		Property::FontWeight(weight) => Some(font_weight(weight)),
+		Property::FontWeight(weight) => Some(TextStyle::FontWeight(FontWeightValue::from(weight))),
 		Property::FontFamily(families) => font_family(families, font_families),
 		Property::TextDecorationLine(line, _) => Some(TextStyle::Line(*line)),
 		Property::Color(color) => Some(TextStyle::Color(css_color(color)?)),
@@ -479,26 +659,6 @@ fn font_family(families: &Vec<FontFamily>, names: &mut IndexSet<String>)
 	}
 }
 
-/// https://developer.mozilla.org/en-US/docs/Web/CSS/font-weight
-#[inline]
-fn font_weight(weight: &FontWeight) -> TextStyle
-{
-	match weight {
-		FontWeight::Absolute(weight) => match weight {
-			AbsoluteFontWeight::Weight(number) => {
-				let value: f32 = *number;
-				TextStyle::FontWeight(FontWeightValue::Absolute((value / 100.) as u8))
-			}
-			AbsoluteFontWeight::Normal =>
-				TextStyle::FontWeight(FontWeightValue::Absolute(4)),
-			AbsoluteFontWeight::Bold =>
-				TextStyle::FontWeight(FontWeightValue::Absolute(7)),
-		}
-		FontWeight::Bolder => TextStyle::FontWeight(FontWeightValue::Bolder),
-		FontWeight::Lighter => TextStyle::FontWeight(FontWeightValue::Lighter),
-	}
-}
-
 #[inline]
 fn font_size_level(level: u8, relative: bool) -> TextStyle
 {
@@ -512,6 +672,7 @@ fn font_size_level(level: u8, relative: bool) -> TextStyle
 		7 => 3.0 / 1.0,
 		_ => 1.0 // no other level
 	};
+	let scale = FontScale(scale);
 	TextStyle::FontSize { scale, relative }
 }
 
@@ -521,16 +682,16 @@ fn font_size(size: &FontSize) -> TextStyle
 		FontSize::Length(lp) => match lp {
 			LengthPercentage::Dimension(lv) => {
 				let (scale, relative) = length_value(lv, HTML_DEFAULT_FONT_SIZE);
-				TextStyle::FontSize { scale, relative }
+				TextStyle::FontSize { scale: FontScale(scale), relative }
 			}
 			LengthPercentage::Percentage(percentage::Percentage(p)) =>
-				TextStyle::FontSize { scale: *p, relative: true },
+				TextStyle::FontSize { scale: FontScale(*p), relative: true },
 			LengthPercentage::Calc(_) => // 视而不见
-				TextStyle::FontSize { scale: 1.0, relative: false }
+				TextStyle::FontSize { scale: Default::default(), relative: false }
 		}
 		FontSize::Absolute(size) => match size {
 			font::AbsoluteFontSize::XXSmall => font_size_level(1, false),
-			font::AbsoluteFontSize::XSmall => TextStyle::FontSize { scale: 3.0 / 4.0, relative: false },
+			font::AbsoluteFontSize::XSmall => TextStyle::FontSize { scale: FontScale(3.0 / 4.0), relative: false },
 			font::AbsoluteFontSize::Small => font_size_level(2, false),
 			font::AbsoluteFontSize::Medium => font_size_level(3, false),
 			font::AbsoluteFontSize::Large => font_size_level(4, false),

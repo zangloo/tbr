@@ -3,7 +3,6 @@ use std::cmp;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::OpenOptions;
-use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::ops::Range;
 use std::slice::Iter;
@@ -21,6 +20,7 @@ use crate::common::TraceInfo;
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
 use crate::controller::{HighlightInfo, HighlightMode};
+use crate::html_convertor::{FontScale, FontWeight, TextStyle};
 use crate::terminal::Listable;
 
 mod epub;
@@ -35,56 +35,11 @@ pub const HAN_CHAR: char = '漢';
 
 type TextDecorationLine = lightningcss::properties::text::TextDecorationLine;
 
-#[derive(Clone, Debug)]
-pub enum FontWeightValue {
-	Absolute(u8),
-	Bolder,
-	Lighter,
-}
-
-#[derive(Clone, Debug)]
-pub enum TextStyle {
-	Line(TextDecorationLine),
-	Border,
-	FontSize { scale: f32, relative: bool },
-	FontWeight(FontWeightValue),
-	FontFamily(u16),
-	Image(String),
-	Link(String),
-	Color(Color32),
-	BackgroundColor(Color32),
-}
-
-impl Hash for TextStyle {
-	fn hash<H: Hasher>(&self, state: &mut H) {
-		match self {
-			TextStyle::Line(_) => state.write_u8(1),
-			TextStyle::Border => state.write_u8(2),
-			TextStyle::FontSize { .. } => state.write_u8(3),
-			TextStyle::FontWeight(_) => state.write_u8(4),
-			TextStyle::FontFamily(_) => state.write_u8(5),
-			TextStyle::Image(_) => state.write_u8(6),
-			TextStyle::Link(_) => state.write_u8(7),
-			TextStyle::Color(_) => state.write_u8(8),
-			TextStyle::BackgroundColor(_) => state.write_u8(9),
-		};
-	}
-}
-
-impl Eq for TextStyle {}
-
-impl PartialEq<Self> for TextStyle {
-	fn eq(&self, other: &Self) -> bool
-	{
-		std::mem::discriminant(self) == std::mem::discriminant(other)
-	}
-}
-
 #[cfg(feature = "gui")]
 #[derive(Debug)]
 pub struct CharStyle {
-	pub font_scale: f32,
-	pub font_weight: u8,
+	pub font_scale: FontScale,
+	pub font_weight: FontWeight,
 	pub font_family: Option<u16>,
 	pub color: Color32,
 	pub background: Option<Color32>,
@@ -301,10 +256,9 @@ impl Line {
 	pub fn char_style_at(&self, char_index: usize, custom_color: bool,
 		colors: &Colors) -> CharStyle
 	{
-		use crate::gui::DEFAULT_FONT_WEIGHT;
 		let mut char_style = CharStyle {
-			font_scale: 1.0,
-			font_weight: DEFAULT_FONT_WEIGHT,
+			font_scale: Default::default(),
+			font_weight: Default::default(),
 			font_family: None,
 			color: colors.color.clone(),
 			background: None,
@@ -316,32 +270,10 @@ impl Line {
 		for (index, (style, range)) in self.styles.iter().enumerate().rev() {
 			if range.contains(&char_index) {
 				match style {
-					TextStyle::FontSize { scale, relative } => {
-						if *relative {
-							char_style.font_scale *= scale;
-						} else {
-							char_style.font_scale = *scale;
-						}
-					}
-					TextStyle::FontWeight(weight) => {
-						char_style.font_weight = match weight {
-							FontWeightValue::Absolute(weight) => *weight,
-							FontWeightValue::Bolder => if char_style.font_weight <= 3 {
-								4
-							} else if char_style.font_weight <= 5 {
-								7
-							} else {
-								9
-							}
-							FontWeightValue::Lighter => if char_style.font_weight <= 5 {
-								1
-							} else if char_style.font_weight <= 7 {
-								4
-							} else {
-								7
-							}
-						}
-					}
+					TextStyle::FontSize { scale, relative } =>
+						char_style.font_scale.update(scale, *relative),
+					TextStyle::FontWeight(weight) =>
+						char_style.font_weight.update(weight),
 					TextStyle::FontFamily(families) => char_style.font_family = Some(families.clone()),
 					TextStyle::Image(href) => char_style.image = Some(href.clone()),
 					TextStyle::Link(_) => {

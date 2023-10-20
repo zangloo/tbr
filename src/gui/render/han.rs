@@ -111,8 +111,8 @@ impl GuiRender for GuiHanRender
 				let measures = self.get_char_measures(
 					pango,
 					char,
-					char_style.font_scale,
-					char_style.font_weight,
+					&char_style.font_scale,
+					&char_style.font_weight,
 					&char_style.font_family,
 					book.font_family_names(),
 					context);
