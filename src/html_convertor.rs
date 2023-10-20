@@ -5,7 +5,6 @@ use std::ops::Deref;
 use anyhow::{anyhow, Result};
 use ego_tree::iter::Children;
 use ego_tree::{NodeId, NodeRef};
-use gtk4::pango;
 use indexmap::IndexSet;
 use lightningcss::declaration::DeclarationBlock;
 use markup5ever::{LocalName, Namespace, Prefix, QualName};
@@ -106,10 +105,12 @@ impl Default for FontScale {
 	}
 }
 
+#[cfg(feature = "gui")]
 impl FontScale {
 	pub const DEFAULT: FontScale = FontScale(1.);
 }
 
+#[cfg(feature = "gui")]
 impl FontScale {
 	#[inline]
 	pub fn update(&mut self, scale: &FontScale, relative: bool)
@@ -144,6 +145,7 @@ impl FontWeight {
 	pub const BOLD: FontWeight = FontWeight(700);
 }
 
+#[cfg(feature = "gui")]
 impl FontWeight {
 	#[inline]
 	pub fn key(&self) -> u8
@@ -152,32 +154,15 @@ impl FontWeight {
 	}
 
 	#[inline]
-	pub fn gtk(&self) -> pango::Weight
+	pub fn value(&self) -> u16
 	{
-		match self.0 / 100 {
-			1 => pango::Weight::Thin,
-			2 => pango::Weight::Light,
-			3 => pango::Weight::Book,
-			4 => pango::Weight::Normal,
-			5 => pango::Weight::Medium,
-			6 => pango::Weight::Semibold,
-			7 => pango::Weight::Bold,
-			8 => pango::Weight::Ultrabold,
-			9 => pango::Weight::Heavy,
-			_ => pango::Weight::Normal,
-		}
+		self.0
 	}
 
 	#[inline]
 	pub fn is_default(&self) -> bool
 	{
 		self.0 == DEFAULT_FONT_WEIGHT
-	}
-
-	#[inline]
-	pub fn outlined(&self) -> u16
-	{
-		self.0
 	}
 
 	#[inline]

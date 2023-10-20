@@ -14,13 +14,16 @@ use crate::book::epub::EpubLoader;
 use crate::book::haodoo::HaodooLoader;
 use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
+#[cfg(feature = "gui")]
 use crate::color::Color32;
 use crate::common::{char_index_for_byte, Position};
 use crate::common::TraceInfo;
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
 use crate::controller::{HighlightInfo, HighlightMode};
-use crate::html_convertor::{FontScale, FontWeight, TextStyle};
+#[cfg(feature = "gui")]
+use crate::html_convertor::{FontScale, FontWeight};
+use crate::html_convertor::TextStyle;
 use crate::terminal::Listable;
 
 mod epub;
@@ -33,6 +36,7 @@ pub const IMAGE_CHAR: char = '🖼';
 #[allow(unused)]
 pub const HAN_CHAR: char = '漢';
 
+#[cfg(feature = "gui")]
 type TextDecorationLine = lightningcss::properties::text::TextDecorationLine;
 
 #[cfg(feature = "gui")]

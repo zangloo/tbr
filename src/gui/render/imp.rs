@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::rc::Rc;
 use ab_glyph::Font;
 use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
-use gtk4::cairo;
+use gtk4::{cairo, pango};
 use gtk4::prelude::GdkCairoContextExt;
 use gtk4::cairo::{Context as CairoContext};
 use gtk4::pango::{Layout as PangoContext, FontDescription};
@@ -19,6 +19,31 @@ use crate::gui::load_image;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
 use crate::gui::font::Fonts;
 use crate::html_convertor::{FontScale, FontWeight};
+
+impl FontWeight {
+	#[inline]
+	pub fn gtk(&self) -> pango::Weight
+	{
+		match self.value() / 100 {
+			1 => pango::Weight::Thin,
+			2 => pango::Weight::Light,
+			3 => pango::Weight::Book,
+			4 => pango::Weight::Normal,
+			5 => pango::Weight::Medium,
+			6 => pango::Weight::Semibold,
+			7 => pango::Weight::Bold,
+			8 => pango::Weight::Ultrabold,
+			9 => pango::Weight::Heavy,
+			_ => pango::Weight::Normal,
+		}
+	}
+
+	#[inline]
+	pub fn outlined(&self) -> u16
+	{
+		self.value()
+	}
+}
 
 #[derive(Clone)]
 pub enum TextDecoration {
