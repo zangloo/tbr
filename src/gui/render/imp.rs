@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
-use ab_glyph::{Font, FontVec};
+use ab_glyph::Font;
 use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
 use gtk4::{cairo, pango};
 use gtk4::prelude::GdkCairoContextExt;
@@ -18,6 +18,7 @@ use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::load_image;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
 use crate::gui::DEFAULT_FONT_WEIGHT;
+use crate::gui::font::Fonts;
 
 #[derive(Clone)]
 pub enum TextDecoration {
@@ -270,36 +271,30 @@ pub struct OutlineDrawData {
 }
 
 impl OutlineDrawData {
-	fn measure(char: char, font_size: f32, fonts: &Option<Vec<FontVec>>) -> Option<Self>
+	fn measure(char: char, font_size: f32, font_weight: u8,
+		font_family_idx: &Option<u16>, font_family_names: Option<&IndexSet<String>>,
+		fonts: &Option<Fonts>) -> Option<Self>
 	{
 		if let Some(fonts) = fonts {
-			for font in fonts {
-				if let Some(scale) = font.pt_to_px_scale(font_size) {
-					let glyph = font.glyph_id(char);
-					if glyph.0 == 0 {
-						continue;
-					}
-					let glyph = glyph.with_scale(scale);
-					if let Some(outline) = font.outline_glyph(glyph) {
-						let mut points = vec![];
-						outline.draw(|_, _, a| {
-							points.push((a * 255.) as u8);
-						});
-						let bounds = outline.px_bounds();
-						let draw_size = vec2(bounds.width(), bounds.height());
-						let rect = font.glyph_bounds(outline.glyph());
-						let size = vec2(rect.width(), rect.height());
-						let offset_x = bounds.min.x - rect.min.x;
-						let offset_y = bounds.min.y - rect.min.y;
-						let draw_offset = pos2(offset_x, offset_y);
-						return Some(OutlineDrawData {
-							points,
-							size,
-							draw_offset,
-							draw_size,
-						});
-					}
-				}
+			let font_family_names = get_font_family_names(font_family_idx, font_family_names);
+			if let Some((font, outline)) = fonts.query(char, font_size, font_weight, font_family_names) {
+				let mut points = vec![];
+				outline.draw(|_, _, a| {
+					points.push((a * 255.) as u8);
+				});
+				let bounds = outline.px_bounds();
+				let draw_size = vec2(bounds.width(), bounds.height());
+				let rect = font.glyph_bounds(outline.glyph());
+				let size = vec2(rect.width(), rect.height());
+				let offset_x = bounds.min.x - rect.min.x;
+				let offset_y = bounds.min.y - rect.min.y;
+				let draw_offset = pos2(offset_x, offset_y);
+				return Some(OutlineDrawData {
+					points,
+					size,
+					draw_offset,
+					draw_size,
+				});
 			}
 		}
 		None
@@ -330,7 +325,7 @@ impl OutlineDrawData {
 pub struct RenderContext
 {
 	pub colors: Colors,
-	pub fonts: Rc<Option<Vec<FontVec>>>,
+	pub fonts: Rc<Option<Fonts>>,
 
 	// font size in configuration
 	pub font_size: u8,
@@ -779,11 +774,13 @@ pub trait GuiRender {
 		font_family_names: Option<&IndexSet<String>>,
 		render_context: &mut RenderContext) -> CharMeasures
 	{
-		// fallback to pango render with custom weight or family
-		if let (true, true, Some(draw_data)) = (
-			font_weight == DEFAULT_FONT_WEIGHT,
-			font_family_idx.is_none(),
-			OutlineDrawData::measure(char, font_size, &render_context.fonts)) {
+		if let Some(draw_data) = OutlineDrawData::measure(
+			char,
+			font_size,
+			font_weight,
+			font_family_idx,
+			font_family_names,
+			&render_context.fonts) {
 			let measures = CharMeasures {
 				size: draw_data.size,
 				draw_size: draw_data.draw_size,

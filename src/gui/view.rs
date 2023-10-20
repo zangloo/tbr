@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use ab_glyph::FontVec;
 use gtk4::{CssProvider, EventControllerMotion, EventControllerScroll, EventControllerScrollFlags, gdk, GestureDrag, glib};
 use glib::Object;
 use gtk4::Scrollable;
@@ -12,6 +11,7 @@ use crate::book::{Book, Line};
 use crate::color::Color32;
 use crate::common::Position;
 use crate::controller::{HighlightInfo, Render};
+use crate::gui::font::Fonts;
 use crate::gui::math::{Pos2, pos2};
 use crate::gui::render::RenderContext;
 
@@ -96,7 +96,7 @@ impl GuiView {
 	pub const CLEAR_SELECTION_SIGNAL: &str = "clear-selection";
 	pub const SCROLL_SIGNAL: &str = "scroll";
 
-	pub fn new(instance_name: &str, render_han: bool, fonts: Rc<Option<Vec<FontVec>>>,
+	pub fn new(instance_name: &str, render_han: bool, fonts: Rc<Option<Fonts>>,
 		render_context: &mut RenderContext) -> Self
 	{
 		let view: GuiView = Object::builder().build();
@@ -232,7 +232,7 @@ impl GuiView {
 		self.imp().set_font_size(font_size, render_context, &self.get_pango());
 	}
 
-	pub fn set_fonts(&self, fonts: Rc<Option<Vec<FontVec>>>, render_context: &mut RenderContext)
+	pub fn set_fonts(&self, fonts: Rc<Option<Fonts>>, render_context: &mut RenderContext)
 	{
 		self.imp().set_fonts(fonts, &self.get_pango(), render_context);
 	}
@@ -262,7 +262,6 @@ mod imp {
 	use std::cell::{Cell, RefCell};
 	use std::cmp::min;
 	use std::rc::Rc;
-	use ab_glyph::FontVec;
 	use glib::Properties;
 	use gtk4::prelude::*;
 	use gtk4::{Adjustment, glib, graphene, Scrollable, ScrollablePolicy, Snapshot};
@@ -277,6 +276,7 @@ mod imp {
 	use crate::book::{Book, Line};
 	use crate::common::Position;
 	use crate::controller::HighlightInfo;
+	use crate::gui::font::Fonts;
 	use crate::gui::math::{Pos2, Rect};
 	use crate::gui::render::{create_render, GuiRender, PointerPosition, RenderCell, RenderContext, RenderLine, ScrolledDrawData, ScrollRedrawMethod};
 	use crate::gui::view::{ClickTarget, MIN_TEXT_SELECT_DISTANCE, ScrollPosition};
@@ -637,7 +637,7 @@ mod imp {
 		}
 
 		#[inline(always)]
-		pub(super) fn set_fonts(&self, fonts: Rc<Option<Vec<FontVec>>>, pango: &PangoContext,
+		pub(super) fn set_fonts(&self, fonts: Rc<Option<Fonts>>, pango: &PangoContext,
 			render_context: &mut RenderContext)
 		{
 			let mut render = self.render.borrow_mut();

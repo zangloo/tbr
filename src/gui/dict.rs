@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use ab_glyph::FontVec;
 use elsa::FrozenMap;
 use fancy_regex::{Regex, Captures};
 use gtk4::{Button, EventControllerKey, Orientation, ScrolledWindow, SearchEntry};
@@ -19,6 +18,7 @@ use crate::common::{txt_lines, Position};
 use crate::config::PathConfig;
 use crate::controller::{highlight_selection, HighlightInfo, Render};
 use crate::gui::{copy_to_clipboard, create_button, IconMap, MODIFIER_NONE};
+use crate::gui::font::Fonts;
 use crate::gui::render::{RenderContext, ScrollRedrawMethod};
 use crate::gui::view::{GuiView, ScrollPosition};
 use crate::html_convertor::{html_content, HtmlContent};
@@ -191,7 +191,7 @@ impl DictionaryBook {
 
 impl DictionaryManager {
 	pub fn new(dictionary_paths: &Vec<PathConfig>, cache_dict: bool, font_size: u8,
-		fonts: Rc<Option<Vec<FontVec>>>, i18n: &Rc<I18n>, icons: &Rc<IconMap>)
+		fonts: Rc<Option<Fonts>>, i18n: &Rc<I18n>, icons: &Rc<IconMap>)
 		-> (Rc<RefCell<Self>>, gtk4::Box, SearchEntry)
 	{
 		let mut render_context = RenderContext::new(
@@ -260,7 +260,7 @@ impl DictionaryManager {
 	}
 
 	#[inline]
-	pub fn set_fonts(&mut self, fonts: Rc<Option<Vec<FontVec>>>)
+	pub fn set_fonts(&mut self, fonts: Rc<Option<Fonts>>)
 	{
 		self.view.set_fonts(fonts, &mut self.render_context);
 		self.redraw(ScrollRedrawMethod::NoResetScroll);

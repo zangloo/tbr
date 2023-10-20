@@ -2,13 +2,9 @@ use std::env;
 use std::borrow::Cow;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::Read;
 use std::ops::Index;
 use std::path::PathBuf;
 use std::rc::Rc;
-
-use ab_glyph::FontVec;
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, PopoverMenu, PositionType, SearchEntry, Stack, ToggleButton, Widget, Window};
@@ -31,6 +27,7 @@ use crate::container::{BookContent, BookName, Container, load_book, load_contain
 use crate::controller::Controller;
 use crate::gui::chapter_list::ChapterList;
 use crate::gui::dict::DictionaryManager;
+use crate::gui::font::Fonts;
 use crate::gui::render::RenderContext;
 use crate::gui::view::{GuiView, update_mouse_pointer};
 use crate::open::Opener;
@@ -41,6 +38,7 @@ mod view;
 mod math;
 mod settings;
 mod chapter_list;
+mod font;
 
 pub const DEFAULT_FONT_WEIGHT: u8 = 4;
 
@@ -148,32 +146,6 @@ fn convert_colors(theme: &Theme) -> Colors
 	Colors { color, background, highlight, highlight_background, link }
 }
 
-fn setup_fonts(font_paths: &Vec<PathConfig>) -> Result<Option<Vec<FontVec>>>
-{
-	if font_paths.is_empty() {
-		Ok(None)
-	} else {
-		let mut fonts = vec![];
-		for config in font_paths {
-			if config.enabled {
-				// font file no more exists
-				if let Ok(mut file) = OpenOptions::new()
-					.read(true)
-					.open(&config.path) {
-					let mut buf = vec![];
-					file.read_to_end(&mut buf)?;
-					fonts.push(FontVec::try_from_vec(buf)?);
-				}
-			}
-		}
-		if fonts.len() > 0 {
-			Ok(Some(fonts))
-		} else {
-			Ok(None)
-		}
-	}
-}
-
 pub(self) fn load_image(bytes: &[u8]) -> Option<Pixbuf>
 {
 	let bytes = Bytes::from(bytes);
@@ -198,7 +170,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	} else {
 		bright_colors.clone()
 	};
-	let fonts = setup_fonts(&configuration.gui.fonts)?;
+	let fonts = Fonts::from_files(&configuration.gui.fonts)?;
 	let fonts = Rc::new(fonts);
 	let container_manager = Default::default();
 	let i18n = I18n::new(&configuration.gui.lang).unwrap();
@@ -1195,7 +1167,7 @@ fn apply_settings(render_han: bool, locale: &str, fonts: Vec<PathConfig>,
 	};
 
 	let new_fonts = if paths_modified(&configuration.gui.fonts, &fonts) {
-		let new_fonts = match setup_fonts(&fonts) {
+		let new_fonts = match Fonts::from_files(&fonts) {
 			Ok(fonts) => fonts,
 			Err(err) => {
 				let title = i18n.msg("font-files");
