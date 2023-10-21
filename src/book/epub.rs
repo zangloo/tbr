@@ -24,11 +24,10 @@ use crate::gui::Fonts;
 use crate::xhtml::xhtml_to_html;
 
 struct ManifestItem {
-	#[allow(dead_code)]
+	#[allow(unused)]
 	id: String,
 	href: String,
 	media_type: String,
-	#[allow(dead_code)]
 	properties: Option<String>,
 }
 
@@ -36,7 +35,7 @@ type ItemId = String;
 type Manifest = HashMap<ItemId, ManifestItem>;
 type Spine = Vec<ItemId>;
 
-#[allow(dead_code)]
+#[allow(unused)]
 struct ContentOPF {
 	pub title: String,
 	pub author: Option<String>,
@@ -47,10 +46,10 @@ struct ContentOPF {
 }
 
 struct NavPoint {
-	#[allow(dead_code)]
+	#[allow(unused)]
 	pub id: Option<String>,
 	pub label: Option<String>,
-	#[allow(dead_code)]
+	#[allow(unused)]
 	pub play_order: Option<usize>,
 	pub level: usize,
 	pub src_file: Option<String>,

@@ -9,7 +9,6 @@ use serde_derive::{Deserialize, Serialize};
 #[cfg(feature = "i18n")]
 use crate::i18n;
 use crate::Asset;
-use crate::common::Position;
 use crate::terminal::Listable;
 
 pub struct ReadingInfo {
@@ -52,12 +51,6 @@ impl ReadingInfo {
 		self.line = 0;
 		self.position = 0;
 		self
-	}
-	#[inline]
-	#[allow(unused)]
-	pub(crate) fn pos(&self) -> Position
-	{
-		Position::new(self.line, self.position)
 	}
 
 	fn now() -> u64

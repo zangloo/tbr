@@ -11,7 +11,7 @@ use gtk4::pango::{Layout as PangoContext, FontDescription};
 use gtk4::pango::ffi::PANGO_SCALE;
 use indexmap::IndexSet;
 
-use crate::book::{Book, CharStyle, Colors, HAN_CHAR, Line};
+use crate::book::{Book, CharStyle, Colors, Line};
 use crate::color::Color32;
 use crate::common::Position;
 use crate::controller::{HighlightInfo, HighlightMode};
@@ -19,6 +19,8 @@ use crate::gui::load_image;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
 use crate::gui::font::Fonts;
 use crate::html_convertor::{FontScale, FontWeight};
+
+pub const HAN_CHAR: char = '漢';
 
 impl FontWeight {
 	#[inline]

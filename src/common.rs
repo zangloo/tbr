@@ -161,24 +161,6 @@ pub(crate) fn txt_lines(txt: &str) -> Vec<Line> {
 	lines
 }
 
-#[allow(dead_code)]
-pub(crate) fn byte_index_for_char(text: &str, char_index: usize) -> Option<usize> {
-	if char_index == 0 {
-		return Some(0);
-	}
-	if char_index == text.chars().count() {
-		return Some(text.len());
-	}
-	let mut indices = text.char_indices();
-	for _index in 0..char_index {
-		indices.next();
-	}
-	match indices.next() {
-		Some(index) => Some(index.0),
-		None => None,
-	}
-}
-
 pub(crate) fn char_index_for_byte(text: &str, byte_index: usize) -> Option<usize> {
 	if byte_index == 0 {
 		return Some(0);

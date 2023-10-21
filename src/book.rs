@@ -37,8 +37,6 @@ mod haodoo;
 
 pub const EMPTY_CHAPTER_CONTENT: &str = "No content.";
 pub const IMAGE_CHAR: char = '🖼';
-#[allow(unused)]
-pub const HAN_CHAR: char = '漢';
 
 #[cfg(feature = "gui")]
 type TextDecorationLine = lightningcss::properties::text::TextDecorationLine;
@@ -247,7 +245,6 @@ impl Line {
 		}
 	}
 
-	#[allow(unused)]
 	pub fn image_at(&self, char_offset: usize) -> Option<&str>
 	{
 		for style in self.styles.iter().rev() {

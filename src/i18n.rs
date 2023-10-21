@@ -13,6 +13,7 @@ pub struct LocaleEntry {
 }
 
 impl LocaleEntry {
+	#[inline]
 	pub fn new(locale: &str, name: &str) -> Self {
 		LocaleEntry {
 			locale: locale.to_owned(),
@@ -22,6 +23,7 @@ impl LocaleEntry {
 }
 
 impl PartialEq for LocaleEntry {
+	#[inline]
 	fn eq(&self, other: &Self) -> bool {
 		self.locale == other.locale
 	}
@@ -62,17 +64,6 @@ impl I18n
 		Ok(I18n { bundles, locale: locale.to_string(), locale_list })
 	}
 
-	#[allow(unused)]
-	pub fn set_locale(&mut self, locale: &str) -> Result<()>
-	{
-		if self.bundles.contains_key(locale) {
-			self.locale = locale.to_string();
-		} else {
-			self.locale = DEFAULT_LOCALE.to_string();
-		}
-		Ok(())
-	}
-
 	pub fn msg(&self, key: &str) -> Cow<str>
 	{
 		let bundle = self.bundles.get(&self.locale).unwrap();
@@ -90,6 +81,7 @@ impl I18n
 		msg.to_string()
 	}
 
+	#[inline]
 	pub fn locales(&self) -> &Vec<LocaleEntry>
 	{
 		&self.locale_list
