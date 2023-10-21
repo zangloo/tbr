@@ -36,32 +36,18 @@ impl Fonts {
 					}
 				}
 			}
-			if db.len() > 0 {
-				let mut err = None;
-				let fonts = FontsBuilder {
-					db,
-					fonts_builder: |db| {
-						let mut fonts = IndexMap::new();
-						for info in db.faces() {
-							if let fontdb::Source::Binary(bytes) = &info.source {
-								match FontRef::try_from_slice_and_index(bytes.as_ref().as_ref(), info.index) {
-									Ok(font) => { fonts.insert(info.id, font); }
-									Err(_) => err = Some(anyhow!("Error load font: {:#?}", info)),
-								}
-							}
-						}
-						fonts
-					},
-				}.build();
-				if let Some(err) = err {
-					Err(err)
-				} else {
-					Ok(Some(fonts))
-				}
-			} else {
-				Ok(None)
-			}
+			create(db)
 		}
+	}
+
+	pub fn from_vec(buffers: Vec<Vec<u8>>) -> Result<Option<Fonts>>
+	{
+		let mut db = Database::new();
+		for buf in buffers {
+			let source = fontdb::Source::Binary(Arc::new(buf));
+			db.load_font_source(source);
+		}
+		create(db)
 	}
 
 	pub fn query(&self, char: char, font_size: f32, font_weight: &FontWeight,
@@ -109,5 +95,34 @@ impl Fonts {
 			let outlined = get_glyph(char, font_size, font)?;
 			Some((font, outlined))
 		})
+	}
+}
+
+fn create(db: Database) -> Result<Option<Fonts>>
+{
+	if db.len() > 0 {
+		let mut err = None;
+		let fonts = FontsBuilder {
+			db,
+			fonts_builder: |db| {
+				let mut fonts = IndexMap::new();
+				for info in db.faces() {
+					if let fontdb::Source::Binary(bytes) = &info.source {
+						match FontRef::try_from_slice_and_index(bytes.as_ref().as_ref(), info.index) {
+							Ok(font) => { fonts.insert(info.id, font); }
+							Err(_) => err = Some(anyhow!("Error load font: {:#?}", info)),
+						}
+					}
+				}
+				fonts
+			},
+		}.build();
+		if let Some(err) = err {
+			Err(err)
+		} else {
+			Ok(Some(fonts))
+		}
+	} else {
+		Ok(None)
 	}
 }

@@ -358,7 +358,7 @@ pub struct RenderContext
 	pub default_font_measure: Vec2,
 
 	// use book custom color
-	pub custom_color: bool,
+	pub custom_render: bool,
 	// strip empty lines
 	pub strip_empty_lines: bool,
 
@@ -376,7 +376,7 @@ pub struct RenderContext
 }
 
 impl RenderContext {
-	pub fn new(colors: Colors, font_size: u8, custom_color: bool,
+	pub fn new(colors: Colors, font_size: u8, custom_render: bool,
 		leading_chars: usize, strip_empty_lines: bool, ignore_font_weight: bool)
 		-> Self
 	{
@@ -385,7 +385,7 @@ impl RenderContext {
 			fonts: Rc::new(None),
 			font_size,
 			default_font_measure: Pos2::ZERO,
-			custom_color,
+			custom_render: custom_render,
 			strip_empty_lines,
 			ignore_font_weight,
 			render_rect: Rect::NOTHING,

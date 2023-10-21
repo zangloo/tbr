@@ -6,6 +6,8 @@ use std::io::Cursor;
 use std::io::Read;
 use std::io::Seek;
 use std::path::PathBuf;
+#[cfg(feature = "gui")]
+use std::rc::Rc;
 use anyhow::{anyhow, bail, Result};
 use elsa::FrozenMap;
 use indexmap::IndexSet;
@@ -17,6 +19,8 @@ use crate::html_convertor::html_str_content;
 use crate::list::ListIterator;
 use crate::common::{Position, TraceInfo};
 use crate::frozen_map_get;
+#[cfg(feature = "gui")]
+use crate::gui::Fonts;
 use crate::xhtml::xhtml_to_html;
 
 struct ManifestItem {
@@ -68,6 +72,8 @@ struct EpubBook<R: Read + Seek> {
 	images: FrozenMap<String, Vec<u8>>,
 	font_families: IndexSet<String>,
 	chapter_index: usize,
+	#[cfg(feature = "gui")]
+	fonts: Rc<Option<Fonts>>,
 }
 
 pub struct EpubLoader {
@@ -256,6 +262,11 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 	{
 		Some(&self.font_families)
 	}
+
+	#[cfg(feature = "gui")]
+	fn custom_fonts(&self) -> Rc<Option<Fonts>> {
+		self.fonts.clone()
+	}
 }
 
 impl<R: Read + Seek + 'static> EpubBook<R> {
@@ -330,6 +341,20 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 		if chapter_index >= chapter_count {
 			chapter_index = chapter_count - 1;
 		}
+		#[cfg(feature = "gui")]
+			let fonts = {
+			let mut fonts_data = vec![];
+			for (_, item) in &content_opf.manifest {
+				if item.media_type == "application/font-sfnt"
+					|| item.media_type == "application/vnd.ms-opentype"
+					|| item.media_type == "font/ttf"
+					|| item.media_type == "font/otf" {
+					let data = zip_content(&mut zip, &item.href)?;
+					fonts_data.push(data);
+				}
+			}
+			Rc::new(Fonts::from_vec(fonts_data)?)
+		};
 		let chapter_cache = HashMap::new();
 		let mut book = EpubBook {
 			zip: RefCell::new(zip),
@@ -340,6 +365,8 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 			css_cache: Default::default(),
 			images: Default::default(),
 			font_families: Default::default(),
+			#[cfg(feature = "gui")]
+			fonts,
 		};
 		book.load_chapter(chapter_index)?;
 		Ok(book)

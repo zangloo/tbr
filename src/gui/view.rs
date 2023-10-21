@@ -42,9 +42,10 @@ glib::wrapper! {
 }
 
 impl Render<RenderContext> for GuiView {
+	#[inline]
 	fn book_loaded(&mut self, book: &dyn Book, context: &mut RenderContext)
 	{
-		self.imp().book_loaded(book, context);
+		self.imp().book_loaded(book, &self.get_pango(), context);
 	}
 
 	#[inline]
@@ -227,14 +228,22 @@ impl GuiView {
 		self.imp().resized(width, height, render_context);
 	}
 
+	#[inline]
 	pub fn set_font_size(&self, font_size: u8, render_context: &mut RenderContext)
 	{
 		self.imp().set_font_size(font_size, render_context, &self.get_pango());
 	}
 
+	#[inline]
 	pub fn set_fonts(&self, fonts: Rc<Option<Fonts>>, render_context: &mut RenderContext)
 	{
 		self.imp().set_fonts(fonts, &self.get_pango(), render_context);
+	}
+
+	#[inline]
+	pub fn set_custom_render(&self, custom_render: bool, render_context: &mut RenderContext)
+	{
+		self.imp().set_custom_render(custom_render, &self.get_pango(), render_context);
 	}
 
 	#[inline(always)]
@@ -313,6 +322,8 @@ mod imp {
 					render_lines: vec![],
 					draw_data: None,
 					font_family_names: None,
+					book_fonts: Rc::new(None),
+					user_fonts: Rc::new(None),
 				}),
 				render: RefCell::new(create_render(false)),
 			}
@@ -324,6 +335,8 @@ mod imp {
 		render_lines: Vec<RenderLine>,
 		draw_data: Option<ScrolledDrawData>,
 		font_family_names: Option<IndexSet<String>>,
+		book_fonts: Rc<Option<Fonts>>,
+		user_fonts: Rc<Option<Fonts>>,
 	}
 
 	#[glib::object_subclass]
@@ -495,11 +508,34 @@ mod imp {
 			};
 		}
 
-		pub(super) fn book_loaded(&self, book: &dyn Book, context: &mut RenderContext)
+		pub(super) fn book_loaded(&self, book: &dyn Book, pango: &PangoContext,
+			context: &mut RenderContext)
 		{
+			let fonts = book.custom_fonts();
+			let mut data = self.data.borrow_mut();
+			let font_changed = if context.custom_render {
+				if fonts.is_some() {
+					context.fonts = fonts.clone();
+					true
+				} else {
+					if context.fonts.is_some() {
+						context.fonts = data.user_fonts.clone();
+						true
+					} else {
+						false
+					}
+				}
+			} else {
+				true
+			};
+
+			data.book_fonts = fonts;
 			context.leading_chars = book.leading_space();
 			let mut render = self.render.borrow_mut();
 			render.image_cache_mut().clear();
+			if font_changed {
+				render.apply_font_modified(pango, context);
+			}
 			render.reset_render_context(context);
 		}
 
@@ -641,7 +677,14 @@ mod imp {
 			render_context: &mut RenderContext)
 		{
 			let mut render = self.render.borrow_mut();
-			render_context.fonts = fonts;
+			let mut data = self.data.borrow_mut();
+			render_context.fonts = if render_context.custom_render && data.book_fonts.is_some() {
+				data.book_fonts.clone()
+			} else {
+				fonts.clone()
+			};
+
+			data.user_fonts = fonts;
 			render.apply_font_modified(pango, render_context);
 		}
 
@@ -651,6 +694,22 @@ mod imp {
 			render_context.font_size = font_size;
 			let mut render = self.render.borrow_mut();
 			render.apply_font_modified(pango, render_context);
+		}
+
+		pub(super) fn set_custom_render(&self, custom_render: bool,
+			pango: &PangoContext, render_context: &mut RenderContext)
+		{
+			render_context.custom_render = custom_render;
+			let data = self.data.borrow();
+			if data.book_fonts.is_some() {
+				if custom_render {
+					render_context.fonts = data.book_fonts.clone();
+				} else {
+					render_context.fonts = data.user_fonts.clone();
+				}
+				let mut render = self.render.borrow_mut();
+				render.apply_font_modified(pango, render_context);
+			}
 		}
 
 		pub fn resized(&self, width: i32, height: i32, render_context: &mut RenderContext)
@@ -817,6 +876,7 @@ mod imp {
 				"text"
 			}
 		}
+
 		#[cfg(windows)]
 		pub fn pointer_cursor(&self, mouse_position: &Pos2, state: ModifierType) -> &str
 		{

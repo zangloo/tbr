@@ -19,7 +19,7 @@ pub struct ReadingInfo {
 	pub chapter: usize,
 	pub line: usize,
 	pub position: usize,
-	pub custom_color: bool,
+	pub custom_render: bool,
 	pub strip_empty_lines: bool,
 }
 
@@ -34,7 +34,7 @@ impl ReadingInfo {
 			chapter: 0,
 			line: 0,
 			position: 0,
-			custom_color: true,
+			custom_render: true,
 			strip_empty_lines: false,
 		}
 	}
@@ -51,13 +51,6 @@ impl ReadingInfo {
 		self.chapter = 0;
 		self.line = 0;
 		self.position = 0;
-		self
-	}
-	#[inline]
-	#[allow(unused)]
-	pub(crate) fn no_custom_color(mut self) -> Self
-	{
-		self.custom_color = false;
 		self
 	}
 	#[inline]
@@ -86,7 +79,7 @@ impl Clone for ReadingInfo {
 			chapter: self.chapter,
 			line: self.line,
 			position: self.position,
-			custom_color: self.custom_color,
+			custom_render: self.custom_render,
 			strip_empty_lines: self.strip_empty_lines,
 		}
 	}
@@ -184,7 +177,7 @@ impl Configuration {
 			chapter: row.get(3)?,
 			line: row.get(4)?,
 			position: row.get(5)?,
-			custom_color: row.get(6)?,
+			custom_render: row.get(6)?,
 			strip_empty_lines: row.get(7)?,
 		})
 	}
@@ -203,7 +196,7 @@ select row_id,
        chapter,
        line,
        position,
-       custom_color,
+       custom_render,
        strip_empty_lines,
        ts
 from history
@@ -226,7 +219,7 @@ select row_id,
        chapter,
        line,
        position,
-       custom_color,
+       custom_render,
        strip_empty_lines,
        ts
 from history
@@ -246,10 +239,10 @@ where row_id = ?
 		if reading.row_id == 0 {
 			self.history_db.execute("
 insert into history (filename, inner_book, chapter, line, position,
-                     custom_color, strip_empty_lines, ts)
+                     custom_render, strip_empty_lines, ts)
 values (?, ?, ?, ?, ?, ?, ?, ?)
 ", (&reading.filename, reading.inner_book, reading.chapter, reading.line,
-				reading.position, reading.custom_color, reading.strip_empty_lines,
+				reading.position, reading.custom_render, reading.strip_empty_lines,
 				ts))?;
 			reading.row_id = self.history_db.last_insert_rowid();
 		} else {
@@ -260,12 +253,12 @@ set filename          = ?,
     chapter           = ?,
     line              = ?,
     position          = ?,
-    custom_color      = ?,
+    custom_render      = ?,
     strip_empty_lines = ?,
     ts                = ?
 where row_id = ?
 ", (&reading.filename, reading.inner_book, reading.chapter, reading.line,
-				reading.position, reading.custom_color, reading.strip_empty_lines,
+				reading.position, reading.custom_render, reading.strip_empty_lines,
 				ts, reading.row_id))?;
 		}
 		Ok(())
@@ -409,25 +402,15 @@ fn default_locale() -> String
 }
 
 #[inline]
-fn chk<T>(result: rusqlite::Result<T>) -> T
-{
-	match result {
-		Ok(result) => result,
-		Err(err) => panic!("Failed on history db: {}", err.to_string()),
-	}
-}
-
-
-#[inline]
 fn load_history_db(path: &PathBuf) -> Result<Connection>
 {
 	let connection = if !path.exists() {
 		// init db
 		let conn = Connection::open(path)?;
-		chk(conn.execute("
+		conn.execute("
 create table info ( version integer )
-			", ()));
-		chk(conn.execute("
+			", ())?;
+		conn.execute("
 create table history
 (
     row_id            integer primary key,
@@ -436,16 +419,36 @@ create table history
     chapter           unsigned big int,
     line              unsigned big int,
     position          unsigned big int,
-    custom_color      unsigned big int,
+    custom_render      unsigned big int,
     strip_empty_lines unsigned big int,
     ts                unsigned big int,
     unique (filename)
-)", ()));
+)", ())?;
 		conn
 	} else {
-		Connection::open(path)?
+		let connection = Connection::open(path)?;
+		upgrade_db(&connection)?;
+		connection
 	};
 	Ok(connection)
+}
+
+#[inline]
+fn upgrade_db(connection: &Connection) -> Result<()>
+{
+	let mut stmt = connection.prepare("select version from info")?;
+	let mut rows = stmt.query([])?;
+	let row = rows.next()?;
+	let version: u64 = if let Some(row) = row {
+		row.get(0)?
+	} else {
+		0
+	};
+	if version == 0 {
+		connection.execute("alter table history rename column custom_color to custom_render", [])?;
+		connection.execute("insert into info (version) values (1)", [])?;
+	}
+	Ok(())
 }
 
 fn query(conn: &Connection, limit: usize, exclude: &Option<String>) -> Result<Vec<ReadingInfo>>
@@ -457,7 +460,7 @@ select row_id,
        chapter,
        line,
        position,
-       custom_color,
+       custom_render,
        strip_empty_lines,
        ts
 from history

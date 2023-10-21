@@ -5,6 +5,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::ops::Range;
+#[cfg(feature = "gui")]
+use std::rc::Rc;
 use std::slice::Iter;
 use anyhow::{anyhow, Result};
 use fancy_regex::Regex;
@@ -21,6 +23,8 @@ use crate::common::TraceInfo;
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
 use crate::controller::{HighlightInfo, HighlightMode};
+#[cfg(feature = "gui")]
+use crate::gui::Fonts;
 #[cfg(feature = "gui")]
 use crate::html_convertor::{FontScale, FontWeight};
 use crate::html_convertor::TextStyle;
@@ -257,7 +261,7 @@ impl Line {
 	}
 
 	#[cfg(feature = "gui")]
-	pub fn char_style_at(&self, char_index: usize, custom_color: bool,
+	pub fn char_style_at(&self, char_index: usize, custom_render: bool,
 		colors: &Colors) -> CharStyle
 	{
 		let mut char_style = CharStyle {
@@ -286,8 +290,8 @@ impl Line {
 					}
 					TextStyle::Border => char_style.border = Some(range.clone()),
 					TextStyle::Line(line) => char_style.line = Some((*line, range.clone())),
-					TextStyle::Color(color) => if custom_color { char_style.color = color.clone() },
-					TextStyle::BackgroundColor(color) => if custom_color { char_style.background = Some(color.clone()) },
+					TextStyle::Color(color) => if custom_render { char_style.color = color.clone() },
+					TextStyle::BackgroundColor(color) => if custom_render { char_style.background = Some(color.clone()) },
 				}
 			}
 		}
@@ -385,6 +389,8 @@ pub trait Book {
 	// (absolute path, content)
 	fn image<'a>(&self, _href: &'a str) -> Option<(Cow<'a, str>, &[u8])> { None }
 	fn font_family_names(&self) -> Option<&IndexSet<String>> { None }
+	#[cfg(feature = "gui")]
+	fn custom_fonts(&self) -> Rc<Option<Fonts>> { Rc::new(None) }
 
 	fn range_highlight(&self, from: Position, to: Position)
 		-> Option<HighlightInfo>
