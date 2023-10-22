@@ -263,7 +263,7 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 	}
 
 	#[cfg(feature = "gui")]
-	fn with_custom_render(&self) -> bool
+	fn with_custom_color(&self) -> bool
 	{
 		true
 	}

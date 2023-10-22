@@ -91,7 +91,7 @@ impl Book for HtmlBook {
 	}
 
 	#[cfg(feature = "gui")]
-	fn with_custom_render(&self) -> bool
+	fn with_custom_color(&self) -> bool
 	{
 		true
 	}

@@ -212,10 +212,13 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	);
 
 	view.book_loaded(book.as_ref(), &mut render_context);
-	let custom_render = if book.with_custom_render() {
-		let custom_color = reading.custom_color;
-		let custom_font = reading.custom_font;
-		Some((custom_color, custom_font))
+	let custom_color = if book.with_custom_color() {
+		Some(reading.custom_color)
+	} else {
+		None
+	};
+	let custom_font = if book.custom_fonts().is_some() {
+		Some(reading.custom_font)
 	} else {
 		None
 	};
@@ -235,7 +238,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	setup_chapter_list(&gc);
 
 	let (toolbar, theme_btn, search_box)
-		= setup_toolbar(&gc, &view, &lookup_entry, custom_render,
+		= setup_toolbar(&gc, &view, &lookup_entry, custom_color, custom_font,
 		theme_icon, &theme_tooltip);
 
 	{
@@ -951,8 +954,8 @@ fn switch_theme(theme_btn: &Button, gc: &GuiContext)
 
 #[inline]
 fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
-	custom_render: Option<(bool, bool)>, theme_icon: &str, theme_tooltip: &str)
-	-> (gtk4::Box, Button, SearchEntry)
+	custom_color: Option<bool>, custom_font: Option<bool>,
+	theme_icon: &str, theme_tooltip: &str) -> (gtk4::Box, Button, SearchEntry)
 {
 	let i18n = gc.i18n();
 	let icons = gc.icons();
@@ -1033,7 +1036,7 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 
 	{
 		let custom_color_button = gc.custom_color_btn();
-		if let Some((custom_color, _)) = custom_render {
+		if let Some(custom_color) = custom_color {
 			custom_color_button.set_active(custom_color);
 		} else {
 			custom_color_button.set_active(false);
@@ -1044,7 +1047,7 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 
 	{
 		let custom_font_button = gc.custom_font_btn();
-		if let Some((_, custom_font)) = custom_render {
+		if let Some(custom_font) = custom_font {
 			custom_font_button.set_active(custom_font);
 		} else {
 			custom_font_button.set_active(false);
@@ -1092,11 +1095,16 @@ fn load_button_image(name: &str, icons: &IconMap, inline: bool) -> Image
 }
 
 #[inline]
-fn update_toggle_button(btn: &ToggleButton, handle_id: &SignalHandlerId, enabled: bool, active: bool)
+fn update_toggle_button(btn: &ToggleButton, handle_id: &SignalHandlerId, active: Option<bool>)
 {
 	btn.block_signal(handle_id);
-	btn.set_sensitive(enabled);
-	btn.set_active(active);
+	if let Some(active) = active {
+		btn.set_sensitive(true);
+		btn.set_active(active);
+	} else {
+		btn.set_sensitive(false);
+		btn.set_active(false);
+	}
 	btn.unblock_signal(handle_id);
 }
 
@@ -1488,22 +1496,15 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn update_ui(&self, custom_render: Option<(bool, bool)>)
+	fn update_ui(&self, custom_color: Option<bool>, custom_font: Option<bool>)
 	{
-		let (enabled, custom_color, custom_font) = if let Some((custom_color, custom_font)) = custom_render {
-			(true, custom_color, custom_font)
-		} else {
-			(false, false, false)
-		};
 		update_toggle_button(
 			&self.inner.custom_color_btn,
 			&self.inner.custom_color_handler_id,
-			enabled,
 			custom_color);
 		update_toggle_button(
 			&self.inner.custom_font_btn,
 			&self.inner.custom_font_handler_id,
-			enabled,
 			custom_font);
 	}
 
@@ -1598,18 +1599,23 @@ impl GuiContext {
 						Ok((_, new_reading)) =>
 							match controller.switch_container(new_reading, &mut render_context) {
 								Ok(msg) => {
-									let custom_render = if controller.book.with_custom_render() {
+									let custom_color = if controller.book.with_custom_color() {
 										let custom_color = controller.reading.custom_color;
-										let custom_font = controller.reading.custom_font;
 										render_context.custom_color = custom_color;
-										render_context.custom_font = custom_font;
-										Some((custom_color, custom_font))
+										Some(custom_color)
 									} else {
 										render_context.custom_color = false;
+										None
+									};
+									let custom_font = if controller.book.custom_fonts().is_some() {
+										let custom_font = controller.reading.custom_font;
+										render_context.custom_font = custom_font;
+										Some(custom_font)
+									} else {
 										render_context.custom_font = false;
 										None
 									};
-									self.update_ui(custom_render);
+									self.update_ui(custom_color, custom_font);
 									update_title(self.win(), &controller.reading.filename);
 									controller.redraw(&mut render_context);
 									configuration.current = Some(controller.reading.filename.clone());
