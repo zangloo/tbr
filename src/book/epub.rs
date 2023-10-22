@@ -263,6 +263,12 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 	}
 
 	#[cfg(feature = "gui")]
+	fn with_custom_render(&self) -> bool
+	{
+		true
+	}
+
+	#[cfg(feature = "gui")]
 	fn custom_fonts(&self) -> Rc<Option<Fonts>> {
 		self.fonts.clone()
 	}

@@ -89,4 +89,10 @@ impl Book for HtmlBook {
 	{
 		Some(&self.font_families)
 	}
+
+	#[cfg(feature = "gui")]
+	fn with_custom_render(&self) -> bool
+	{
+		true
+	}
 }
