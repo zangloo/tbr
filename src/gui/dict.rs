@@ -198,6 +198,7 @@ impl DictionaryManager {
 			create_colors(),
 			font_size,
 			true,
+			true,
 			0,
 			false,
 			false);

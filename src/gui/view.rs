@@ -241,9 +241,9 @@ impl GuiView {
 	}
 
 	#[inline]
-	pub fn set_custom_render(&self, custom_render: bool, render_context: &mut RenderContext)
+	pub fn set_custom_font(&self, custom_font: bool, render_context: &mut RenderContext)
 	{
-		self.imp().set_custom_render(custom_render, &self.get_pango(), render_context);
+		self.imp().set_custom_font(custom_font, &self.get_pango(), render_context);
 	}
 
 	#[inline(always)]
@@ -513,7 +513,7 @@ mod imp {
 		{
 			let fonts = book.custom_fonts();
 			let mut data = self.data.borrow_mut();
-			let font_changed = if context.custom_render {
+			let font_changed = if context.custom_font {
 				if fonts.is_some() {
 					context.fonts = fonts.clone();
 					true
@@ -678,7 +678,7 @@ mod imp {
 		{
 			let mut render = self.render.borrow_mut();
 			let mut data = self.data.borrow_mut();
-			render_context.fonts = if render_context.custom_render && data.book_fonts.is_some() {
+			render_context.fonts = if render_context.custom_font && data.book_fonts.is_some() {
 				data.book_fonts.clone()
 			} else {
 				fonts.clone()
@@ -696,13 +696,13 @@ mod imp {
 			render.apply_font_modified(pango, render_context);
 		}
 
-		pub(super) fn set_custom_render(&self, custom_render: bool,
+		pub(super) fn set_custom_font(&self, custom_font: bool,
 			pango: &PangoContext, render_context: &mut RenderContext)
 		{
-			render_context.custom_render = custom_render;
+			render_context.custom_font = custom_font;
 			let data = self.data.borrow();
 			if data.book_fonts.is_some() {
-				if custom_render {
+				if custom_font {
 					render_context.fonts = data.book_fonts.clone();
 				} else {
 					render_context.fonts = data.user_fonts.clone();

@@ -18,7 +18,8 @@ pub struct ReadingInfo {
 	pub chapter: usize,
 	pub line: usize,
 	pub position: usize,
-	pub custom_render: bool,
+	pub custom_color: bool,
+	pub custom_font: bool,
 	pub strip_empty_lines: bool,
 }
 
@@ -33,7 +34,8 @@ impl ReadingInfo {
 			chapter: 0,
 			line: 0,
 			position: 0,
-			custom_render: true,
+			custom_color: true,
+			custom_font: true,
 			strip_empty_lines: false,
 		}
 	}
@@ -72,7 +74,8 @@ impl Clone for ReadingInfo {
 			chapter: self.chapter,
 			line: self.line,
 			position: self.position,
-			custom_render: self.custom_render,
+			custom_color: self.custom_color,
+			custom_font: self.custom_font,
 			strip_empty_lines: self.strip_empty_lines,
 		}
 	}
@@ -170,8 +173,9 @@ impl Configuration {
 			chapter: row.get(3)?,
 			line: row.get(4)?,
 			position: row.get(5)?,
-			custom_render: row.get(6)?,
-			strip_empty_lines: row.get(7)?,
+			custom_color: row.get(6)?,
+			custom_font: row.get(7)?,
+			strip_empty_lines: row.get(8)?,
 		})
 	}
 
@@ -189,7 +193,8 @@ select row_id,
        chapter,
        line,
        position,
-       custom_render,
+       custom_color,
+       custom_font,
        strip_empty_lines,
        ts
 from history
@@ -212,7 +217,8 @@ select row_id,
        chapter,
        line,
        position,
-       custom_render,
+       custom_color,
+       custom_font,
        strip_empty_lines,
        ts
 from history
@@ -232,11 +238,11 @@ where row_id = ?
 		if reading.row_id == 0 {
 			self.history_db.execute("
 insert into history (filename, inner_book, chapter, line, position,
-                     custom_render, strip_empty_lines, ts)
-values (?, ?, ?, ?, ?, ?, ?, ?)
+                     custom_color, custom_font, strip_empty_lines, ts)
+values (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ", (&reading.filename, reading.inner_book, reading.chapter, reading.line,
-				reading.position, reading.custom_render, reading.strip_empty_lines,
-				ts))?;
+				reading.position, reading.custom_color, reading.custom_font,
+				reading.strip_empty_lines, ts))?;
 			reading.row_id = self.history_db.last_insert_rowid();
 		} else {
 			self.history_db.execute("
@@ -246,13 +252,14 @@ set filename          = ?,
     chapter           = ?,
     line              = ?,
     position          = ?,
-    custom_render      = ?,
+    custom_color      = ?,
+    custom_font       = ?,
     strip_empty_lines = ?,
     ts                = ?
 where row_id = ?
 ", (&reading.filename, reading.inner_book, reading.chapter, reading.line,
-				reading.position, reading.custom_render, reading.strip_empty_lines,
-				ts, reading.row_id))?;
+				reading.position, reading.custom_color, reading.custom_font,
+				reading.strip_empty_lines, ts, reading.row_id))?;
 		}
 		Ok(())
 	}
@@ -325,6 +332,8 @@ pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config
 				#[cfg(feature = "gui")]
 				gui: Default::default(),
 			};
+			let text = toml::to_string(&orig)?;
+			fs::write(&config_file, text)?;
 			(Configuration {
 				render_han: false,
 				dark_theme: false,
@@ -412,37 +421,39 @@ create table history
     chapter           unsigned big int,
     line              unsigned big int,
     position          unsigned big int,
-    custom_render      unsigned big int,
+    custom_color      unsigned big int,
+    custom_font       unsigned big int,
     strip_empty_lines unsigned big int,
     ts                unsigned big int,
     unique (filename)
 )", ())?;
 		conn
 	} else {
-		let connection = Connection::open(path)?;
-		upgrade_db(&connection)?;
-		connection
+		// let connection = Connection::open(path)?;
+		// upgrade_db(&connection)?;
+		// connection
+		Connection::open(path)?
 	};
 	Ok(connection)
 }
 
-#[inline]
-fn upgrade_db(connection: &Connection) -> Result<()>
-{
-	let mut stmt = connection.prepare("select version from info")?;
-	let mut rows = stmt.query([])?;
-	let row = rows.next()?;
-	let version: u64 = if let Some(row) = row {
-		row.get(0)?
-	} else {
-		0
-	};
-	if version == 0 {
-		connection.execute("alter table history rename column custom_color to custom_render", [])?;
-		connection.execute("insert into info (version) values (1)", [])?;
-	}
-	Ok(())
-}
+// #[inline]
+// fn upgrade_db(connection: &Connection) -> Result<()>
+// {
+// 	let mut stmt = connection.prepare("select version from info")?;
+// 	let mut rows = stmt.query([])?;
+// 	let row = rows.next()?;
+// 	let version: u64 = if let Some(row) = row {
+// 		row.get(0)?
+// 	} else {
+// 		0
+// 	};
+// 	if version == 0 {
+// 		connection.execute("alter table history rename column custom_color to custom_color", [])?;
+// 		connection.execute("insert into info (version) values (1)", [])?;
+// 	}
+// 	Ok(())
+// }
 
 fn query(conn: &Connection, limit: usize, exclude: &Option<String>) -> Result<Vec<ReadingInfo>>
 {
@@ -453,7 +464,8 @@ select row_id,
        chapter,
        line,
        position,
-       custom_render,
+       custom_color,
+       custom_font,
        strip_empty_lines,
        ts
 from history

@@ -191,7 +191,8 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let mut render_context = RenderContext::new(
 		colors,
 		configuration.gui.font_size,
-		reading.custom_render,
+		reading.custom_color,
+		reading.custom_font,
 		book.leading_space(),
 		configuration.gui.strip_empty_lines,
 		configuration.gui.ignore_font_weight);
@@ -214,7 +215,8 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let controller = Controller::from_data(reading, container_manager, container, book, Box::new(view.clone()));
 
 	let (theme_icon, theme_tooltip) = get_theme_icon(configuration.dark_theme, &i18n);
-	let custom_render = controller.reading.custom_render;
+	let custom_color = controller.reading.custom_color;
+	let custom_font = controller.reading.custom_font;
 	drop(configuration);
 
 	let ctx = Rc::new(RefCell::new(render_context));
@@ -228,7 +230,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	setup_chapter_list(&gc);
 
 	let (toolbar, theme_btn, search_box)
-		= setup_toolbar(&gc, &view, &lookup_entry, custom_render,
+		= setup_toolbar(&gc, &view, &lookup_entry, custom_color, custom_font,
 		theme_icon, &theme_tooltip);
 
 	{
@@ -842,8 +844,13 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					glib::Propagation::Stop
 				}
 				(Key::T, ModifierType::SHIFT_MASK) => {
-					let active = gc.inner.custom_render_btn.is_active();
-					gc.inner.custom_render_btn.set_active(!active);
+					let active = gc.inner.custom_color_btn.is_active();
+					gc.inner.custom_color_btn.set_active(!active);
+					glib::Propagation::Stop
+				}
+				(Key::F, ModifierType::SHIFT_MASK) => {
+					let active = gc.inner.custom_font_btn.is_active();
+					gc.inner.custom_font_btn.set_active(!active);
 					glib::Propagation::Stop
 				}
 				(Key::s, ModifierType::CONTROL_MASK) => {
@@ -939,7 +946,7 @@ fn switch_theme(theme_btn: &Button, gc: &GuiContext)
 
 #[inline]
 fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
-	custom_render: bool, theme_icon: &str, theme_tooltip: &str)
+	custom_color: bool, custom_font: bool, theme_icon: &str, theme_tooltip: &str)
 	-> (gtk4::Box, Button, SearchEntry)
 {
 	let i18n = gc.i18n();
@@ -1020,9 +1027,15 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	}
 
 	{
-		let custom_render_button = gc.custom_render_btn();
-		custom_render_button.set_active(custom_render);
-		toolbar.append(custom_render_button);
+		let custom_color_button = gc.custom_color_btn();
+		custom_color_button.set_active(custom_color);
+		toolbar.append(custom_color_button);
+	}
+
+	{
+		let custom_font_button = gc.custom_font_btn();
+		custom_font_button.set_active(custom_font);
+		toolbar.append(custom_font_button);
 	}
 
 	let settings_button = create_button("setting.svg", &i18n.msg("settings-dialog"), &icons, false);
@@ -1254,8 +1267,10 @@ struct GuiContextInner {
 	paned: Paned,
 	sidebar_stack: Stack,
 	sidebar_btn: Button,
-	custom_render_btn: ToggleButton,
-	custom_render_handler_id: SignalHandlerId,
+	custom_color_btn: ToggleButton,
+	custom_color_handler_id: SignalHandlerId,
+	custom_font_btn: ToggleButton,
+	custom_font_handler_id: SignalHandlerId,
 	chapter_list: ChapterList,
 	icons: Rc<IconMap>,
 	i18n: Rc<I18n>,
@@ -1302,22 +1317,41 @@ impl GuiContext {
 			.vexpand(true)
 			.build();
 		let sidebar_btn = create_button("sidebar_on.svg", &i18n.msg("sidebar-on"), &icons, false);
-		let custom_render_btn = create_toggle_button(
+		let custom_color_btn = create_toggle_button(
 			false,
-			"custom_render.svg",
-			"with-custom-render",
+			"custom_color.svg",
+			"with-custom-color",
 			&icons,
 			&i18n,
 		);
-		let custom_render_handler_id = {
+		let custom_color_handler_id = {
 			let ctrl = ctrl.clone();
 			let ctx = ctx.clone();
-			custom_render_btn.connect_toggled(move |btn| {
-				let custom_render = btn.is_active();
+			custom_color_btn.connect_toggled(move |btn| {
+				let custom_color = btn.is_active();
 				let mut controller = ctrl.borrow_mut();
-				controller.reading.custom_render = custom_render;
+				controller.reading.custom_color = custom_color;
 				let mut render_context = ctx.borrow_mut();
-				controller.render.set_custom_render(custom_render, &mut render_context);
+				render_context.custom_color = custom_color;
+				controller.redraw(&mut render_context);
+			})
+		};
+		let custom_font_btn = create_toggle_button(
+			false,
+			"custom_font.svg",
+			"with-custom-font",
+			&icons,
+			&i18n,
+		);
+		let custom_font_handler_id = {
+			let ctrl = ctrl.clone();
+			let ctx = ctx.clone();
+			custom_font_btn.connect_toggled(move |btn| {
+				let custom_font = btn.is_active();
+				let mut controller = ctrl.borrow_mut();
+				controller.reading.custom_font = custom_font;
+				let mut render_context = ctx.borrow_mut();
+				controller.render.set_custom_font(custom_font, &mut render_context);
 				controller.redraw(&mut render_context);
 			})
 		};
@@ -1356,8 +1390,10 @@ impl GuiContext {
 			paned,
 			sidebar_stack,
 			sidebar_btn,
-			custom_render_btn,
-			custom_render_handler_id,
+			custom_color_btn,
+			custom_color_handler_id,
+			custom_font_btn,
+			custom_font_handler_id,
 			chapter_list,
 			icons,
 			i18n,
@@ -1424,15 +1460,22 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn custom_render_btn(&self) -> &ToggleButton
+	fn custom_color_btn(&self) -> &ToggleButton
 	{
-		&self.inner.custom_render_btn
+		&self.inner.custom_color_btn
 	}
 
 	#[inline]
-	fn update_custom_render(&self, active: bool)
+	fn custom_font_btn(&self) -> &ToggleButton
 	{
-		update_toggle_button(&self.inner.custom_render_btn, &self.inner.custom_render_handler_id, active);
+		&self.inner.custom_font_btn
+	}
+
+	#[inline]
+	fn update_ui(&self, custom_color: bool, custom_font: bool)
+	{
+		update_toggle_button(&self.inner.custom_color_btn, &self.inner.custom_color_handler_id, custom_color);
+		update_toggle_button(&self.inner.custom_font_btn, &self.inner.custom_font_handler_id, custom_font);
 	}
 
 	#[inline]
@@ -1526,9 +1569,11 @@ impl GuiContext {
 						Ok((_, new_reading)) =>
 							match controller.switch_container(new_reading, &mut render_context) {
 								Ok(msg) => {
-									let custom_render = controller.reading.custom_render;
-									self.update_custom_render(custom_render);
-									render_context.custom_render = custom_render;
+									let custom_color = controller.reading.custom_color;
+									let custom_font = controller.reading.custom_font;
+									self.update_ui(custom_color, custom_font);
+									render_context.custom_color = custom_color;
+									render_context.custom_font = custom_font;
 									update_title(self.win(), &controller.reading.filename);
 									controller.redraw(&mut render_context);
 									configuration.current = Some(controller.reading.filename.clone());
