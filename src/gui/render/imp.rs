@@ -445,6 +445,7 @@ pub struct CharMeasures {
 	pub draw_offset: Pos2,
 	pub font_size: f32,
 	pub font_weight: FontWeight,
+	pub font_family_idx: Option<u16>,
 }
 
 #[inline(always)]
@@ -757,7 +758,7 @@ pub trait GuiRender {
 
 	fn get_char_measures(&mut self, layout: &PangoContext, char: char,
 		font_scale: &FontScale, font_weight: &FontWeight,
-		font_family_idx: &Option<u16>, font_family_names: Option<&IndexSet<String>>,
+		mut font_family_idx: &Option<u16>, font_family_names: Option<&IndexSet<String>>,
 		render_context: &mut RenderContext) -> CharMeasures
 	{
 		const SPACE: char = ' ';
@@ -765,6 +766,9 @@ pub trait GuiRender {
 
 		let font_size = scale_font_size(render_context.font_size, &font_scale);
 		let font_weight = load_font_weight(&font_weight, render_context);
+		if !render_context.custom_font {
+			font_family_idx = &None;
+		}
 
 		if let Some(data) = self.cache_get(char, font_size, &font_weight, font_family_idx) {
 			return CharMeasures {
@@ -773,6 +777,7 @@ pub trait GuiRender {
 				draw_offset: data.offset(),
 				font_size,
 				font_weight: font_weight.clone(),
+				font_family_idx: font_family_idx.clone(),
 			};
 		}
 		match char {
@@ -817,6 +822,7 @@ pub trait GuiRender {
 				draw_offset: draw_data.draw_offset,
 				font_size,
 				font_weight: font_weight.clone(),
+				font_family_idx: font_family_idx.clone(),
 			};
 			self.cache_insert(char, font_size, &font_weight, font_family_idx, CharDrawData::Outline(draw_data));
 			measures
@@ -834,6 +840,7 @@ pub trait GuiRender {
 				draw_offset: draw_data.draw_offset,
 				font_size,
 				font_weight: font_weight.clone(),
+				font_family_idx: font_family_idx.clone(),
 			};
 			self.cache_insert(char, font_size, &font_weight, font_family_idx, CharDrawData::Pango(draw_data));
 			measures
@@ -994,8 +1001,8 @@ fn draw_char(cairo: &CairoContext, draw_data: &CharDrawData, position: &Pos2,
 fn get_font_family_names<'a>(font_family_idx: &Option<u16>,
 	font_family_names: Option<&'a IndexSet<String>>) -> Option<&'a str>
 {
-	if let Some(names) = font_family_names {
-		if let Some(idx) = font_family_idx {
+	if let Some(idx) = font_family_idx {
+		if let Some(names) = font_family_names {
 			names.get_index(*idx as usize)
 				.map_or(None, |str| Some(str))
 		} else { None }

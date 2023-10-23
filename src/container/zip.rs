@@ -20,7 +20,7 @@ impl ContainerLoader for ZipLoader {
 	fn open(&self, filename: &str, book_loader: &BookLoader) -> Result<Box<dyn Container>>
 	{
 		let file = OpenOptions::new().read(true).open(filename)?;
-		let mut zip = zip::ZipArchive::new(file)?;
+		let mut zip = ZipArchive::new(file)?;
 		let mut buf = vec![];
 		for i in 0..zip.len() {
 			let zip_file = zip.by_index(i)?;

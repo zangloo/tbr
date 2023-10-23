@@ -18,6 +18,7 @@ use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader, TocInfo};
 use crate::html_convertor::html_str_content;
 use crate::list::ListIterator;
 use crate::common::{Position, TraceInfo};
+use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::frozen_map_get;
 #[cfg(feature = "gui")]
 use crate::gui::Fonts;
@@ -94,14 +95,22 @@ impl Loader for EpubLoader {
 	}
 
 	#[inline]
-	fn load_file(&self, _filename: &str, file: std::fs::File, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>>
+	fn load_file(&self, _filename: &str, file: std::fs::File,
+		loading_chapter: LoadingChapter, loading: BookLoadingInfo)
+		-> Result<(Box<dyn Book>, ReadingInfo)>
 	{
-		Ok(Box::new(EpubBook::new(file, loading_chapter)?))
+		let book = EpubBook::new(file, loading_chapter)?;
+		let reading = book.get_reading(loading);
+		Ok((Box::new(book), reading))
 	}
 
-	fn load_buf(&self, _filename: &str, content: Vec<u8>, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>>
+	fn load_buf(&self, _filename: &str, content: Vec<u8>,
+		loading_chapter: LoadingChapter, loading: BookLoadingInfo)
+		-> Result<(Box<dyn Book>, ReadingInfo)>
 	{
-		Ok(Box::new(EpubBook::new(Cursor::new(content), loading_chapter)?))
+		let book = EpubBook::new(Cursor::new(content), loading_chapter)?;
+		let reading = book.get_reading(loading);
+		Ok((Box::new(book), reading))
 	}
 }
 
@@ -375,6 +384,15 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 		};
 		book.load_chapter(chapter_index)?;
 		Ok(book)
+	}
+
+	#[inline]
+	fn get_reading(&self, loading: BookLoadingInfo) -> ReadingInfo
+	{
+		loading.get_or_init(|reading| {
+			reading.custom_color = true;
+			reading.custom_font = self.fonts.is_some();
+		})
 	}
 
 	fn load_chapter(&mut self, chapter_index: usize) -> Result<&Chapter>

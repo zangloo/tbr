@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 
 use crate::book::{Book, LoadingChapter, EMPTY_CHAPTER_CONTENT};
 use crate::BookLoader;
-use crate::config::ReadingInfo;
+use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::container::zip::ZipLoader;
 
 mod zip;
@@ -19,7 +19,7 @@ impl Default for ContainerManager {
 }
 
 impl ContainerManager {
-	pub fn open(&self, filename: &String) -> Result<Box<dyn Container>>
+	pub fn open(&self, filename: &str) -> Result<Box<dyn Container>>
 	{
 		if self.zip_loader.accept(filename) {
 			self.zip_loader.open(filename, &self.book_loader)
@@ -28,7 +28,13 @@ impl ContainerManager {
 		}
 	}
 
-	pub fn load_book(&self, container: &mut Box<dyn Container>, book_index: usize, chapter: usize) -> Result<Box<dyn Book>> {
+	pub fn load_book(&self, container: &mut Box<dyn Container>, loading: BookLoadingInfo)
+		-> Result<(Box<dyn Book>, ReadingInfo)>
+	{
+		let (book_index, chapter) = match &loading {
+			BookLoadingInfo::NewReading(_, inner_book, chapter) => (*inner_book, *chapter),
+			BookLoadingInfo::History(reading) => (reading.inner_book, reading.chapter),
+		};
 		let book_name = match container.inner_book_names().get(book_index) {
 			Some(name) => name,
 			None => return Err(anyhow!("Invalid book index: {}", book_index)),
@@ -40,13 +46,13 @@ impl ContainerManager {
 		};
 		let filename = book_name.name().clone();
 		let content = container.book_content(book_index)?;
-		let book = self.book_loader.load(&filename, content, loading_chapter)?;
+		let (book, reading) = self.book_loader.load(&filename, content, loading_chapter, loading)?;
 		let lines = &mut book.lines();
 		let line_count = lines.len();
 		if line_count == 0 {
 			return Err(anyhow!(EMPTY_CHAPTER_CONTENT));
 		}
-		Ok(book)
+		Ok((book, reading))
 	}
 }
 
@@ -137,8 +143,10 @@ pub enum BookContent {
 	Buf(Vec<u8>),
 }
 
-pub fn load_container(container_manager: &ContainerManager, reading: &ReadingInfo) -> Result<Box<dyn Container>> {
-	let container = container_manager.open(&reading.filename)?;
+pub fn load_container(container_manager: &ContainerManager,
+	filename: &str) -> Result<Box<dyn Container>>
+{
+	let container = container_manager.open(filename)?;
 	let book_names = container.inner_book_names();
 	if book_names.len() == 0 {
 		return Err(anyhow!("No content supported."));
@@ -146,15 +154,8 @@ pub fn load_container(container_manager: &ContainerManager, reading: &ReadingInf
 	Ok(container)
 }
 
-pub fn load_book(container_manager: &ContainerManager, container: &mut Box<dyn Container>, reading: &mut ReadingInfo) -> Result<Box<dyn Book>> {
-	let book = container_manager.load_book(container, reading.inner_book, reading.chapter)?;
-	let lines = book.lines();
-	if reading.line >= lines.len() {
-		reading.line = lines.len() - 1;
-	}
-	let chars = lines[reading.line].len();
-	if reading.position >= chars {
-		reading.position = 0;
-	}
-	Ok(book)
+#[inline]
+pub fn load_book(container_manager: &ContainerManager,
+	container: &mut Box<dyn Container>, loading: BookLoadingInfo) -> Result<(Box<dyn Book>, ReadingInfo)> {
+	container_manager.load_book(container, loading)
 }

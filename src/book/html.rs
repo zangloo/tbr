@@ -9,6 +9,7 @@ use indexmap::IndexSet;
 use crate::book::{Book, LoadingChapter, Line, Loader};
 use crate::html_convertor::{html_content, html_str_content, HtmlContent};
 use crate::common::{plain_text, TraceInfo};
+use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::frozen_map_get;
 use crate::xhtml::xhtml_to_html;
 
@@ -35,8 +36,11 @@ impl Loader for HtmlLoader {
 		&self.extensions
 	}
 
-	fn load_file(&self, filename: &str, mut file: fs::File, _loading_chapter: LoadingChapter) -> Result<Box<dyn Book>>
+	fn load_file(&self, _filename: &str, mut file: fs::File,
+		_loading_chapter: LoadingChapter, loading: BookLoadingInfo)
+		-> Result<(Box<dyn Book>, ReadingInfo)>
 	{
+		let filename = loading.filename();
 		let path = PathBuf::from_str(filename)?;
 		let cwd = path.parent();
 		let mut content: Vec<u8> = Vec::new();
@@ -54,15 +58,27 @@ impl Loader for HtmlLoader {
 				fs::read_to_string(&path).ok()
 			})
 		}))?;
-		Ok(Box::new(HtmlBook { content, font_families }))
+		let book = HtmlBook { content, font_families };
+		let reading = book.get_reading(loading);
+		Ok((
+			Box::new(book),
+			reading
+		))
 	}
 
-	fn load_buf(&self, _filename: &str, content: Vec<u8>, _loading_chapter: LoadingChapter) -> Result<Box<dyn Book>>
+	fn load_buf(&self, _filename: &str, content: Vec<u8>,
+		_loading_chapter: LoadingChapter, loading: BookLoadingInfo)
+		-> Result<(Box<dyn Book>, ReadingInfo)>
 	{
 		let mut font_families = IndexSet::new();
 		let text = plain_text(content, false)?;
 		let content = html_content(&text, &mut font_families)?;
-		Ok(Box::new(HtmlBook { content, font_families }))
+		let book = HtmlBook { content, font_families };
+		let reading = book.get_reading(loading);
+		Ok((
+			Box::new(book),
+			reading,
+		))
 	}
 }
 
@@ -94,5 +110,15 @@ impl Book for HtmlBook {
 	fn with_custom_color(&self) -> bool
 	{
 		true
+	}
+}
+
+impl HtmlBook {
+	#[inline]
+	fn get_reading(&self, loading: BookLoadingInfo) -> ReadingInfo
+	{
+		loading.get_or_init(|reading|
+			reading.custom_color = true
+		)
 	}
 }

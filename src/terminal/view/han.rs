@@ -3,6 +3,7 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::book::{Book, Line};
 use crate::common::{HAN_RENDER_CHARS_PAIRS, length_with_leading, with_leading};
+use crate::config::ReadingInfo;
 use crate::controller::HighlightInfo;
 use crate::terminal::view::{DrawChar, Position, Render, RenderContext, TerminalRender};
 
@@ -100,7 +101,7 @@ impl TerminalRender for Han
 }
 
 impl Render<RenderContext> for Han {
-	fn book_loaded(&mut self, book: &dyn Book, context: &mut RenderContext)
+	fn book_loaded(&mut self, book: &dyn Book, _reading: &ReadingInfo, context: &mut RenderContext)
 	{
 		context.leading_space = book.leading_space();
 	}

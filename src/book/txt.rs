@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use crate::book::{Book, LoadingChapter, Line, Loader};
 use crate::common::plain_text_lines;
+use crate::config::{BookLoadingInfo, ReadingInfo};
 
 pub struct TxtBook {
 	lines: Vec<Line>,
@@ -35,7 +36,10 @@ impl Loader for TxtLoader {
 		&self.extensions
 	}
 
-	fn load_buf(&self, filename: &str, content: Vec<u8>, _loading_chapter: LoadingChapter) -> Result<Box<dyn Book>> {
+	fn load_buf(&self, filename: &str, content: Vec<u8>,
+		_loading_chapter: LoadingChapter, loading: BookLoadingInfo)
+		-> Result<(Box<dyn Book>, ReadingInfo)>
+	{
 		let lines = plain_text_lines(content)?;
 		let leading_space = if filename.to_lowercase().ends_with(".log") {
 			0
@@ -43,6 +47,6 @@ impl Loader for TxtLoader {
 			2
 		};
 		let book = TxtBook { lines, leading_space };
-		Ok(Box::new(book))
+		Ok((Box::new(book), loading.get()))
 	}
 }

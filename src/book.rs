@@ -20,6 +20,7 @@ use crate::book::txt::TxtLoader;
 use crate::color::Color32;
 use crate::common::{char_index_for_byte, Position};
 use crate::common::TraceInfo;
+use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
 use crate::controller::{HighlightInfo, HighlightMode};
@@ -467,13 +468,18 @@ pub(crate) trait Loader {
 		}
 		false
 	}
-	fn load_file(&self, filename: &str, mut file: std::fs::File, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>>
+	fn load_file(&self, filename: &str, mut file: std::fs::File,
+		loading_chapter: LoadingChapter, loading: BookLoadingInfo)
+		-> Result<(Box<dyn Book>, ReadingInfo)>
 	{
 		let mut content: Vec<u8> = Vec::new();
 		file.read_to_end(&mut content)?;
-		self.load_buf(filename, content, loading_chapter)
+		self.load_buf(filename, content, loading_chapter, loading)
 	}
-	fn load_buf(&self, filename: &str, buf: Vec<u8>, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>>;
+
+	fn load_buf(&self, filename: &str, content: Vec<u8>,
+		loading_chapter: LoadingChapter, loading: BookLoadingInfo)
+		-> Result<(Box<dyn Book>, ReadingInfo)>;
 }
 
 impl BookLoader {
@@ -498,18 +504,30 @@ impl BookLoader {
 		}
 		false
 	}
-	pub fn load(&self, filename: &str, content: BookContent, loading_chapter: LoadingChapter) -> Result<Box<dyn Book>>
+
+	pub fn load(&self, filename: &str, content: BookContent,
+		loading_chapter: LoadingChapter, loading: BookLoadingInfo)
+		-> Result<(Box<dyn Book>, ReadingInfo)>
 	{
 		for loader in self.loaders.iter() {
 			if loader.support(filename) {
-				let book = match content {
+				let (book, mut reading) = match content {
 					File(..) => {
 						let file = OpenOptions::new().read(true).open(filename)?;
-						loader.load_file(filename, file, loading_chapter)?
+						loader.load_file(filename, file, loading_chapter, loading)?
 					}
-					Buf(buf) => loader.load_buf(filename, buf, loading_chapter)?,
+					Buf(buf) => loader.load_buf(filename, buf, loading_chapter, loading)?,
 				};
-				return Ok(book);
+				reading.chapter = book.current_chapter();
+				let lines = book.lines();
+				if reading.line >= lines.len() {
+					reading.line = lines.len() - 1;
+				}
+				let chars = lines[reading.line].len();
+				if reading.position >= chars {
+					reading.position = 0;
+				}
+				return Ok((book, reading));
 			}
 		}
 		Err(anyhow!("Not support open book: {}", filename))

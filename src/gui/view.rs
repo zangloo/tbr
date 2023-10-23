@@ -10,6 +10,7 @@ use gtk4::subclass::prelude::ObjectSubclassIsExt;
 use crate::book::{Book, Line};
 use crate::color::Color32;
 use crate::common::Position;
+use crate::config::ReadingInfo;
 use crate::controller::{HighlightInfo, Render};
 use crate::gui::font::Fonts;
 use crate::gui::math::{Pos2, pos2};
@@ -43,9 +44,10 @@ glib::wrapper! {
 
 impl Render<RenderContext> for GuiView {
 	#[inline]
-	fn book_loaded(&mut self, book: &dyn Book, context: &mut RenderContext)
+	fn book_loaded(&mut self, book: &dyn Book, reading: &ReadingInfo,
+		context: &mut RenderContext)
 	{
-		self.imp().book_loaded(book, &self.get_pango(), context);
+		self.imp().book_loaded(book, reading, &self.get_pango(), context);
 	}
 
 	#[inline]
@@ -284,6 +286,7 @@ mod imp {
 	use indexmap::IndexSet;
 	use crate::book::{Book, Line};
 	use crate::common::Position;
+	use crate::config::ReadingInfo;
 	use crate::controller::HighlightInfo;
 	use crate::gui::font::Fonts;
 	use crate::gui::math::{Pos2, Rect};
@@ -508,10 +511,12 @@ mod imp {
 			};
 		}
 
-		pub(super) fn book_loaded(&self, book: &dyn Book, pango: &PangoContext,
-			context: &mut RenderContext)
+		pub(super) fn book_loaded(&self, book: &dyn Book, reading: &ReadingInfo,
+			pango: &PangoContext, context: &mut RenderContext)
 		{
 			let fonts = book.custom_fonts();
+			context.custom_font = reading.custom_font;
+			context.custom_color = reading.custom_color;
 			let mut data = self.data.borrow_mut();
 			let font_changed = if context.custom_font {
 				if fonts.is_some() {
@@ -526,6 +531,7 @@ mod imp {
 					}
 				}
 			} else {
+				context.fonts = data.user_fonts.clone();
 				true
 			};
 

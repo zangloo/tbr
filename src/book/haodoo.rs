@@ -8,6 +8,7 @@ use crate::book::{Book, LoadingChapter, Line, Loader, TocInfo};
 use crate::common::{decode_text, detect_charset, txt_lines};
 use crate::list::ListIterator;
 use crate::common::TraceInfo;
+use crate::config::{BookLoadingInfo, ReadingInfo};
 
 ///
 // http://www.haodoo.net/?M=hd&P=mPDB22
@@ -86,13 +87,21 @@ impl Loader for HaodooLoader {
 		&self.extensions
 	}
 
-	fn load_file(&self, _filename: &str, file: std::fs::File, chapter_position: LoadingChapter) -> Result<Box<dyn Book>> {
-		Ok(Box::new(HaodooBook::new(file, chapter_position)?))
+	fn load_file(&self, _filename: &str, file: std::fs::File,
+		loading_chapter: LoadingChapter, loading: BookLoadingInfo)
+		-> Result<(Box<dyn Book>, ReadingInfo)>
+	{
+		Ok((Box::new(HaodooBook::new(file, loading_chapter)?), loading.get()))
 	}
 
-	fn load_buf(&self, _filename: &str, content: Vec<u8>, chapter_position: LoadingChapter) -> Result<Box<dyn Book>>
+	fn load_buf(&self, _filename: &str, content: Vec<u8>,
+		chapter_position: LoadingChapter, loading: BookLoadingInfo)
+		-> Result<(Box<dyn Book>, ReadingInfo)>
 	{
-		Ok(Box::new(HaodooBook::new(Cursor::new(content), chapter_position)?))
+		Ok((
+			Box::new(HaodooBook::new(Cursor::new(content), chapter_position)?),
+			loading.get()
+		))
 	}
 }
 

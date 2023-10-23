@@ -144,7 +144,7 @@ impl GuiRender for GuiHanRender
 					char,
 					font_size: measures.font_size,
 					font_weight: measures.font_weight,
-					font_family: char_style.font_family,
+					font_family: measures.font_family_idx,
 					color,
 					background,
 					cell_offset,

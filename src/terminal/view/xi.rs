@@ -1,5 +1,6 @@
 use crate::book::{Book, Line};
 use crate::common::{char_width, with_leading};
+use crate::config::ReadingInfo;
 use crate::controller::HighlightInfo;
 use crate::terminal::view::{DrawChar, DrawCharMode, Position, Render, RenderContext, TerminalRender};
 
@@ -10,7 +11,7 @@ pub struct Xi {}
 impl TerminalRender for Xi {}
 
 impl Render<RenderContext> for Xi {
-	fn book_loaded(&mut self, book: &dyn Book, context: &mut RenderContext)
+	fn book_loaded(&mut self, book: &dyn Book, _reading: &ReadingInfo, context: &mut RenderContext)
 	{
 		context.leading_space = book.leading_space();
 	}

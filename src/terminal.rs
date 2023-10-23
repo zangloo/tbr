@@ -9,7 +9,7 @@ use cursive::views::{EditView, LinearLayout, OnEventView, TextView, ViewRef};
 
 use crate::{version_string, description, version};
 use crate::list::{list_dialog, ListIterator};
-use crate::config::{Configuration, Themes};
+use crate::config::{BookLoadingInfo, Configuration, Themes};
 use view::ReadingView;
 
 pub mod view;
@@ -52,11 +52,11 @@ pub fn start(mut configuration: Configuration, themes: Themes) -> Result<()> {
 	}
 	let current = configuration.current.as_ref().unwrap();
 	println!("Loading {} ...", current);
-	let (_history, reading) = configuration.reading(current)?;
+	let loading = configuration.reading(current)?;
 	let mut app = Cursive::new();
 	let theme = themes.get(configuration.dark_theme);
 	app.set_theme(theme.clone());
-	let reading_view = ReadingView::new(configuration.render_han, reading.clone())?;
+	let reading_view = ReadingView::new(configuration.render_han, loading)?;
 	app.set_user_data(TerminalContext { configuration, themes });
 	let status_view = LinearLayout::horizontal()
 		.child(TextView::new(&reading_view.status_msg())
@@ -178,12 +178,14 @@ fn select_history(s: &mut Cursive)
 			let mut reading_now = reading_view.reading_info();
 			let msg = s.with_user_data(|controller_context: &mut TerminalContext| {
 				let configuration = &mut controller_context.configuration;
-				chk(configuration.reading_by_id(selected as i64), |reading|
-					chk(reading_view.switch_container(reading), |msg| {
+				chk(configuration.reading_by_id(selected as i64), |reading| {
+					let loading = BookLoadingInfo::History(reading);
+					chk(reading_view.switch_container(loading), |msg| {
 						configuration.current = Some(reading_view.reading_info().filename);
 						chk(configuration.save_reading(&mut reading_now), |()|
 							msg)
-					}))
+					})
+				})
 			}).unwrap();
 			update_status(s, &msg);
 		});

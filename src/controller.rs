@@ -5,14 +5,14 @@ use fancy_regex::Regex;
 use crate::{ContainerManager, Position};
 use crate::book::{Book, Line};
 use crate::common::TraceInfo;
-use crate::config::ReadingInfo;
+use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::container::{Container, load_book, load_container};
 
 const TRACE_SIZE: usize = 100;
 
 pub trait Render<C> {
 	// init for book loaded
-	fn book_loaded(&mut self, book: &dyn Book, context: &mut C);
+	fn book_loaded(&mut self, book: &dyn Book, reading: &ReadingInfo, context: &mut C);
 	// return next
 	fn redraw(&mut self, book: &dyn Book, lines: &Vec<Line>, line: usize, offset: usize, highlight: &Option<HighlightInfo>, context: &mut C) -> Option<Position>;
 	// return new position
@@ -59,19 +59,27 @@ pub struct Controller<C, R: Render<C> + ?Sized>
 
 impl<C, R: Render<C> + ?Sized> Controller<C, R>
 {
-	pub fn new(mut reading: ReadingInfo, render: Box<R>) -> Result<Self>
+	pub fn new(loading: BookLoadingInfo, render: Box<R>, render_context: &mut C) -> Result<Self>
 	{
 		let container_manager = Default::default();
-		let mut container = load_container(&container_manager, &reading)?;
-		let book = load_book(&container_manager, &mut container, &mut reading)?;
-		Ok(Controller::from_data(reading, container_manager, container, book, render))
+		let mut container = load_container(&container_manager, loading.filename())?;
+		let (book, reading) = load_book(&container_manager, &mut container, loading)?;
+		Ok(Controller::from_data(
+			reading,
+			container_manager,
+			container,
+			book,
+			render,
+			render_context))
 	}
 
 	#[inline]
 	pub fn from_data(reading: ReadingInfo, container_manager: ContainerManager,
-		container: Box<dyn Container>, book: Box<dyn Book>, render: Box<R>) -> Self
+		container: Box<dyn Container>, book: Box<dyn Book>, mut render: Box<R>,
+		render_context: &mut C) -> Self
 	{
 		let trace = vec![TraceInfo { chapter: reading.chapter, line: reading.line, offset: reading.position }];
+		render.book_loaded(book.as_ref(), &reading, render_context);
 		Controller {
 			_render_context: PhantomData,
 			container_manager,
@@ -174,12 +182,16 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	pub fn book_loaded(&mut self, context: &mut C)
 	{
 		self.highlight = None;
-		self.render.book_loaded(self.book.as_ref(), context);
+		self.render.book_loaded(self.book.as_ref(), &self.reading, context);
 	}
 
-	pub fn switch_container(&mut self, mut reading: ReadingInfo, context: &mut C) -> Result<String> {
-		let mut container = load_container(&self.container_manager, &reading)?;
-		let book = load_book(&self.container_manager, &mut container, &mut reading)?;
+	pub fn switch_container(&mut self, loading: BookLoadingInfo,
+		context: &mut C) -> Result<String>
+	{
+		let mut container = load_container(&self.container_manager, loading.filename())?;
+		let (book, reading) = load_book(
+			&self.container_manager,
+			&mut container, loading)?;
 		self.container = container;
 		self.book = book;
 		self.reading = reading;
@@ -201,11 +213,13 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 
 	fn do_switch_book(&mut self, inner_book: usize, context: &mut C) -> Result<()>
 	{
-		let mut reading = self.reading.clone();
-		if reading.inner_book != inner_book {
-			reading = reading.with_inner_book(inner_book);
-		}
-		let book = load_book(&self.container_manager, &mut self.container, &mut reading)?;
+		let loading = if self.reading.inner_book == inner_book {
+			// for reload content
+			BookLoadingInfo::History(self.reading.clone())
+		} else {
+			BookLoadingInfo::NewReading(self.reading.filename.clone(), inner_book, 0)
+		};
+		let (book, reading) = load_book(&self.container_manager, &mut self.container, loading)?;
 		self.book = book;
 		self.reading = reading;
 		self.trace.clear();
@@ -253,10 +267,12 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				self.redraw_at(position.line, position.offset, context);
 			} else {
 				if reading.inner_book > 0 {
-					let mut new_reading = reading.clone()
-						.with_inner_book(reading.inner_book - 1)
-						.with_last_chapter();
-					self.book = load_book(&self.container_manager, &mut self.container, &mut new_reading)?;
+					let loading = BookLoadingInfo::NewReading(
+						reading.filename.clone(),
+						reading.inner_book - 1,
+						usize::MAX);
+					let (book, mut new_reading) = load_book(&self.container_manager, &mut self.container, loading)?;
+					self.book = book;
 					let lines = self.book.lines();
 					let line_index = lines.len() - 1;
 					let position = self.render.prev_page(self.book.as_ref(), lines, line_index, lines[line_index].len(), context);

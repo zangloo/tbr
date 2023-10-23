@@ -24,7 +24,7 @@ use crate::color::Color32;
 use crate::common::{Position, txt_lines};
 use crate::config::{Configuration, PathConfig, ReadingInfo, Themes};
 use crate::container::{BookContent, BookName, Container, load_book, load_container, title_for_filename};
-use crate::controller::{Controller, Render};
+use crate::controller::Controller;
 use crate::gui::chapter_list::ChapterList;
 use crate::gui::dict::DictionaryManager;
 pub use crate::gui::font::Fonts;
@@ -156,8 +156,8 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 {
 	let mut configuration = cfg.borrow_mut();
 	let conf_ref: &mut Configuration = &mut configuration;
-	let reading = if let Some(current) = &conf_ref.current {
-		Some(conf_ref.reading(current)?.1)
+	let loading = if let Some(current) = &conf_ref.current {
+		Some(conf_ref.reading(current)?)
 	} else {
 		None
 	};
@@ -172,16 +172,16 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let fonts = Rc::new(fonts);
 	let container_manager = Default::default();
 	let i18n = I18n::new(&configuration.gui.lang).unwrap();
-	let (container, book, reading, filename) = if let Some(mut reading) = reading {
-		let mut container = load_container(&container_manager, &reading)?;
-		let book = load_book(&container_manager, &mut container, &mut reading)?;
+	let (container, book, reading, filename) = if let Some(loading) = loading {
+		let mut container = load_container(&container_manager, loading.filename())?;
+		let (book, reading) = load_book(&container_manager, &mut container, loading)?;
 		let filename = reading.filename.clone();
 		(container, book, reading, filename)
 	} else {
 		let readme = i18n.msg("readme");
 		let container: Box<dyn Container> = Box::new(ReadmeContainer::new(readme.as_ref()));
 		let book: Box<dyn Book> = Box::new(ReadmeBook::new(readme.as_ref()));
-		(container, book, ReadingInfo::new(README_TEXT_FILENAME), "The e-book reader".to_owned())
+		(container, book, ReadingInfo::fake(README_TEXT_FILENAME), "The e-book reader".to_owned())
 	};
 
 	let i18n = Rc::new(i18n);
@@ -196,7 +196,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		book.leading_space(),
 		configuration.gui.strip_empty_lines,
 		configuration.gui.ignore_font_weight);
-	let mut view = GuiView::new(
+	let view = GuiView::new(
 		"main",
 		configuration.render_han,
 		fonts.clone(),
@@ -211,7 +211,6 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		&icons,
 	);
 
-	view.book_loaded(book.as_ref(), &mut render_context);
 	let custom_color = if book.with_custom_color() {
 		Some(reading.custom_color)
 	} else {
@@ -222,7 +221,13 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	} else {
 		None
 	};
-	let controller = Controller::from_data(reading, container_manager, container, book, Box::new(view.clone()));
+	let controller = Controller::from_data(
+		reading,
+		container_manager,
+		container,
+		book,
+		Box::new(view.clone()),
+		&mut render_context);
 
 	let (theme_icon, theme_tooltip) = get_theme_icon(configuration.dark_theme, &i18n);
 	drop(configuration);
@@ -1596,23 +1601,17 @@ impl GuiContext {
 						}
 					}
 					match configuration.reading(filepath) {
-						Ok((_, new_reading)) =>
-							match controller.switch_container(new_reading, &mut render_context) {
+						Ok(loading) =>
+							match controller.switch_container(loading, &mut render_context) {
 								Ok(msg) => {
 									let custom_color = if controller.book.with_custom_color() {
-										let custom_color = controller.reading.custom_color;
-										render_context.custom_color = custom_color;
-										Some(custom_color)
+										Some(controller.reading.custom_color)
 									} else {
-										render_context.custom_color = false;
 										None
 									};
 									let custom_font = if controller.book.custom_fonts().is_some() {
-										let custom_font = controller.reading.custom_font;
-										render_context.custom_font = custom_font;
-										Some(custom_font)
+										Some(controller.reading.custom_font)
 									} else {
-										render_context.custom_font = false;
 										None
 									};
 									self.update_ui(custom_color, custom_font);

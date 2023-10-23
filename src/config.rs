@@ -11,6 +11,7 @@ use crate::i18n;
 use crate::Asset;
 use crate::terminal::Listable;
 
+#[derive(Clone)]
 pub struct ReadingInfo {
 	row_id: i64,
 	pub filename: String,
@@ -25,7 +26,7 @@ pub struct ReadingInfo {
 
 impl ReadingInfo {
 	#[inline]
-	pub fn new(filename: &str) -> Self
+	pub fn fake(filename: &str) -> Self
 	{
 		ReadingInfo {
 			row_id: 0,
@@ -34,50 +35,19 @@ impl ReadingInfo {
 			chapter: 0,
 			line: 0,
 			position: 0,
-			custom_color: true,
-			custom_font: true,
+			custom_color: false,
+			custom_font: false,
 			strip_empty_lines: false,
 		}
 	}
-	#[inline]
-	pub(crate) fn with_last_chapter(mut self) -> Self
-	{
-		self.chapter = usize::MAX;
-		self
-	}
-	#[inline]
-	pub(crate) fn with_inner_book(mut self, inner_book: usize) -> Self
-	{
-		self.inner_book = inner_book;
-		self.chapter = 0;
-		self.line = 0;
-		self.position = 0;
-		self
-	}
 
+	#[inline]
 	fn now() -> u64
 	{
 		SystemTime::now()
 			.duration_since(UNIX_EPOCH)
 			.unwrap()
 			.as_secs()
-	}
-}
-
-impl Clone for ReadingInfo {
-	fn clone(&self) -> Self
-	{
-		ReadingInfo {
-			row_id: self.row_id,
-			filename: self.filename.clone(),
-			inner_book: self.inner_book,
-			chapter: self.chapter,
-			line: self.line,
-			position: self.position,
-			custom_color: self.custom_color,
-			custom_font: self.custom_font,
-			strip_empty_lines: self.strip_empty_lines,
-		}
 	}
 }
 
@@ -93,6 +63,65 @@ impl Listable for ReadingInfo {
 			0
 		} else {
 			rowid as usize
+		}
+	}
+}
+
+pub enum BookLoadingInfo {
+	NewReading(String, usize, usize),
+	History(ReadingInfo),
+}
+
+impl BookLoadingInfo {
+	#[inline]
+	pub fn filename(&self) -> &str
+	{
+		match self {
+			BookLoadingInfo::NewReading(filename, ..) => filename,
+			BookLoadingInfo::History(reading) => &reading.filename,
+		}
+	}
+
+	#[inline]
+	pub fn get(self) -> ReadingInfo
+	{
+		match self {
+			BookLoadingInfo::NewReading(filename, inner_book, chapter) => ReadingInfo {
+				row_id: 0,
+				filename,
+				inner_book,
+				chapter,
+				line: 0,
+				position: 0,
+				custom_color: false,
+				custom_font: false,
+				strip_empty_lines: false,
+			},
+			BookLoadingInfo::History(reading) => reading,
+		}
+	}
+
+	#[inline]
+	pub fn get_or_init<F>(self, f: F) -> ReadingInfo
+		where F: FnOnce(&mut ReadingInfo)
+	{
+		match self {
+			BookLoadingInfo::NewReading(filename, inner_book, chapter) => {
+				let mut reading = ReadingInfo {
+					row_id: 0,
+					filename,
+					inner_book,
+					chapter,
+					line: 0,
+					position: 0,
+					custom_color: false,
+					custom_font: false,
+					strip_empty_lines: false,
+				};
+				f(&mut reading);
+				reading
+			}
+			BookLoadingInfo::History(reading) => reading
 		}
 	}
 }
@@ -184,7 +213,7 @@ impl Configuration {
 		Ok(query(&self.history_db, 20, &self.current)?)
 	}
 
-	pub fn reading(&self, filename: &str) -> Result<(bool, ReadingInfo)>
+	pub fn reading(&self, filename: &str) -> Result<BookLoadingInfo>
 	{
 		let mut stmt = self.history_db.prepare("
 select row_id,
@@ -202,9 +231,9 @@ where filename = ?
 ")?;
 		let mut iter = stmt.query_map([filename], Configuration::map)?;
 		if let Some(info) = iter.next() {
-			Ok((true, info?))
+			Ok(BookLoadingInfo::History(info?))
 		} else {
-			Ok((false, ReadingInfo::new(filename)))
+			Ok(BookLoadingInfo::NewReading(filename.to_owned(), 0, 0))
 		}
 	}
 

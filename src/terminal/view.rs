@@ -6,7 +6,7 @@ use cursive::theme::{ColorStyle, PaletteColor};
 
 use crate::book::{Book, Line};
 use crate::common::{char_width, Position};
-use crate::config::ReadingInfo;
+use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::container::Container;
 use crate::controller::{Controller, HighlightInfo, HighlightMode, Render};
 use crate::terminal::update_status_callback;
@@ -184,11 +184,13 @@ impl View for ReadingView {
 }
 
 impl ReadingView {
-	pub(crate) fn new(render_han: bool, reading: ReadingInfo) -> Result<ReadingView> {
+	pub(crate) fn new(render_han: bool, reading: BookLoadingInfo) -> Result<ReadingView> {
 		let render: Box<dyn TerminalRender> = load_render(render_han);
-		let mut controller = Controller::new(reading, render)?;
 		let mut render_context = RenderContext::new();
-		controller.book_loaded(&mut render_context);
+		let controller = Controller::new(
+			reading,
+			render,
+			&mut render_context)?;
 		let link_color = ColorStyle::new(ColorStyle::secondary().front, PaletteColor::Background);
 		let highlight_link_color = ColorStyle::new(ColorStyle::secondary().front, ColorStyle::highlight().back);
 		Ok(ReadingView {
@@ -239,9 +241,9 @@ impl ReadingView {
 	}
 
 	#[inline]
-	pub fn switch_container(&mut self, reading: ReadingInfo) -> Result<String>
+	pub fn switch_container(&mut self, loading: BookLoadingInfo) -> Result<String>
 	{
-		self.controller.switch_container(reading, &mut self.render_context)
+		self.controller.switch_container(loading, &mut self.render_context)
 	}
 
 	#[inline]
