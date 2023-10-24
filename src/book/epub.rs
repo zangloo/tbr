@@ -389,6 +389,9 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 	#[inline]
 	fn get_reading(&self, loading: BookLoadingInfo) -> ReadingInfo
 	{
+		#[cfg(not(feature = "gui"))]
+		{ loading.get() }
+		#[cfg(feature = "gui")]
 		loading.get_or_init(|reading| {
 			reading.custom_color = true;
 			reading.custom_font = self.fonts.is_some();

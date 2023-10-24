@@ -26,6 +26,7 @@ pub struct ReadingInfo {
 
 impl ReadingInfo {
 	#[inline]
+	#[cfg(feature = "gui")]
 	pub fn fake(filename: &str) -> Self
 	{
 		ReadingInfo {
