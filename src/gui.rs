@@ -2,7 +2,7 @@ use std::env;
 use std::borrow::Cow;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
-use std::ops::Index;
+use std::ops::{Deref, Index};
 use std::path::PathBuf;
 use std::rc::Rc;
 use anyhow::{bail, Result};
@@ -40,7 +40,7 @@ mod settings;
 mod chapter_list;
 mod font;
 
-pub const MODIFIER_NONE: ModifierType = ModifierType::empty();
+const MODIFIER_NONE: ModifierType = ModifierType::empty();
 
 const APP_ID: &str = "net.lzrj.tbr";
 const ICON_SIZE: i32 = 32;
@@ -144,7 +144,7 @@ fn convert_colors(theme: &Theme) -> Colors
 	Colors { color, background, highlight, highlight_background, link }
 }
 
-pub(self) fn load_image(bytes: &[u8]) -> Option<Pixbuf>
+fn load_image(bytes: &[u8]) -> Option<Pixbuf>
 {
 	let bytes = Bytes::from(bytes);
 	let stream = MemoryInputStream::from_bytes(&bytes);
@@ -718,20 +718,20 @@ fn setup_chapter_list(gc1: &GuiContext)
 {
 	{
 		let gc = gc1.clone();
-		gc1.inner.chapter_list.handle_item_click(move |is_book, index| {
+		gc1.chapter_list.handle_item_click(move |is_book, index| {
 			let mut controller = gc.ctrl_mut();
 			let mut render_context = gc.ctx_mut();
 			if is_book {
 				let msg = controller.switch_book(index, &mut render_context);
-				update_status(false, &msg, &gc.inner.status_bar);
+				update_status(false, &msg, &gc.status_bar);
 			} else if let Some(msg) = controller.goto_toc(index, &mut render_context) {
-				update_status(false, &msg, &gc.inner.status_bar);
+				update_status(false, &msg, &gc.status_bar);
 			}
 		});
 	}
 	{
 		let gc = gc1.clone();
-		gc1.inner.chapter_list.handle_cancel(move |empty| {
+		gc1.chapter_list.handle_cancel(move |empty| {
 			// when search entry has no text, empty is true
 			if empty {
 				toggle_sidebar(&gc);
@@ -811,11 +811,11 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					glib::Propagation::Proceed
 				}
 				(Key::c, MODIFIER_NONE) => {
-					gc.inner.chapter_list.block_reactive(true);
+					gc.chapter_list.block_reactive(true);
 					if switch_stack(SIDEBAR_CHAPTER_LIST_NAME, &gc, true) {
-						gc.inner.chapter_list.scroll_to_current();
+						gc.chapter_list.scroll_to_current();
 					}
-					gc.inner.chapter_list.block_reactive(false);
+					gc.chapter_list.block_reactive(false);
 					glib::Propagation::Stop
 				}
 				(Key::d, MODIFIER_NONE) => {
@@ -857,13 +857,13 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					glib::Propagation::Stop
 				}
 				(Key::T, ModifierType::SHIFT_MASK) => {
-					let active = gc.inner.custom_color_btn.is_active();
-					gc.inner.custom_color_btn.set_active(!active);
+					let active = gc.custom_color_btn.is_active();
+					gc.custom_color_btn.set_active(!active);
 					glib::Propagation::Stop
 				}
 				(Key::F, ModifierType::SHIFT_MASK) => {
-					let active = gc.inner.custom_font_btn.is_active();
-					gc.inner.custom_font_btn.set_active(!active);
+					let active = gc.custom_font_btn.is_active();
+					gc.custom_font_btn.set_active(!active);
 					glib::Propagation::Stop
 				}
 				(Key::s, ModifierType::CONTROL_MASK) => {
@@ -1014,7 +1014,7 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	{
 		let history_button = create_button("history.svg", &i18n.msg("history"), &icons, false);
 		history_button.insert_action_group("popup", Some(gc.action_group()));
-		gc.inner.history_popover.set_parent(&history_button);
+		gc.history_popover.set_parent(&history_button);
 		let gc = gc.clone();
 		history_button.connect_clicked(move |_| {
 			gc.show_history();
@@ -1316,8 +1316,18 @@ enum ChapterListSyncMode {
 }
 
 #[derive(Clone)]
-pub struct GuiContext {
+struct GuiContext {
 	inner: Rc<GuiContextInner>,
+}
+
+impl Deref for GuiContext {
+	type Target = GuiContextInner;
+
+	#[inline(always)]
+	fn deref(&self) -> &Self::Target
+	{
+		&self.inner
+	}
 }
 
 impl GuiContext {
@@ -1437,146 +1447,146 @@ impl GuiContext {
 	#[inline]
 	fn cfg(&self) -> Ref<Configuration>
 	{
-		self.inner.cfg.borrow()
+		self.cfg.borrow()
 	}
 
 	#[inline]
 	fn cfg_mut(&self) -> RefMut<Configuration>
 	{
-		self.inner.cfg.borrow_mut()
+		self.cfg.borrow_mut()
 	}
 
 	#[inline]
 	fn ctrl(&self) -> Ref<GuiController>
 	{
-		self.inner.ctrl.borrow()
+		self.ctrl.borrow()
 	}
 
 	#[inline]
 	fn ctrl_mut(&self) -> RefMut<GuiController>
 	{
-		self.inner.ctrl.borrow_mut()
+		self.ctrl.borrow_mut()
 	}
 
 	#[inline]
 	fn ctx_mut(&self) -> RefMut<RenderContext>
 	{
-		self.inner.ctx.borrow_mut()
+		self.ctx.borrow_mut()
 	}
 
 	#[inline]
 	fn opener(&self) -> RefMut<Opener>
 	{
-		self.inner.opener.borrow_mut()
+		self.opener.borrow_mut()
 	}
 
 	#[inline]
 	fn paned(&self) -> &Paned
 	{
-		&self.inner.paned
+		&self.paned
 	}
 
 	#[inline]
 	fn sidebar_stack(&self) -> &Stack
 	{
-		&self.inner.sidebar_stack
+		&self.sidebar_stack
 	}
 
 	#[inline]
 	fn sidebar_btn(&self) -> &Button
 	{
-		&self.inner.sidebar_btn
+		&self.sidebar_btn
 	}
 
 	#[inline]
 	fn custom_color_btn(&self) -> &ToggleButton
 	{
-		&self.inner.custom_color_btn
+		&self.custom_color_btn
 	}
 
 	#[inline]
 	fn custom_font_btn(&self) -> &ToggleButton
 	{
-		&self.inner.custom_font_btn
+		&self.custom_font_btn
 	}
 
 	#[inline]
 	fn update_ui(&self, custom_color: Option<bool>, custom_font: Option<bool>)
 	{
 		update_toggle_button(
-			&self.inner.custom_color_btn,
-			&self.inner.custom_color_handler_id,
+			&self.custom_color_btn,
+			&self.custom_color_handler_id,
 			custom_color);
 		update_toggle_button(
-			&self.inner.custom_font_btn,
-			&self.inner.custom_font_handler_id,
+			&self.custom_font_btn,
+			&self.custom_font_handler_id,
 			custom_font);
 	}
 
 	#[inline]
 	fn dm_mut(&self) -> RefMut<DictionaryManager>
 	{
-		self.inner.dm.borrow_mut()
+		self.dm.borrow_mut()
 	}
 
 	#[inline]
 	fn win(&self) -> &ApplicationWindow
 	{
-		&self.inner.window
+		&self.window
 	}
 
 	#[inline]
 	fn icons(&self) -> &IconMap
 	{
-		&self.inner.icons
+		&self.icons
 	}
 
 	#[inline]
 	fn i18n(&self) -> &I18n
 	{
-		&self.inner.i18n
+		&self.i18n
 	}
 
 	#[inline]
 	fn action_group(&self) -> &SimpleActionGroup
 	{
-		&self.inner.action_group
+		&self.action_group
 	}
 
 	#[inline]
 	fn dark_colors(&self) -> &Colors
 	{
-		&self.inner.dark_colors
+		&self.dark_colors
 	}
 
 	#[inline]
 	fn bright_colors(&self) -> &Colors
 	{
-		&self.inner.bright_colors
+		&self.bright_colors
 	}
 
 	#[inline]
 	fn css_provider(&self) -> &CssProvider
 	{
-		&self.inner.css_provider
+		&self.css_provider
 	}
 
 	#[inline]
 	fn status_bar(&self) -> &Label
 	{
-		&self.inner.status_bar
+		&self.status_bar
 	}
 
 	#[inline]
 	fn show_history(&self)
 	{
-		self.inner.history_popover.popup();
+		self.history_popover.popup();
 	}
 
 	fn open_dialog(&self)
 	{
 		let gc = self.clone();
-		self.inner.file_dialog.open(Some(self.win()), None::<&Cancellable>, move |result| {
+		self.file_dialog.open(Some(self.win()), None::<&Cancellable>, move |result| {
 			if let Ok(file) = result {
 				if let Some(path) = file.path() {
 					gc.open_file(&path);
@@ -1641,7 +1651,7 @@ impl GuiContext {
 		for a in self.action_group().list_actions() {
 			self.action_group().remove_action(&a);
 		}
-		let menu = &self.inner.history_menu;
+		let menu = &self.history_menu;
 		menu.remove_all();
 		match self.cfg().history() {
 			Ok(infos) => {
@@ -1661,7 +1671,7 @@ impl GuiContext {
 		let mut controller = self.ctrl_mut();
 		let inner_book = controller.reading.inner_book;
 		let msg = controller.switch_book(inner_book, &mut self.ctx_mut());
-		update_status(false, &msg, &self.inner.status_bar);
+		update_status(false, &msg, &self.status_bar);
 	}
 
 	#[inline]
@@ -1688,19 +1698,19 @@ impl GuiContext {
 	fn update(&self, msg: &str, chapter_list_sync_mode: ChapterListSyncMode)
 	{
 		self.message(msg);
-		self.inner.chapter_list.sync_chapter_list(chapter_list_sync_mode);
+		self.chapter_list.sync_chapter_list(chapter_list_sync_mode);
 	}
 
 	#[inline]
 	fn message(&self, msg: &str)
 	{
-		update_status(false, msg, &self.inner.status_bar);
+		update_status(false, msg, &self.status_bar);
 	}
 
 	#[inline]
 	fn error(&self, msg: &str)
 	{
-		update_status(true, msg, &self.inner.status_bar);
+		update_status(true, msg, &self.status_bar);
 	}
 }
 
@@ -1742,7 +1752,7 @@ fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>
 	}
 }
 
-pub fn mouse_pointer(view: &impl IsA<Widget>) -> Option<(f32, f32)>
+fn mouse_pointer(view: &impl IsA<Widget>) -> Option<(f32, f32)>
 {
 	let pointer = view.display().default_seat()?.pointer()?;
 	let root = view.root()?;
