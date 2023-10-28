@@ -15,6 +15,7 @@ use gtk4::glib;
 use gtk4::glib::{Bytes, closure_local, ExitCode, ObjectExt, SignalHandlerId, StaticType};
 use gtk4::graphene::Point;
 use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, IsA, NativeExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
+use pangocairo::pango::EllipsizeMode;
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
 
@@ -1077,10 +1078,6 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 		.build();
 	toolbar.append(&search_box);
 
-	let status_bar = gc.status_bar();
-	status_bar.set_halign(Align::End);
-	status_bar.set_hexpand(true);
-
 	(toolbar, theme_button, search_box)
 }
 
@@ -1346,11 +1343,19 @@ impl GuiContext {
 			.title(package_name!())
 			.build();
 
-		let status_bar = Label::new(None);
 		let (chapter_list, chapter_list_view) = ChapterList::create(&icons, &i18n, &ctrl);
 
 		let controller = ctrl.borrow();
-		status_bar.set_label(&controller.status_msg());
+		let status_msg = controller.status_msg();
+		let status_bar = Label::builder()
+			.label(&status_msg)
+			.max_width_chars(50)
+			.ellipsize(EllipsizeMode::Start)
+			.tooltip_text(&status_msg)
+			.halign(Align::End)
+			.hexpand(true)
+			.build();
+
 		let paned = Paned::new(Orientation::Horizontal);
 		let sidebar_stack = Stack::builder()
 			.vexpand(true)
@@ -1722,6 +1727,7 @@ fn update_status(error: bool, msg: &str, status_bar: &Label)
 	} else {
 		status_bar.set_text(msg);
 	};
+	status_bar.set_tooltip_text(Some(msg));
 }
 
 fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>,
