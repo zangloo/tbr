@@ -766,7 +766,7 @@ pub trait GuiRender {
 
 		let font_size = scale_font_size(render_context.font_size, &font_scale);
 		let font_weight = load_font_weight(&font_weight, render_context);
-		if !render_context.custom_font {
+		if !font_family_names.is_some() {
 			font_family_idx = &None;
 		}
 
