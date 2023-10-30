@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use anyhow::{anyhow, Result};
 use fancy_regex::Regex;
@@ -39,6 +40,32 @@ pub struct HighlightInfo {
 	pub start: usize,
 	pub end: usize,
 	pub mode: HighlightMode,
+}
+
+pub struct ReadingStatus<'a> {
+	pub title: Option<&'a str>,
+	pub total_line: usize,
+	pub current_line: usize,
+}
+
+impl<'a> ReadingStatus<'a> {
+	#[inline]
+	pub fn position(&self) -> String
+	{
+		format!("{}:{}", self.total_line, self.current_line)
+	}
+}
+
+impl<'a> Display for ReadingStatus<'a> {
+	#[inline]
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result
+	{
+		if let Some(title) = &self.title {
+			write!(f, "{}({}:{})", title, self.total_line, self.current_line)
+		} else {
+			write!(f, "({}:{})", self.total_line, self.current_line)
+		}
+	}
 }
 
 pub struct Controller<C, R: Render<C> + ?Sized>
@@ -147,29 +174,15 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		&self.search_pattern
 	}
 
-	pub fn status_msg(&self) -> String
+	pub fn status(&self) -> ReadingStatus
 	{
-		const SPLITTER: char = std::path::MAIN_SEPARATOR;
 		let title = self.book
-			.title(self.reading.line, self.reading.position)
-			.map_or_else(|| {
-				let names = self.container.inner_book_names();
-				let filename = if names.len() == 1 {
-					&self.reading.filename
-				} else {
-					let name = &names[self.reading.inner_book];
-					name.name()
-				};
-				filename.rfind(SPLITTER)
-					.map_or_else(|| {
-						filename.as_str()
-					}, |idx| {
-						&filename[idx + 1..]
-					})
-			}, |name| {
-				name
-			});
-		format!("{}({}:{})", title, self.book.lines().len(), self.reading.line)
+			.title(self.reading.line, self.reading.position);
+		ReadingStatus {
+			title,
+			total_line: self.book.lines().len(),
+			current_line: self.reading.line,
+		}
 	}
 
 	pub fn search(&mut self, pattern: &str, context: &mut C) -> Result<()>
@@ -200,13 +213,13 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		self.current_trace = 0;
 		self.book_loaded(context);
 		self.redraw(context);
-		Ok(self.status_msg())
+		Ok(self.status().to_string())
 	}
 
 	pub fn switch_book(&mut self, inner_book: usize, context: &mut C) -> String
 	{
 		match self.do_switch_book(inner_book, context) {
-			Ok(..) => self.status_msg(),
+			Ok(..) => self.status().to_string(),
 			Err(e) => e.to_string(),
 		}
 	}
@@ -247,9 +260,11 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			self.redraw_at(line, offset, context);
 		} else if !self.switch_chapter(true, context)? {
 			let book_index = self.reading.inner_book + 1;
-			let book_count = self.container.inner_book_names().len();
-			if book_index < book_count {
-				self.do_switch_book(book_index, context)?;
+			if let Some(names) = self.container.inner_book_names() {
+				let book_count = names.len();
+				if book_index < book_count {
+					self.do_switch_book(book_index, context)?;
+				}
 			}
 		}
 		Ok(())
@@ -370,7 +385,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			}
 			self.push_trace(true);
 			self.redraw(context);
-			Some(self.status_msg())
+			Some(self.status().to_string())
 		} else {
 			None
 		}

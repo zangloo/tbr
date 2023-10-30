@@ -126,26 +126,23 @@ fn switch_render(s: &mut Cursive) {
 fn select_book(s: &mut Cursive) {
 	let reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
 	let container = reading_view.reading_container();
-	let size = container.inner_book_names().len();
-	if size == 1 {
-		return;
+	if let Some(names) = container.inner_book_names() {
+		let li = ListIterator::new(|position| {
+			let bn = names.get(position)?;
+			Some((bn.name() as &str, position))
+		});
+		let reading = &reading_view.reading_info();
+		let dialog = list_dialog("Select inner book", li, reading.inner_book, |s, selected| {
+			let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
+			let reading_now = reading_view.reading_info();
+			if reading_now.inner_book == selected {
+				return;
+			}
+			let msg = reading_view.switch_book(selected);
+			update_status(s, &msg);
+		});
+		s.add_layer(dialog);
 	}
-	let names = container.inner_book_names();
-	let li = ListIterator::new(|position| {
-		let bn = names.get(position)?;
-		Some((bn.name() as &str, position))
-	});
-	let reading = &reading_view.reading_info();
-	let dialog = list_dialog("Select inner book", li, reading.inner_book, |s, selected| {
-		let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
-		let reading_now = reading_view.reading_info();
-		if reading_now.inner_book == selected {
-			return;
-		}
-		let msg = reading_view.switch_book(selected);
-		update_status(s, &msg);
-	});
-	s.add_layer(dialog);
 }
 
 fn select_history(s: &mut Cursive)

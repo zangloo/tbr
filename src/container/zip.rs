@@ -38,21 +38,29 @@ impl ContainerLoader for ZipLoader {
 			}
 		}
 		files.string_sort_unstable(natural_lexical_cmp);
-		Ok(Box::new(ZipContainer { zip, files }))
+		let filename = filename.to_owned();
+		Ok(Box::new(ZipContainer { filename, zip, files }))
 	}
 }
 
 pub(crate) struct ZipContainer {
+	filename: String,
 	zip: ZipArchive<File>,
 	files: Vec<BookName>,
 }
 
 impl Container for ZipContainer {
-	fn inner_book_names(&self) -> &Vec<BookName> {
-		&self.files
+	fn filename(&self) -> &str
+	{
+		&self.filename
+	}
+	fn inner_book_names(&self) -> Option<&Vec<BookName>>
+	{
+		Some(&self.files)
 	}
 
-	fn book_content(&mut self, inner_index: usize) -> Result<BookContent> {
+	fn book_content(&mut self, inner_index: usize) -> Result<BookContent>
+	{
 		let book_name = &self.files[inner_index];
 		let mut zip_file = self.zip.by_index(book_name.index)?;
 		let mut content = vec![];

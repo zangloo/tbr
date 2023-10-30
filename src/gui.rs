@@ -5,14 +5,15 @@ use std::collections::HashMap;
 use std::ops::{Deref, Index};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::str::FromStr;
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
-use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, PopoverMenu, PositionType, SearchEntry, Stack, ToggleButton, Widget, Window};
+use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, Popover, PopoverMenu, PositionType, SearchEntry, Separator, Stack, ToggleButton, Widget, Window};
 use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle, Texture};
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
 use gtk4::glib;
-use gtk4::glib::{Bytes, closure_local, ExitCode, ObjectExt, SignalHandlerId, StaticType};
+use gtk4::glib::{Bytes, closure_local, ExitCode, format_size, ObjectExt, SignalHandlerId, StaticType};
 use gtk4::graphene::Point;
 use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, IsA, NativeExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
 use pangocairo::pango::EllipsizeMode;
@@ -61,7 +62,6 @@ type GuiController = Controller<RenderContext, GuiView>;
 type IconMap = HashMap<String, Texture>;
 
 struct ReadmeContainer {
-	book_names: Vec<BookName>,
 	text: String,
 }
 
@@ -70,17 +70,21 @@ impl ReadmeContainer {
 	fn new(text: &str) -> Self
 	{
 		ReadmeContainer {
-			book_names: vec![BookName::new(README_TEXT_FILENAME.to_string(), 0)],
 			text: text.to_string(),
 		}
 	}
 }
 
 impl Container for ReadmeContainer {
-	#[inline]
-	fn inner_book_names(&self) -> &Vec<BookName>
+	fn filename(&self) -> &str
 	{
-		&self.book_names
+		README_TEXT_FILENAME
+	}
+
+	#[inline]
+	fn inner_book_names(&self) -> Option<&Vec<BookName>>
+	{
+		None
 	}
 
 	#[inline]
@@ -414,7 +418,7 @@ fn apply<F>(gc: &GuiContext, f: F)
 	let mut controller = gc.ctrl_mut();
 	let orig_inner_book = controller.reading.inner_book;
 	f(&mut controller, &mut gc.ctx_mut());
-	let msg = controller.status_msg();
+	let msg = controller.status().to_string();
 	drop(controller);
 	gc.update(&msg, ChapterListSyncMode::ReloadIfNeeded(orig_inner_book));
 }
@@ -432,7 +436,7 @@ fn handle<T, F>(gc: &GuiContext, f: F)
 	match result {
 		Ok(_) => {
 			let controller = gc.ctrl();
-			let msg = controller.status_msg();
+			let msg = controller.status().to_string();
 			drop(controller);
 			gc.update(&msg, ChapterListSyncMode::ReloadIfNeeded(orig_inner_book));
 		}
@@ -470,7 +474,7 @@ fn setup_popup_menu(gc: &GuiContext, view: &GuiView) -> PopoverMenu
 {
 	let action_group = SimpleActionGroup::new();
 	let menu = Menu::new();
-	let i18n = gc.i18n();
+	let i18n = &gc.i18n;
 
 	view.insert_action_group("popup", Some(&action_group));
 
@@ -639,7 +643,7 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
 				select_text(&gc, from_line, from_offset, to_line, to_offset);
 				if let Some(selected_text) = gc.ctrl().selected() {
-					if let Some(current_tab) = gc.sidebar_stack().visible_child_name() {
+					if let Some(current_tab) = gc.sidebar_stack.visible_child_name() {
 						if current_tab == SIDEBAR_DICT_NAME {
 							gc.dm_mut().set_lookup(selected_text.to_owned());
 						}
@@ -683,8 +687,8 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 fn setup_sidebar(gc: &GuiContext, view: &GuiView, dict_view: &gtk4::Box,
 	chapter_list_view: gtk4::Box)
 {
-	let i18n = gc.i18n();
-	let stack = gc.sidebar_stack();
+	let i18n = &gc.i18n;
+	let stack = &gc.sidebar_stack;
 	stack.add_titled(
 		&chapter_list_view,
 		Some(SIDEBAR_CHAPTER_LIST_NAME), &i18n.msg("tab-chapter"));
@@ -698,9 +702,9 @@ fn setup_sidebar(gc: &GuiContext, view: &GuiView, dict_view: &gtk4::Box,
 		.build();
 	let sidebar = gtk4::Box::new(Orientation::Vertical, 0);
 	sidebar.append(&sidebar_tab_switch);
-	sidebar.append(gc.sidebar_stack());
+	sidebar.append(&gc.sidebar_stack);
 
-	let paned = gc.paned();
+	let paned = &gc.paned;
 	paned.set_start_child(Some(&sidebar));
 	paned.set_end_child(Some(view));
 	paned.set_position(0);
@@ -745,8 +749,8 @@ fn setup_chapter_list(gc1: &GuiContext)
 
 fn switch_stack(tab_name: &str, gc: &GuiContext, toggle: bool) -> bool
 {
-	let paned = gc.paned();
-	let stack = gc.sidebar_stack();
+	let paned = &gc.paned;
+	let stack = &gc.sidebar_stack;
 	if paned.position() == 0 {
 		stack.set_visible_child_name(tab_name);
 		toggle_sidebar(gc);
@@ -776,10 +780,10 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 	let header_bar = HeaderBar::new();
 	header_bar.set_height_request(32);
 	header_bar.pack_start(&toolbar);
-	header_bar.pack_end(gc.status_bar());
-	let window = gc.win();
+	header_bar.pack_end(&gc.status_bar);
+	let window = &gc.window;
 	window.set_titlebar(Some(&header_bar));
-	window.set_child(Some(gc.paned()));
+	window.set_child(Some(&gc.paned));
 	window.set_default_widget(Some(&view));
 	window.set_focus(Some(&view));
 	window.add_css_class("main-window");
@@ -830,7 +834,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					glib::Propagation::Stop
 				}
 				(Key::Escape, MODIFIER_NONE) => {
-					if gc.paned().position() != 0 {
+					if gc.paned.position() != 0 {
 						toggle_sidebar(&gc);
 						glib::Propagation::Stop
 					} else {
@@ -872,7 +876,13 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					glib::Propagation::Stop
 				}
 				(Key::w, ModifierType::CONTROL_MASK) => {
-					gc.win().close();
+					gc.window.close();
+					glib::Propagation::Stop
+				}
+				(Key::i, MODIFIER_NONE) => {
+					if let Err(err) = gc.book_info() {
+						gc.error(&err.to_string());
+					}
 					glib::Propagation::Stop
 				}
 				_ => {
@@ -917,15 +927,15 @@ fn get_theme_icon(dark_theme: bool, i18n: &I18n) -> (&'static str, Cow<str>) {
 
 fn toggle_sidebar(gc: &GuiContext)
 {
-	let paned = gc.paned();
-	let sidebar_btn = gc.sidebar_btn();
+	let paned = &gc.paned;
+	let sidebar_btn = &gc.sidebar_btn;
 	let (icon, tooltip, position) = if paned.position() == 0 {
-		("sidebar_off.svg", gc.i18n().msg("sidebar-off"), gc.cfg().gui.sidebar_size as i32)
+		("sidebar_off.svg", gc.i18n.msg("sidebar-off"), gc.cfg().gui.sidebar_size as i32)
 	} else {
 		paned.end_child().unwrap().grab_focus();
-		("sidebar_on.svg", gc.i18n().msg("sidebar-on"), 0)
+		("sidebar_on.svg", gc.i18n.msg("sidebar-on"), 0)
 	};
-	update_button(sidebar_btn, icon, &tooltip, gc.icons());
+	update_button(sidebar_btn, icon, &tooltip, &gc.icons);
 	paned.set_position(position);
 }
 
@@ -945,17 +955,17 @@ fn switch_theme(theme_btn: &Button, gc: &GuiContext)
 	let mut configuration = gc.cfg_mut();
 	let dark_theme = !configuration.dark_theme;
 	configuration.dark_theme = dark_theme;
-	let (theme_icon, theme_tooltip) = get_theme_icon(dark_theme, gc.i18n());
-	update_button(theme_btn, theme_icon, &theme_tooltip, gc.icons());
+	let (theme_icon, theme_tooltip) = get_theme_icon(dark_theme, &gc.i18n);
+	update_button(theme_btn, theme_icon, &theme_tooltip, &gc.icons);
 	let mut render_context = gc.ctx_mut();
 	render_context.colors = if dark_theme {
-		gc.dark_colors().clone()
+		gc.dark_colors.clone()
 	} else {
-		gc.bright_colors().clone()
+		gc.bright_colors.clone()
 	};
 	let mut controller = gc.ctrl_mut();
 	controller.redraw(&mut render_context);
-	view::update_css(gc.css_provider(), "main", &render_context.colors.background);
+	view::update_css(&gc.css_provider, "main", &render_context.colors.background);
 }
 
 #[inline]
@@ -963,14 +973,14 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	custom_color: Option<bool>, custom_font: Option<bool>,
 	theme_icon: &str, theme_tooltip: &str) -> (gtk4::Box, Button, SearchEntry)
 {
-	let i18n = gc.i18n();
-	let icons = gc.icons();
+	let i18n = &gc.i18n;
+	let icons = &gc.icons;
 
 	let toolbar = gtk4::Box::builder()
 		.css_classes(vec!["toolbar"])
 		.build();
 
-	let sidebar_button = gc.sidebar_btn();
+	let sidebar_button = &gc.sidebar_btn;
 	{
 		let gc = gc.clone();
 		sidebar_button.connect_clicked(move |_| {
@@ -1014,7 +1024,7 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 
 	{
 		let history_button = create_button("history.svg", &i18n.msg("history"), &icons, false);
-		history_button.insert_action_group("popup", Some(gc.action_group()));
+		history_button.insert_action_group("popup", Some(&gc.action_group));
 		gc.history_popover.set_parent(&history_button);
 		let gc = gc.clone();
 		history_button.connect_clicked(move |_| {
@@ -1031,6 +1041,19 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 		toolbar.append(&reload_button);
 	}
 
+	{
+		let info_button = &gc.book_info_btn;
+		let gc = gc.clone();
+		info_button.connect_clicked(move |_| {
+			if let Err(err) = gc.book_info() {
+				gc.error(&gc.i18n.args_msg("failed-load-reading", vec![
+					("error", err.to_string()),
+				]));
+			}
+		});
+		toolbar.append(info_button);
+	}
+
 	let theme_button = create_button(theme_icon, theme_tooltip, &icons, false);
 	{
 		let gc = gc.clone();
@@ -1041,7 +1064,7 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	}
 
 	{
-		let custom_color_button = gc.custom_color_btn();
+		let custom_color_button = &gc.custom_color_btn;
 		if let Some(custom_color) = custom_color {
 			custom_color_button.set_active(custom_color);
 		} else {
@@ -1052,7 +1075,7 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	}
 
 	{
-		let custom_font_button = gc.custom_font_btn();
+		let custom_font_button = &gc.custom_font_btn;
 		if let Some(custom_font) = custom_font {
 			custom_font_button.set_active(custom_font);
 		} else {
@@ -1182,7 +1205,7 @@ fn apply_settings(render_han: bool, locale: &str, fonts: Vec<PathConfig>,
 		false
 	}
 	let mut configuration = gc.cfg_mut();
-	let i18n = gc.i18n();
+	let i18n = &gc.i18n;
 	// need restart
 	configuration.gui.lang = locale.to_owned();
 
@@ -1297,6 +1320,7 @@ struct GuiContextInner {
 	custom_color_handler_id: SignalHandlerId,
 	custom_font_btn: ToggleButton,
 	custom_font_handler_id: SignalHandlerId,
+	book_info_btn: Button,
 	chapter_list: ChapterList,
 	icons: Rc<IconMap>,
 	i18n: Rc<I18n>,
@@ -1346,7 +1370,7 @@ impl GuiContext {
 		let (chapter_list, chapter_list_view) = ChapterList::create(&icons, &i18n, &ctrl);
 
 		let controller = ctrl.borrow();
-		let status_msg = controller.status_msg();
+		let status_msg = controller.status().to_string();
 		let status_bar = Label::builder()
 			.label(&status_msg)
 			.max_width_chars(50)
@@ -1420,6 +1444,8 @@ impl GuiContext {
 			view.grab_focus();
 		});
 
+		let book_info_btn = create_button("file_info.svg", &i18n.msg("book-info"), &icons, false);
+
 		let inner = GuiContextInner {
 			cfg: cfg.clone(),
 			ctrl: ctrl.clone(),
@@ -1438,6 +1464,7 @@ impl GuiContext {
 			custom_color_handler_id,
 			custom_font_btn,
 			custom_font_handler_id,
+			book_info_btn,
 			chapter_list,
 			icons,
 			i18n,
@@ -1486,36 +1513,6 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn paned(&self) -> &Paned
-	{
-		&self.paned
-	}
-
-	#[inline]
-	fn sidebar_stack(&self) -> &Stack
-	{
-		&self.sidebar_stack
-	}
-
-	#[inline]
-	fn sidebar_btn(&self) -> &Button
-	{
-		&self.sidebar_btn
-	}
-
-	#[inline]
-	fn custom_color_btn(&self) -> &ToggleButton
-	{
-		&self.custom_color_btn
-	}
-
-	#[inline]
-	fn custom_font_btn(&self) -> &ToggleButton
-	{
-		&self.custom_font_btn
-	}
-
-	#[inline]
 	fn update_ui(&self, custom_color: Option<bool>, custom_font: Option<bool>)
 	{
 		update_toggle_button(
@@ -1535,54 +1532,6 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn win(&self) -> &ApplicationWindow
-	{
-		&self.window
-	}
-
-	#[inline]
-	fn icons(&self) -> &IconMap
-	{
-		&self.icons
-	}
-
-	#[inline]
-	fn i18n(&self) -> &I18n
-	{
-		&self.i18n
-	}
-
-	#[inline]
-	fn action_group(&self) -> &SimpleActionGroup
-	{
-		&self.action_group
-	}
-
-	#[inline]
-	fn dark_colors(&self) -> &Colors
-	{
-		&self.dark_colors
-	}
-
-	#[inline]
-	fn bright_colors(&self) -> &Colors
-	{
-		&self.bright_colors
-	}
-
-	#[inline]
-	fn css_provider(&self) -> &CssProvider
-	{
-		&self.css_provider
-	}
-
-	#[inline]
-	fn status_bar(&self) -> &Label
-	{
-		&self.status_bar
-	}
-
-	#[inline]
 	fn show_history(&self)
 	{
 		self.history_popover.popup();
@@ -1591,7 +1540,7 @@ impl GuiContext {
 	fn open_dialog(&self)
 	{
 		let gc = self.clone();
-		self.file_dialog.open(Some(self.win()), None::<&Cancellable>, move |result| {
+		self.file_dialog.open(Some(&self.window), None::<&Cancellable>, move |result| {
 			if let Ok(file) = result {
 				if let Some(path) = file.path() {
 					gc.open_file(&path);
@@ -1630,7 +1579,7 @@ impl GuiContext {
 										None
 									};
 									self.update_ui(custom_color, custom_font);
-									update_title(self.win(), &controller.reading.filename);
+									update_title(&self.window, &controller.reading.filename);
 									controller.redraw(&mut render_context);
 									configuration.current = Some(controller.reading.filename.clone());
 									drop(controller);
@@ -1653,8 +1602,8 @@ impl GuiContext {
 
 	fn reload_history(&self)
 	{
-		for a in self.action_group().list_actions() {
-			self.action_group().remove_action(&a);
+		for a in self.action_group.list_actions() {
+			self.action_group.remove_action(&a);
 		}
 		let menu = &self.history_menu;
 		menu.remove_all();
@@ -1679,6 +1628,43 @@ impl GuiContext {
 		update_status(false, &msg, &self.status_bar);
 	}
 
+	fn book_info(&self) -> Result<()>
+	{
+		#[inline]
+		fn label(title: &str) -> Label
+		{
+			Label::builder()
+				.halign(Align::Start)
+				.label(title)
+				.build()
+		}
+
+		let controller = self.ctrl_mut();
+		let reading = &controller.reading;
+		let path = PathBuf::from_str(&reading.filename)?;
+		let meta = path.metadata()?;
+		let container = gtk4::Box::new(Orientation::Vertical, 10);
+		container.append(&label(&reading.filename));
+		container.append(&label(&format_size(meta.len())));
+		container.append(&Separator::new(Orientation::Horizontal));
+		if let Some(book_names) = controller.container.inner_book_names() {
+			if let Some(name) = book_names.get(reading.inner_book) {
+				container.append(&label(&name.name()));
+			}
+		}
+		let status = controller.status();
+		if let Some(title) = status.title {
+			container.append(&label(title));
+		}
+		container.append(&label(&status.position()));
+		let popover = Popover::builder()
+			.child(&container)
+			.build();
+		popover.set_parent(&self.book_info_btn);
+		popover.popup();
+		Ok(())
+	}
+
 	#[inline]
 	fn add_history_entry(&self, idx: usize, path_str: &String, menu: &Menu)
 	{
@@ -1694,7 +1680,7 @@ impl GuiContext {
 				gc.open_file(&path);
 			});
 		}
-		self.action_group().add_action(&action);
+		self.action_group.add_action(&action);
 		let menu_action_name = format!("popup.{}", action_name);
 		menu.append(Some(&path_str), Some(&menu_action_name));
 	}

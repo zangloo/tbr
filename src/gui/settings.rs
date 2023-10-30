@@ -11,10 +11,10 @@ use crate::gui::{apply_settings, create_button, DICT_FILE_EXTENSIONS, FONT_FILE_
 
 pub(super) fn show(gc: &GuiContext) -> Window
 {
-	let i18n = gc.i18n();
+	let i18n = &gc.i18n;
 	let dialog = Window::builder()
 		.title(i18n.msg("settings-dialog-title"))
-		.transient_for(gc.win())
+		.transient_for(&gc.window)
 		.default_width(500)
 		.default_height(500)
 		.resizable(false)
@@ -163,7 +163,7 @@ pub(super) fn show(gc: &GuiContext) -> Window
 								AlertDialog::builder()
 									.modal(true)
 									.message(&title)
-									.detail(gc.i18n().args_msg("invalid-path", vec![
+									.detail(gc.i18n.args_msg("invalid-path", vec![
 										("title", title),
 										("path", path_str(&path)),
 									]))
@@ -202,7 +202,7 @@ pub(super) fn show(gc: &GuiContext) -> Window
 			let render_han = render_han_cb.is_active();
 			let locale = {
 				let idx = locale_dropdown.selected();
-				let locales = gc.i18n().locales();
+				let locales = gc.i18n.locales();
 				&locales.get(idx as usize)
 					.unwrap_or(locales.get(0).unwrap())
 					.locale
@@ -330,8 +330,8 @@ fn create_list(title: &str, paths: &Vec<PathConfig>, gc: &GuiContext)
 		list.bind_model(Some(&model), move |obj| {
 			gtk4::Widget::from(create_list_row(
 				obj,
-				gc.i18n(),
-				gc.icons(),
+				&gc.i18n,
+				&gc.icons,
 				&model_to_remove,
 			))
 		});
@@ -343,7 +343,7 @@ fn create_list(title: &str, paths: &Vec<PathConfig>, gc: &GuiContext)
 		.min_content_height(120)
 		.build();
 	let list_label = title_label(title);
-	let list_add_btn = create_button("add.svg", &gc.i18n().msg("add-title"), gc.icons(), true);
+	let list_add_btn = create_button("add.svg", &gc.i18n.msg("add-title"), &gc.icons, true);
 	let label_box = gtk4::Box::builder()
 		.orientation(Orientation::Horizontal)
 		.spacing(10)

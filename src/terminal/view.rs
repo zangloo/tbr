@@ -173,7 +173,7 @@ impl View for ReadingView {
 	fn on_event(&mut self, e: Event) -> EventResult {
 		let status = match self.process_event(e) {
 			Ok(consumed) => if consumed {
-				self.controller.status_msg()
+				self.controller.status().to_string()
 			} else {
 				return EventResult::Ignored;
 			},
@@ -213,7 +213,7 @@ impl ReadingView {
 	#[inline]
 	pub fn status_msg(&self) -> String
 	{
-		self.controller.status_msg()
+		self.controller.status().to_string()
 	}
 
 	#[inline]

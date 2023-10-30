@@ -4,7 +4,7 @@ use gtk4::{Align, gdk, GestureClick, Label, ListBox, ListBoxRow, Orientation, Po
 use gtk4::graphene::Point;
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::{AdjustmentExt, BoxExt, EditableExt, ListBoxRowExt, WidgetExt};
-use crate::gui::{GuiController, README_TEXT_FILENAME, ChapterListSyncMode, IconMap, load_button_image};
+use crate::gui::{GuiController, ChapterListSyncMode, IconMap, load_button_image};
 use crate::i18n::I18n;
 
 pub const BOOK_NAME_LABEL_CLASS: &str = "book-name";
@@ -263,28 +263,27 @@ pub fn load_entries(chapter_list: &ChapterList)
 	let mut current_book_idx = None;
 	let mut current_book_collapsable = true;
 	let mut selected_index = None;
-	for (index, bn) in controller.container.inner_book_names().iter().enumerate() {
-		let bookname = bn.name();
-		if bookname == README_TEXT_FILENAME {
-			break;
-		}
-		if index == controller.reading.inner_book {
-			current_book_idx = Some(entries.len());
-			entries.push(ChapterListEntry::new(bookname, true, index, 0, true));
-			if let Some(toc) = controller.book.toc_iterator() {
-				for info in toc {
-					let reading = info.index == current_toc;
-					if reading {
-						selected_index = Some(entries.len());
+	if let Some(book_names) = controller.container.inner_book_names() {
+		for (index, bn) in book_names.iter().enumerate() {
+			let bookname = bn.name();
+			if index == controller.reading.inner_book {
+				current_book_idx = Some(entries.len());
+				entries.push(ChapterListEntry::new(bookname, true, index, 0, true));
+				if let Some(toc) = controller.book.toc_iterator() {
+					for info in toc {
+						let reading = info.index == current_toc;
+						if reading {
+							selected_index = Some(entries.len());
+						}
+						entries.push(ChapterListEntry::new(info.title, false, info.index, info.level, reading));
 					}
-					entries.push(ChapterListEntry::new(info.title, false, info.index, info.level, reading));
+				} else {
+					selected_index = Some(entries.len() - 1);
+					current_book_collapsable = false;
 				}
 			} else {
-				selected_index = Some(entries.len() - 1);
-				current_book_collapsable = false;
+				entries.push(ChapterListEntry::new(bookname, true, index, 0, false));
 			}
-		} else {
-			entries.push(ChapterListEntry::new(bookname, true, index, 0, false));
 		}
 	}
 	let mut rows = vec![];

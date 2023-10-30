@@ -512,8 +512,8 @@ impl BookLoader {
 		for loader in self.loaders.iter() {
 			if loader.support(filename) {
 				let (book, mut reading) = match content {
-					File(..) => {
-						let file = OpenOptions::new().read(true).open(filename)?;
+					File(filepath) => {
+						let file = OpenOptions::new().read(true).open(filepath)?;
 						loader.load_file(filename, file, loading_chapter, loading)?
 					}
 					Buf(buf) => loader.load_buf(filename, buf, loading_chapter, loading)?,

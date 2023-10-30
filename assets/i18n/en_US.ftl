@@ -12,6 +12,7 @@ file-open = open book
 file-open-title = open e-book
 history = recently reading
 reload = reload content
+book-info = book information
 theme-dark = dark theme
 theme-bright = bright theme
 lang = language
@@ -35,3 +36,4 @@ invalid-path = invalid { $title }: { $path }
 filter-chapter = filter chapters
 
 dictionary-no-definition = no definition in dictionary
+failed-load-reading = failed load reading book info：{ $error }

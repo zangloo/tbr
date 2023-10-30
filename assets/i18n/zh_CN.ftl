@@ -12,6 +12,7 @@ file-open = 开卷
 file-open-title = 选择书籍
 history = 最近阅读
 reload = 重新加载
+book-info = 书籍信息
 theme-dark = 夜光模式
 theme-bright = 日光模式
 lang = 语言
@@ -35,3 +36,4 @@ invalid-path = 错误的{ $title }: { $path }
 filter-chapter = 过滤章节标题
 
 dictionary-no-definition = 无字典解释
+failed-load-reading = 加载文件信息失败：{ $error }
