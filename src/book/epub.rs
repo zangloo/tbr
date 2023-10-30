@@ -272,7 +272,13 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 	}
 
 	#[cfg(feature = "gui")]
-	fn with_custom_color(&self) -> bool
+	fn color_customizable(&self) -> bool
+	{
+		true
+	}
+
+	#[cfg(feature = "gui")]
+	fn fonts_customizable(&self) -> bool
 	{
 		true
 	}
@@ -394,7 +400,7 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 		#[cfg(feature = "gui")]
 		loading.get_or_init(|reading| {
 			reading.custom_color = true;
-			reading.custom_font = self.fonts.is_some();
+			reading.custom_font = true;
 		})
 	}
 

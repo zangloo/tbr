@@ -388,7 +388,9 @@ pub trait Book {
 	fn image<'a>(&self, _href: &'a str) -> Option<(Cow<'a, str>, &[u8])> { None }
 	fn font_family_names(&self) -> Option<&IndexSet<String>> { None }
 	#[cfg(feature = "gui")]
-	fn with_custom_color(&self) -> bool { false }
+	fn color_customizable(&self) -> bool { false }
+	#[cfg(feature = "gui")]
+	fn fonts_customizable(&self) -> bool { false }
 	#[cfg(feature = "gui")]
 	fn custom_fonts(&self) -> Rc<Option<Fonts>> { Rc::new(None) }
 

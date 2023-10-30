@@ -215,12 +215,12 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		&icons,
 	);
 
-	let custom_color = if book.with_custom_color() {
+	let custom_color = if book.color_customizable() {
 		Some(reading.custom_color)
 	} else {
 		None
 	};
-	let custom_font = if book.custom_fonts().is_some() {
+	let custom_font = if book.fonts_customizable() {
 		Some(reading.custom_font)
 	} else {
 		None
@@ -1566,12 +1566,12 @@ impl GuiContext {
 						Ok(loading) =>
 							match controller.switch_container(loading, &mut render_context) {
 								Ok(msg) => {
-									let custom_color = if controller.book.with_custom_color() {
+									let custom_color = if controller.book.color_customizable() {
 										Some(controller.reading.custom_color)
 									} else {
 										None
 									};
-									let custom_font = if controller.book.custom_fonts().is_some() {
+									let custom_font = if controller.book.fonts_customizable() {
 										Some(controller.reading.custom_font)
 									} else {
 										None
