@@ -230,7 +230,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			// for reload content
 			BookLoadingInfo::History(self.reading.clone())
 		} else {
-			BookLoadingInfo::NewReading(self.reading.filename.clone(), inner_book, 0)
+			self.reading.load_inner_book(inner_book)
 		};
 		let (book, reading) = load_book(&self.container_manager, &mut self.container, loading)?;
 		self.book = book;
@@ -283,7 +283,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			} else {
 				if reading.inner_book > 0 {
 					let loading = BookLoadingInfo::NewReading(
-						reading.filename.clone(),
+						&reading.filename,
 						reading.inner_book - 1,
 						usize::MAX);
 					let (book, mut new_reading) = load_book(&self.container_manager, &mut self.container, loading)?;

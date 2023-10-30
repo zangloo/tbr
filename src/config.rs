@@ -43,6 +43,13 @@ impl ReadingInfo {
 	}
 
 	#[inline]
+	#[cfg(feature = "gui")]
+	pub fn load_inner_book(&self, inner_book: usize) -> BookLoadingInfo
+	{
+		BookLoadingInfo::ChangeInnerBook(&self.filename, inner_book, self.row_id)
+	}
+
+	#[inline]
 	fn now() -> u64
 	{
 		SystemTime::now()
@@ -68,17 +75,19 @@ impl Listable for ReadingInfo {
 	}
 }
 
-pub enum BookLoadingInfo {
-	NewReading(String, usize, usize),
+pub enum BookLoadingInfo<'a> {
+	NewReading(&'a str, usize, usize),
+	ChangeInnerBook(&'a str, usize, i64),
 	History(ReadingInfo),
 }
 
-impl BookLoadingInfo {
+impl<'a> BookLoadingInfo<'a> {
 	#[inline]
 	pub fn filename(&self) -> &str
 	{
 		match self {
 			BookLoadingInfo::NewReading(filename, ..) => filename,
+			BookLoadingInfo::ChangeInnerBook(filename, ..) => filename,
 			BookLoadingInfo::History(reading) => &reading.filename,
 		}
 	}
@@ -89,7 +98,7 @@ impl BookLoadingInfo {
 		match self {
 			BookLoadingInfo::NewReading(filename, inner_book, chapter) => ReadingInfo {
 				row_id: 0,
-				filename,
+				filename: filename.to_owned(),
 				inner_book,
 				chapter,
 				line: 0,
@@ -98,6 +107,18 @@ impl BookLoadingInfo {
 				custom_font: false,
 				strip_empty_lines: false,
 			},
+			BookLoadingInfo::ChangeInnerBook(filename, inner_book, row_id) =>
+				ReadingInfo {
+					row_id,
+					filename: filename.to_owned(),
+					inner_book,
+					chapter: 0,
+					line: 0,
+					position: 0,
+					custom_color: false,
+					custom_font: false,
+					strip_empty_lines: false,
+				},
 			BookLoadingInfo::History(reading) => reading,
 		}
 	}
@@ -110,9 +131,24 @@ impl BookLoadingInfo {
 			BookLoadingInfo::NewReading(filename, inner_book, chapter) => {
 				let mut reading = ReadingInfo {
 					row_id: 0,
-					filename,
+					filename: filename.to_owned(),
 					inner_book,
 					chapter,
+					line: 0,
+					position: 0,
+					custom_color: false,
+					custom_font: false,
+					strip_empty_lines: false,
+				};
+				f(&mut reading);
+				reading
+			}
+			BookLoadingInfo::ChangeInnerBook(filename, inner_book, row_id) => {
+				let mut reading = ReadingInfo {
+					row_id,
+					filename: filename.to_owned(),
+					inner_book,
+					chapter: 0,
 					line: 0,
 					position: 0,
 					custom_color: false,
@@ -214,7 +250,7 @@ impl Configuration {
 		Ok(query(&self.history_db, 20, &self.current)?)
 	}
 
-	pub fn reading(&self, filename: &str) -> Result<BookLoadingInfo>
+	pub fn reading<'a>(&self, filename: &'a str) -> Result<BookLoadingInfo<'a>>
 	{
 		let mut stmt = self.history_db.prepare("
 select row_id,
@@ -234,7 +270,7 @@ where filename = ?
 		if let Some(info) = iter.next() {
 			Ok(BookLoadingInfo::History(info?))
 		} else {
-			Ok(BookLoadingInfo::NewReading(filename.to_owned(), 0, 0))
+			Ok(BookLoadingInfo::NewReading(filename, 0, 0))
 		}
 	}
 

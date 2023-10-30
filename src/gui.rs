@@ -159,10 +159,9 @@ fn load_image(bytes: &[u8]) -> Option<Pixbuf>
 
 fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Themes>) -> Result<GuiContext>
 {
-	let mut configuration = cfg.borrow_mut();
-	let conf_ref: &mut Configuration = &mut configuration;
-	let loading = if let Some(current) = &conf_ref.current {
-		Some(conf_ref.reading(current)?)
+	let configuration = cfg.borrow_mut();
+	let loading = if let Some(current) = &configuration.current {
+		Some(configuration.reading(current)?)
 	} else {
 		None
 	};
@@ -899,8 +898,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 		window.connect_close_request(move |_| {
 			let mut controller = gc.ctrl_mut();
 			if controller.reading.filename != README_TEXT_FILENAME {
-				let mut configuration = gc.cfg_mut();
-				configuration.current = Some(controller.reading.filename.clone());
+				let configuration = gc.cfg_mut();
 				if let Err(e) = configuration.save_reading(&mut controller.reading) {
 					eprintln!("Failed save reading info: {}", e.to_string());
 				}
