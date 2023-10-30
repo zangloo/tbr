@@ -119,24 +119,5 @@ fn write_attrs(node: &Node, html: &mut String)
 fn is_void_element(name: &str) -> bool
 {
 	const VOID_ELEMENTS: [&str; 16] = ["area", "base", "br", "col", "command", "embed", "hr", "img", "input", "keygen", "link", "meta", "param", "source", "track", "wbr"];
-
-	let mut slice: &[&str] = &VOID_ELEMENTS;
-	while !slice.is_empty() {
-		let len = slice.len();
-		let idx = len >> 1;
-		let current = slice[idx];
-		if current == name {
-			return true;
-		} else if current > name {
-			slice = &slice[..idx];
-		} else {
-			let next = idx + 1;
-			if next >= len {
-				break;
-			} else {
-				slice = &slice[next..]
-			}
-		}
-	}
-	false
+	VOID_ELEMENTS.binary_search(&name).is_ok()
 }
