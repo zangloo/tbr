@@ -50,6 +50,7 @@ pub struct ReadingStatus<'a> {
 
 impl<'a> ReadingStatus<'a> {
 	#[inline]
+	#[cfg(feature = "gui")]
 	pub fn position(&self) -> String
 	{
 		format!("{}:{}", self.total_line, self.current_line)

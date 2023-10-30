@@ -130,6 +130,7 @@ impl DummyContainer {
 }
 
 #[inline]
+#[cfg(feature = "gui")]
 pub fn title_for_filename(filename: &str) -> &str
 {
 	const SPLITTER: char = std::path::MAIN_SEPARATOR;

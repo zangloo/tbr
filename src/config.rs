@@ -43,7 +43,6 @@ impl ReadingInfo {
 	}
 
 	#[inline]
-	#[cfg(feature = "gui")]
 	pub fn load_inner_book(&self, inner_book: usize) -> BookLoadingInfo
 	{
 		BookLoadingInfo::ChangeInnerBook(&self.filename, inner_book, self.row_id)

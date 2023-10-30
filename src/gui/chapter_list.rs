@@ -263,6 +263,7 @@ pub fn load_entries(chapter_list: &ChapterList)
 	let mut current_book_idx = None;
 	let mut current_book_collapsable = true;
 	let mut selected_index = None;
+	let mut toc_level = 1;
 	if let Some(book_names) = controller.container.inner_book_names() {
 		for (index, bn) in book_names.iter().enumerate() {
 			let bookname = bn.name();
@@ -285,10 +286,19 @@ pub fn load_entries(chapter_list: &ChapterList)
 				entries.push(ChapterListEntry::new(bookname, true, index, 0, false));
 			}
 		}
+	} else if let Some(toc) = controller.book.toc_iterator() {
+		for info in toc {
+			let reading = info.index == current_toc;
+			if reading {
+				selected_index = Some(entries.len());
+			}
+			entries.push(ChapterListEntry::new(info.title, false, info.index, info.level - 1, reading));
+		}
+		toc_level = 0;
 	}
 	let mut rows = vec![];
 	for entry in entries.iter() {
-		let row = create_list_row(&entry, icons);
+		let row = create_list_row(&entry, toc_level, icons);
 		rows.push(row);
 	}
 	drop(entries);
@@ -322,7 +332,7 @@ pub fn load_entries(chapter_list: &ChapterList)
 	}
 }
 
-fn create_list_row(entry: &ChapterListEntry, icons: &IconMap) -> ListBoxRow
+fn create_list_row(entry: &ChapterListEntry, toc_level: usize, icons: &IconMap) -> ListBoxRow
 {
 	let title = &entry.title;
 	let label = Label::builder()
@@ -344,7 +354,7 @@ fn create_list_row(entry: &ChapterListEntry, icons: &IconMap) -> ListBoxRow
 	} else {
 		view.add_css_class(TOC_LABEL_CLASS);
 		label.set_label(title);
-		let icon_name = if entry.level == 1 {
+		let icon_name = if entry.level == toc_level {
 			"toc.svg"
 		} else {
 			"chapter.svg"
