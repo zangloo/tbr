@@ -24,7 +24,7 @@ use crate::{Asset, I18n, package_name};
 use crate::book::{Book, Colors, Line};
 use crate::color::Color32;
 use crate::common::{Position, txt_lines};
-use crate::config::{Configuration, PathConfig, ReadingInfo, Themes};
+use crate::config::{BookLoadingInfo, Configuration, PathConfig, ReadingInfo, Themes};
 use crate::container::{BookContent, BookName, Container, load_book, load_container, title_for_filename};
 use crate::controller::Controller;
 use crate::gui::chapter_list::ChapterList;
@@ -1621,9 +1621,11 @@ impl GuiContext {
 	fn reload_book(&self)
 	{
 		let mut controller = self.ctrl_mut();
-		let inner_book = controller.reading.inner_book;
-		let msg = controller.switch_book(inner_book, &mut self.ctx_mut());
-		update_status(false, &msg, &self.status_bar);
+		let loading = BookLoadingInfo::Reload(controller.reading.clone());
+		match controller.switch_container(loading, &mut self.ctx_mut()) {
+			Ok(msg) => update_status(false, &msg, &self.status_bar),
+			Err(err) => self.error(&err.to_string()),
+		}
 	}
 
 	fn book_info(&self) -> Result<()>

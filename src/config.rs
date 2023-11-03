@@ -78,6 +78,7 @@ pub enum BookLoadingInfo<'a> {
 	NewReading(&'a str, usize, usize),
 	ChangeInnerBook(&'a str, usize, i64),
 	History(ReadingInfo),
+	Reload(ReadingInfo),
 }
 
 impl<'a> BookLoadingInfo<'a> {
@@ -87,7 +88,7 @@ impl<'a> BookLoadingInfo<'a> {
 		match self {
 			BookLoadingInfo::NewReading(filename, ..) => filename,
 			BookLoadingInfo::ChangeInnerBook(filename, ..) => filename,
-			BookLoadingInfo::History(reading) => &reading.filename,
+			BookLoadingInfo::History(reading) | BookLoadingInfo::Reload(reading) => &reading.filename,
 		}
 	}
 
@@ -118,7 +119,7 @@ impl<'a> BookLoadingInfo<'a> {
 					custom_font: false,
 					strip_empty_lines: false,
 				},
-			BookLoadingInfo::History(reading) => reading,
+			BookLoadingInfo::History(reading) | BookLoadingInfo::Reload(reading) => reading,
 		}
 	}
 
@@ -157,7 +158,7 @@ impl<'a> BookLoadingInfo<'a> {
 				f(&mut reading);
 				reading
 			}
-			BookLoadingInfo::History(reading) => reading
+			BookLoadingInfo::History(reading) | BookLoadingInfo::Reload(reading) => reading
 		}
 	}
 }
