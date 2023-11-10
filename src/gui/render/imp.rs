@@ -742,7 +742,8 @@ pub trait GuiRender {
 		}
 	}
 
-	fn apply_font_modified(&mut self, pango: &PangoContext, render_context: &mut RenderContext)
+	fn apply_font_modified(&mut self, book_fonts: &Option<Fonts>,
+		pango: &PangoContext, render_context: &mut RenderContext)
 	{
 		self.cache_mut().clear();
 		let measures = self.get_char_measures(
@@ -752,6 +753,7 @@ pub trait GuiRender {
 			&FontWeight::NORMAL,
 			&None,
 			None,
+			book_fonts,
 			render_context);
 		render_context.default_font_measure = measures.size;
 	}
@@ -759,16 +761,23 @@ pub trait GuiRender {
 	fn get_char_measures(&mut self, layout: &PangoContext, char: char,
 		font_scale: &FontScale, font_weight: &FontWeight,
 		mut font_family_idx: &Option<u16>, font_family_names: Option<&IndexSet<String>>,
-		render_context: &mut RenderContext) -> CharMeasures
+		book_fonts: &Option<Fonts>, render_context: &mut RenderContext) -> CharMeasures
 	{
 		const SPACE: char = ' ';
 		const FULL_SPACE: char = '　';
 
 		let font_size = scale_font_size(render_context.font_size, &font_scale);
 		let font_weight = load_font_weight(&font_weight, render_context);
-		if !render_context.custom_font {
+		let render_fonts = if render_context.custom_font {
+			if book_fonts.is_some() {
+				book_fonts
+			} else {
+				&render_context.fonts
+			}
+		} else {
 			font_family_idx = &None;
-		}
+			&render_context.fonts
+		};
 
 		if let Some(data) = self.cache_get(char, font_size, &font_weight, font_family_idx) {
 			return CharMeasures {
@@ -783,13 +792,13 @@ pub trait GuiRender {
 		match char {
 			SPACE => {
 				let measures = self.measure_char(
-					layout, 'S', font_size, font_weight, font_family_idx, font_family_names, render_context);
+					layout, 'S', font_size, font_weight, font_family_idx, font_family_names, render_fonts);
 				self.cache_insert(SPACE, font_size, &font_weight, font_family_idx, CharDrawData::Space(measures.size));
 				measures
 			}
 			FULL_SPACE => {
 				let measures = self.measure_char(
-					layout, HAN_CHAR, font_size, font_weight, font_family_idx, font_family_names, render_context);
+					layout, HAN_CHAR, font_size, font_weight, font_family_idx, font_family_names, render_fonts);
 				self.cache_insert(FULL_SPACE, font_size, &font_weight, font_family_idx, CharDrawData::Space(measures.size));
 				measures
 			}
@@ -800,14 +809,14 @@ pub trait GuiRender {
 				font_weight,
 				font_family_idx,
 				font_family_names,
-				render_context)
+				render_fonts)
 		}
 	}
 
 	fn measure_char(&mut self, layout: &PangoContext, char: char, font_size: f32,
 		font_weight: &FontWeight, font_family_idx: &Option<u16>,
-		font_family_names: Option<&IndexSet<String>>,
-		render_context: &mut RenderContext) -> CharMeasures
+		font_family_names: Option<&IndexSet<String>>, fonts: &Option<Fonts>)
+		-> CharMeasures
 	{
 		if let Some(draw_data) = OutlineDrawData::measure(
 			char,
@@ -815,7 +824,7 @@ pub trait GuiRender {
 			font_weight,
 			font_family_idx,
 			font_family_names,
-			&render_context.fonts) {
+			fonts) {
 			let measures = CharMeasures {
 				size: draw_data.size,
 				draw_size: draw_data.draw_size,

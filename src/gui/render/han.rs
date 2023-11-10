@@ -115,6 +115,7 @@ impl GuiRender for GuiHanRender
 					&char_style.font_weight,
 					&char_style.font_family,
 					book.font_family_names(),
+					book.custom_fonts(),
 					context);
 				let (char_height, y_offset) = if self.compact_chars.contains(&char) {
 					(measures.draw_size.y * 2., -measures.draw_offset.y + (measures.draw_size.y / 2.))

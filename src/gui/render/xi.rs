@@ -141,6 +141,7 @@ impl GuiRender for GuiXiRender
 					&char_style.font_weight,
 					&char_style.font_family,
 					book.font_family_names(),
+					book.custom_fonts(),
 					context);
 
 				let mut rect = Rect::new(left, self.baseline, measures.size.x, measures.size.y);

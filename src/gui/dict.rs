@@ -203,7 +203,12 @@ impl DictionaryManager {
 			false,
 			false);
 		let book = DictionaryBook::default();
-		let view = GuiView::new("dict", false, fonts, &mut render_context);
+		let view = GuiView::new(
+			"dict",
+			false,
+			book.custom_fonts(),
+			fonts,
+			&mut render_context);
 		let backward_btn = create_button("backward_disabled.svg", "", icons, false);
 		let forward_btn = create_button("forward_disabled.svg", "", icons, false);
 		let lookup_input = SearchEntry::builder()
@@ -263,14 +268,14 @@ impl DictionaryManager {
 	#[inline]
 	pub fn set_fonts(&mut self, fonts: Rc<Option<Fonts>>)
 	{
-		self.view.set_fonts(fonts, &mut self.render_context);
+		self.view.set_fonts(&None, fonts, &mut self.render_context);
 		self.redraw(ScrollRedrawMethod::NoResetScroll);
 	}
 
 	#[inline]
 	pub fn set_font_size(&mut self, font_size: u8)
 	{
-		self.view.set_font_size(font_size, &mut self.render_context);
+		self.view.set_font_size(font_size, &None, &mut self.render_context);
 		self.redraw(ScrollRedrawMethod::NoResetScroll);
 	}
 

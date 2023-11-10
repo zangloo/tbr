@@ -5,8 +5,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::ops::Range;
-#[cfg(feature = "gui")]
-use std::rc::Rc;
 use std::slice::Iter;
 use anyhow::{anyhow, Result};
 use fancy_regex::Regex;
@@ -392,7 +390,7 @@ pub trait Book {
 	#[cfg(feature = "gui")]
 	fn fonts_customizable(&self) -> bool { false }
 	#[cfg(feature = "gui")]
-	fn custom_fonts(&self) -> Rc<Option<Fonts>> { Rc::new(None) }
+	fn custom_fonts(&self) -> &Option<Fonts> { &None }
 
 	fn range_highlight(&self, from: Position, to: Position)
 		-> Option<HighlightInfo>

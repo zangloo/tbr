@@ -99,8 +99,8 @@ impl GuiView {
 	pub const CLEAR_SELECTION_SIGNAL: &str = "clear-selection";
 	pub const SCROLL_SIGNAL: &str = "scroll";
 
-	pub fn new(instance_name: &str, render_han: bool, fonts: Rc<Option<Fonts>>,
-		render_context: &mut RenderContext) -> Self
+	pub fn new(instance_name: &str, render_han: bool, book_fonts: &Option<Fonts>,
+		user_fonts: Rc<Option<Fonts>>, render_context: &mut RenderContext) -> Self
 	{
 		let view: GuiView = Object::builder().build();
 		view.set_vexpand(true);
@@ -112,7 +112,7 @@ impl GuiView {
 		let imp = view.imp();
 		let pango = &view.get_pango();
 		imp.set_render_type(render_han, render_context);
-		imp.set_fonts(fonts, pango, render_context);
+		imp.set_fonts(book_fonts, user_fonts, pango, render_context);
 		view
 	}
 
@@ -231,21 +231,21 @@ impl GuiView {
 	}
 
 	#[inline]
-	pub fn set_font_size(&self, font_size: u8, render_context: &mut RenderContext)
+	pub fn set_font_size(&self, font_size: u8, book_fonts: &Option<Fonts>, render_context: &mut RenderContext)
 	{
-		self.imp().set_font_size(font_size, render_context, &self.get_pango());
+		self.imp().set_font_size(font_size, book_fonts, render_context, &self.get_pango());
 	}
 
 	#[inline]
-	pub fn set_fonts(&self, fonts: Rc<Option<Fonts>>, render_context: &mut RenderContext)
+	pub fn set_fonts(&self, book_fonts: &Option<Fonts>, user_fonts: Rc<Option<Fonts>>, render_context: &mut RenderContext)
 	{
-		self.imp().set_fonts(fonts, &self.get_pango(), render_context);
+		self.imp().set_fonts(book_fonts, user_fonts, &self.get_pango(), render_context);
 	}
 
 	#[inline]
-	pub fn set_custom_font(&self, custom_font: bool, render_context: &mut RenderContext)
+	pub fn set_custom_font(&self, custom_font: bool, book_fonts: &Option<Fonts>, render_context: &mut RenderContext)
 	{
-		self.imp().set_custom_font(custom_font, &self.get_pango(), render_context);
+		self.imp().set_custom_font(custom_font, book_fonts, &self.get_pango(), render_context);
 	}
 
 	#[inline(always)]
@@ -325,8 +325,6 @@ mod imp {
 					render_lines: vec![],
 					draw_data: None,
 					font_family_names: None,
-					book_fonts: Rc::new(None),
-					user_fonts: Rc::new(None),
 				}),
 				render: RefCell::new(create_render(false)),
 			}
@@ -338,8 +336,6 @@ mod imp {
 		render_lines: Vec<RenderLine>,
 		draw_data: Option<ScrolledDrawData>,
 		font_family_names: Option<IndexSet<String>>,
-		book_fonts: Rc<Option<Fonts>>,
-		user_fonts: Rc<Option<Fonts>>,
 	}
 
 	#[glib::object_subclass]
@@ -514,34 +510,12 @@ mod imp {
 		pub(super) fn book_loaded(&self, book: &dyn Book, reading: &ReadingInfo,
 			pango: &PangoContext, context: &mut RenderContext)
 		{
-			let fonts = book.custom_fonts();
 			context.custom_font = reading.custom_font;
 			context.custom_color = reading.custom_color;
-			let mut data = self.data.borrow_mut();
-			let font_changed = if context.custom_font {
-				if fonts.is_some() {
-					context.fonts = fonts.clone();
-					true
-				} else {
-					if context.fonts.is_some() {
-						context.fonts = data.user_fonts.clone();
-						true
-					} else {
-						false
-					}
-				}
-			} else {
-				context.fonts = data.user_fonts.clone();
-				true
-			};
-
-			data.book_fonts = fonts;
 			context.leading_chars = book.leading_space();
 			let mut render = self.render.borrow_mut();
 			render.image_cache_mut().clear();
-			if font_changed {
-				render.apply_font_modified(pango, context);
-			}
+			render.apply_font_modified(book.custom_fonts(), pango, context);
 			render.reset_render_context(context);
 		}
 
@@ -679,42 +653,31 @@ mod imp {
 		}
 
 		#[inline(always)]
-		pub(super) fn set_fonts(&self, fonts: Rc<Option<Fonts>>, pango: &PangoContext,
+		pub(super) fn set_fonts(&self, book_fonts: &Option<Fonts>, user_fonts: Rc<Option<Fonts>>, pango: &PangoContext,
 			render_context: &mut RenderContext)
 		{
-			let mut render = self.render.borrow_mut();
-			let mut data = self.data.borrow_mut();
-			render_context.fonts = if render_context.custom_font && data.book_fonts.is_some() {
-				data.book_fonts.clone()
-			} else {
-				fonts.clone()
-			};
-
-			data.user_fonts = fonts;
-			render.apply_font_modified(pango, render_context);
+			render_context.fonts = user_fonts;
+			if !render_context.custom_font || book_fonts.is_none() {
+				let mut render = self.render.borrow_mut();
+				render.apply_font_modified(book_fonts, pango, render_context);
+			}
 		}
 
-		pub(super) fn set_font_size(&self, font_size: u8, render_context: &mut RenderContext,
+		pub(super) fn set_font_size(&self, font_size: u8, book_fonts: &Option<Fonts>, render_context: &mut RenderContext,
 			pango: &PangoContext)
 		{
 			render_context.font_size = font_size;
 			let mut render = self.render.borrow_mut();
-			render.apply_font_modified(pango, render_context);
+			render.apply_font_modified(book_fonts, pango, render_context);
 		}
 
-		pub(super) fn set_custom_font(&self, custom_font: bool,
+		pub(super) fn set_custom_font(&self, custom_font: bool, book_fonts: &Option<Fonts>,
 			pango: &PangoContext, render_context: &mut RenderContext)
 		{
 			render_context.custom_font = custom_font;
-			let data = self.data.borrow();
-			if data.book_fonts.is_some() {
-				if custom_font {
-					render_context.fonts = data.book_fonts.clone();
-				} else {
-					render_context.fonts = data.user_fonts.clone();
-				}
+			if book_fonts.is_some() {
 				let mut render = self.render.borrow_mut();
-				render.apply_font_modified(pango, render_context);
+				render.apply_font_modified(book_fonts, pango, render_context);
 			}
 		}
 

@@ -203,6 +203,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let view = GuiView::new(
 		"main",
 		configuration.render_han,
+		book.custom_fonts(),
 		fonts.clone(),
 		&mut render_context);
 	let css_provider = view::init_css("main", &render_context.colors.background);
@@ -350,7 +351,10 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 						let mut configuration = cfg.borrow_mut();
 						if configuration.gui.font_size < MAX_FONT_SIZE {
 							configuration.gui.font_size += 2;
-							controller.render.set_font_size(configuration.gui.font_size, render_context);
+							controller.render.set_font_size(
+								configuration.gui.font_size,
+								controller.book.custom_fonts(),
+								render_context);
 							controller.redraw(render_context);
 							gc.dm_mut().set_font_size(configuration.gui.font_size);
 						}
@@ -362,7 +366,10 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 						let mut configuration = gc.cfg_mut();
 						if configuration.gui.font_size > MIN_FONT_SIZE {
 							configuration.gui.font_size -= 2;
-							controller.render.set_font_size(configuration.gui.font_size, render_context);
+							controller.render.set_font_size(
+								configuration.gui.font_size,
+								controller.book.custom_fonts(),
+								render_context);
 							controller.redraw(render_context);
 							gc.dm_mut().set_font_size(configuration.gui.font_size);
 						}
@@ -1261,7 +1268,7 @@ fn apply_settings(render_han: bool, locale: &str, fonts: Vec<PathConfig>,
 			let fonts_data = Rc::new(new_fonts);
 			dictionary_manager.set_fonts(fonts_data.clone());
 			configuration.gui.fonts = fonts;
-			controller.render.set_fonts(fonts_data, &mut render_context);
+			controller.render.set_fonts(controller.book.custom_fonts(), fonts_data, &mut render_context);
 		}
 		render_context.ignore_font_weight = ignore_font_weight;
 		render_context.strip_empty_lines = strip_empty_lines;
@@ -1417,7 +1424,10 @@ impl GuiContext {
 				let mut controller = ctrl.borrow_mut();
 				controller.reading.custom_font = custom_font;
 				let mut render_context = ctx.borrow_mut();
-				controller.render.set_custom_font(custom_font, &mut render_context);
+				controller.render.set_custom_font(
+					custom_font,
+					controller.book.custom_fonts(),
+					&mut render_context);
 				controller.redraw(&mut render_context);
 			})
 		};

@@ -6,8 +6,6 @@ use std::io::Cursor;
 use std::io::Read;
 use std::io::Seek;
 use std::path::PathBuf;
-#[cfg(feature = "gui")]
-use std::rc::Rc;
 use anyhow::{anyhow, bail, Result};
 use elsa::FrozenMap;
 use indexmap::IndexSet;
@@ -73,7 +71,7 @@ struct EpubBook<R: Read + Seek> {
 	font_families: IndexSet<String>,
 	chapter_index: usize,
 	#[cfg(feature = "gui")]
-	fonts: Rc<Option<Fonts>>,
+	fonts: Option<Fonts>,
 }
 
 pub struct EpubLoader {
@@ -284,8 +282,8 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 	}
 
 	#[cfg(feature = "gui")]
-	fn custom_fonts(&self) -> Rc<Option<Fonts>> {
-		self.fonts.clone()
+	fn custom_fonts(&self) -> &Option<Fonts> {
+		&self.fonts
 	}
 }
 
@@ -373,7 +371,7 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 					fonts_data.push(data);
 				}
 			}
-			Rc::new(Fonts::from_vec(fonts_data)?)
+			Fonts::from_vec(fonts_data)?
 		};
 		let chapter_cache = HashMap::new();
 		let mut book = EpubBook {
