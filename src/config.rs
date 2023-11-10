@@ -74,6 +74,7 @@ impl Listable for ReadingInfo {
 	}
 }
 
+#[allow(unused)]
 pub enum BookLoadingInfo<'a> {
 	NewReading(&'a str, usize, usize),
 	ChangeInnerBook(&'a str, usize, i64),
