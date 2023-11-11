@@ -12,7 +12,7 @@ use indexmap::IndexSet;
 use roxmltree::{Children, Document, ExpandedName, Node};
 use zip::ZipArchive;
 
-use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader, TocInfo};
+use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader, TocInfo, ImageData};
 use crate::html_convertor::html_str_content;
 use crate::list::ListIterator;
 use crate::common::{Position, TraceInfo};
@@ -249,7 +249,7 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 		}
 	}
 
-	fn image<'h>(&self, href: &'h str) -> Option<(Cow<'h, str>, &[u8])>
+	fn image<'h>(&'h self, href: &'h str) -> Option<ImageData<'h>>
 	{
 		if let Ok(path) = chapter_path(self.current_chapter(), &self.content_opf) {
 			let cwd = path_cwd(path);
@@ -257,7 +257,7 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 			let bytes = frozen_map_get!(self.images, full_path, true, ||{
 				zip_content(&mut self.zip.borrow_mut(), &full_path).ok()
 			})?;
-			Some((Cow::Owned(full_path), bytes))
+			Some(ImageData::Borrowed((Cow::Owned(full_path), bytes)))
 		} else {
 			None
 		}
@@ -408,7 +408,7 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 					html_str = xhtml_to_html(&html_str)?;
 				}
 				#[allow(unused)]
-				let (html_content, mut font_faces) = html_str_content(&html_str, &mut self.font_families, Some(|path: &str| {
+					let (html_content, mut font_faces) = html_str_content(&html_str, &mut self.font_families, Some(|path: &str| {
 					let full_path = concat_path(cwd.clone(), &path)?;
 					frozen_map_get!(self.css_cache, full_path, || {
 						zip_string(&mut zip, &full_path).ok()

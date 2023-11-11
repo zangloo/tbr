@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 use elsa::FrozenMap;
 use indexmap::IndexSet;
 
-use crate::book::{Book, LoadingChapter, Line, Loader};
+use crate::book::{Book, LoadingChapter, Line, Loader, ImageData};
 use crate::html_convertor::{html_content, html_str_content, HtmlContent};
 use crate::common::{plain_text, TraceInfo};
 use crate::config::{BookLoadingInfo, ReadingInfo};
@@ -20,6 +20,7 @@ pub(crate) struct HtmlLoader {
 }
 
 pub(crate) struct HtmlBook {
+	path: Option<PathBuf>,
 	content: HtmlContent,
 	font_families: IndexSet<String>,
 	#[cfg(feature = "gui")]
@@ -82,6 +83,7 @@ impl Loader for HtmlLoader {
 				Some(content)
 			});
 			HtmlBook {
+				path: Some(cwd.to_owned()),
 				content,
 				font_families,
 				fonts,
@@ -89,6 +91,7 @@ impl Loader for HtmlLoader {
 		};
 		#[cfg(not(feature = "gui"))]
 			let book = HtmlBook {
+			path: Some(cwd.to_owned()),
 			content,
 			font_families,
 		};
@@ -107,6 +110,7 @@ impl Loader for HtmlLoader {
 		let text = plain_text(content, false)?;
 		let content = html_content(&text, &mut font_families)?;
 		let book = HtmlBook {
+			path: None,
 			content,
 			font_families,
 			#[cfg(feature = "gui")]
@@ -137,6 +141,17 @@ impl Book for HtmlBook {
 		let anchor = split.next()?;
 		let position = self.content.id_map.get(anchor)?;
 		Some(TraceInfo { chapter: 0, line: position.line, offset: position.offset })
+	}
+
+	fn image<'h>(&'h self, href: &'h str) -> Option<ImageData<'h>>
+	{
+		if let Some(path) = &self.path {
+			let path = path.join(href);
+			let bytes = fs::read(&path).ok()?;
+			Some(ImageData::Owned((path.to_str()?.to_string(), bytes)))
+		} else {
+			None
+		}
 	}
 
 	#[inline]

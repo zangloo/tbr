@@ -699,31 +699,32 @@ pub trait GuiRender {
 		view_rect: &Rect) -> Option<(String, Pos2)>
 	{
 		if let Some(href) = &char_style.image {
-			if let Some((path, bytes)) = book.image(href) {
+			if let Some(data) = book.image(href) {
 				let cache = self.image_cache_mut();
-				let (image_data, mut size) = match cache.entry(path.clone().into_owned()) {
+				let (image_data, mut size) = match cache.entry(data.path_dup()) {
 					Entry::Occupied(o) => {
 						let data = o.into_mut();
 						let size = data.size();
 						(data, size)
 					}
-					Entry::Vacant(v) => if let Some((data, size)) = load_image_and_resize(view_rect, bytes) {
-						(v.insert(data), size)
-					} else {
-						return None;
-					}
+					Entry::Vacant(v) =>
+						if let Some((data, size)) = load_image_and_resize(view_rect, data.bytes()) {
+							(v.insert(data), size)
+						} else {
+							return None;
+						}
 				};
 
 				if *view_rect != image_data.view_rect {
-					if let Some((new_image_data, new_size)) = load_image_and_resize(view_rect, bytes) {
-						cache.insert(path.clone().into_owned(), new_image_data);
+					if let Some((new_image_data, new_size)) = load_image_and_resize(view_rect, data.bytes()) {
+						cache.insert(data.path_dup(), new_image_data);
 						size = new_size
 					} else {
 						return None;
 					}
 				};
 
-				Some((path.into_owned(), size))
+				Some((data.path(), size))
 			} else {
 				None
 			}

@@ -11,7 +11,7 @@ use gtk4::glib;
 use gtk4::prelude::{BoxExt, ButtonExt, DrawingAreaExt, EditableExt, WidgetExt};
 use indexmap::IndexSet;
 use stardict::{StarDict, WordDefinition};
-use crate::book::{Book, Colors, Line};
+use crate::book::{Book, Colors, ImageData, Line};
 use crate::package_name;
 use crate::color::Color32;
 use crate::common::{txt_lines, Position};
@@ -80,13 +80,13 @@ impl Book for DictionaryBook
 		0
 	}
 
-	fn image<'a>(&self, href: &'a str) -> Option<(Cow<'a, str>, &[u8])>
+	fn image<'a>(&'a self, href: &'a str) -> Option<ImageData<'a>>
 	{
 		if let Some(bytes) = self.resources.get(href) {
 			return if bytes.is_empty() {
 				None
 			} else {
-				Some((Cow::Borrowed(href), bytes))
+				Some(ImageData::Borrowed((Cow::Borrowed(href), bytes)))
 			};
 		}
 
@@ -95,7 +95,7 @@ impl Book for DictionaryBook
 			if dict.dict_name() == dict_name {
 				let bytes = dict.get_resource(href).ok()??;
 				let bytes = self.resources.insert(href.to_owned(), bytes);
-				return Some((Cow::Borrowed(href), bytes));
+				return Some(ImageData::Borrowed((Cow::Borrowed(href), bytes)));
 			}
 		}
 		self.resources.insert(href.to_owned(), vec![]);

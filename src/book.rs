@@ -37,6 +37,39 @@ mod haodoo;
 pub const EMPTY_CHAPTER_CONTENT: &str = "No content.";
 pub const IMAGE_CHAR: char = '🖼';
 
+pub enum ImageData<'a> {
+	Borrowed((Cow<'a, str>, &'a [u8])),
+	Owned((String, Vec<u8>)),
+}
+
+#[cfg(feature = "gui")]
+impl<'a> ImageData<'a> {
+	#[inline]
+	pub fn path_dup(&self) -> String
+	{
+		match self {
+			ImageData::Borrowed((path, _)) => path.to_string(),
+			ImageData::Owned((path, _)) => path.clone(),
+		}
+	}
+	#[inline]
+	pub fn path(self) -> String
+	{
+		match self {
+			ImageData::Borrowed((path, _)) => path.to_string(),
+			ImageData::Owned((path, _)) => path,
+		}
+	}
+	#[inline]
+	pub fn bytes(&self) -> &[u8]
+	{
+		match self {
+			ImageData::Borrowed((_, bytes)) => bytes,
+			ImageData::Owned((_, vec)) => vec,
+		}
+	}
+}
+
 #[cfg(feature = "gui")]
 type TextDecorationLine = lightningcss::properties::text::TextDecorationLine;
 
@@ -384,7 +417,7 @@ pub trait Book {
 	fn leading_space(&self) -> usize { 2 }
 	fn link_position(&mut self, _line: usize, _link_index: usize) -> Option<TraceInfo> { None }
 	// (absolute path, content)
-	fn image<'a>(&self, _href: &'a str) -> Option<(Cow<'a, str>, &[u8])> { None }
+	fn image<'a>(&'a self, _href: &'a str) -> Option<ImageData<'a>> { None }
 	fn font_family_names(&self) -> Option<&IndexSet<String>> { None }
 	#[cfg(feature = "gui")]
 	fn color_customizable(&self) -> bool { false }

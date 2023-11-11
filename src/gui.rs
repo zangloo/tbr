@@ -535,8 +535,8 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 	{
 		if let Some(line) = controller.book.lines().get(line) {
 			if let Some(url) = line.image_at(offset) {
-				if let Some((_, bytes)) = controller.book.image(url) {
-					opener.open_image(url, bytes)?;
+				if let Some(image_data) = controller.book.image(url) {
+					opener.open_image(url, image_data.bytes())?;
 				}
 			}
 		}
