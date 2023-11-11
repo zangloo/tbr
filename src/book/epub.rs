@@ -407,26 +407,30 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 				if full_path.to_lowercase().ends_with(".xhtml") {
 					html_str = xhtml_to_html(&html_str)?;
 				}
+				#[allow(unused)]
 				let (html_content, mut font_faces) = html_str_content(&html_str, &mut self.font_families, Some(|path: &str| {
 					let full_path = concat_path(cwd.clone(), &path)?;
 					frozen_map_get!(self.css_cache, full_path, || {
 						zip_string(&mut zip, &full_path).ok()
 					})
 				}))?;
-				drop(zip);
-				// make source url to full path
-				// will used as key for access
-				for face in &mut font_faces {
-					for source in &mut face.sources {
-						if let Some(full_path) = concat_path(cwd.clone(), &source) {
-							*source = full_path;
+				#[cfg(feature = "gui")]
+				{
+					drop(zip);
+					// make source url to full path
+					// will used as key for access
+					for face in &mut font_faces {
+						for source in &mut face.sources {
+							if let Some(full_path) = concat_path(cwd.clone(), &source) {
+								*source = full_path;
+							}
 						}
 					}
+					self.fonts.reload(font_faces, |path| {
+						let content = zip_content(&mut self.zip.borrow_mut(), path).ok()?;
+						Some(content)
+					});
 				}
-				self.fonts.reload(font_faces, |path| {
-					let content = zip_content(&mut self.zip.borrow_mut(), path).ok()?;
-					Some(content)
-				});
 				let chapter = Chapter {
 					lines: html_content.lines,
 					id_map: html_content.id_map,

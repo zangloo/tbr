@@ -122,11 +122,13 @@ pub struct HtmlFonts {
 }
 
 impl HtmlFonts {
+	#[inline]
 	pub fn new() -> Self
 	{
 		HtmlFonts { fonts: vec![], faces: vec![] }
 	}
 
+	#[inline]
 	pub fn has_faces(&self) -> bool
 	{
 		!self.faces.is_empty()

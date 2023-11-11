@@ -11,6 +11,7 @@ use crate::html_convertor::{html_content, html_str_content, HtmlContent};
 use crate::common::{plain_text, TraceInfo};
 use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::frozen_map_get;
+#[cfg(feature = "gui")]
 use crate::gui::HtmlFonts;
 use crate::xhtml::xhtml_to_html;
 
@@ -21,6 +22,7 @@ pub(crate) struct HtmlLoader {
 pub(crate) struct HtmlBook {
 	content: HtmlContent,
 	font_families: IndexSet<String>,
+	#[cfg(feature = "gui")]
 	fonts: HtmlFonts,
 }
 
@@ -54,29 +56,42 @@ impl Loader for HtmlLoader {
 			text = xhtml_to_html(&text)?;
 		}
 		let stylesheets: FrozenMap<String, String> = Default::default();
-		let (content, mut font_faces) = html_str_content(&text, &mut font_families, Some(|path: &str| {
+		#[allow(unused)]
+			let (content, mut font_faces) = html_str_content(&text, &mut font_families, Some(|path: &str| {
 			let path = cwd.join(&path);
 			let full_path = path.canonicalize().ok()?.to_str()?.to_string();
 			frozen_map_get!(stylesheets, full_path, || {
 				fs::read_to_string(&path).ok()
 			})
 		}))?;
-		// make source url to full path
-		// will used as key for access
-		for face in &mut font_faces {
-			for source in &mut face.sources {
-				if let Some(full_path) = cwd.join(&source).to_str() {
-					*source = full_path.to_string();
+		#[cfg(feature = "gui")]
+			let book = {
+			// make source url to full path
+			// will used as key for access
+			for face in &mut font_faces {
+				for source in &mut face.sources {
+					if let Some(full_path) = cwd.join(&source).to_str() {
+						*source = full_path.to_string();
+					}
 				}
 			}
-		}
-		let mut fonts = HtmlFonts::new();
-		fonts.reload(font_faces, |path| {
-			let path = PathBuf::from_str(path).ok()?;
-			let content = fs::read(path).ok()?;
-			Some(content)
-		});
-		let book = HtmlBook { content, font_families, fonts };
+			let mut fonts = HtmlFonts::new();
+			fonts.reload(font_faces, |path| {
+				let path = PathBuf::from_str(path).ok()?;
+				let content = fs::read(path).ok()?;
+				Some(content)
+			});
+			HtmlBook {
+				content,
+				font_families,
+				fonts,
+			}
+		};
+		#[cfg(not(feature = "gui"))]
+			let book = HtmlBook {
+			content,
+			font_families,
+		};
 		let reading = book.get_reading(loading);
 		Ok((
 			Box::new(book),
@@ -91,7 +106,12 @@ impl Loader for HtmlLoader {
 		let mut font_families = IndexSet::new();
 		let text = plain_text(content, false)?;
 		let content = html_content(&text, &mut font_families)?;
-		let book = HtmlBook { content, font_families, fonts: HtmlFonts::new() };
+		let book = HtmlBook {
+			content,
+			font_families,
+			#[cfg(feature = "gui")]
+			fonts: HtmlFonts::new(),
+		};
 		let reading = book.get_reading(loading);
 		Ok((
 			Box::new(book),

@@ -216,6 +216,7 @@ impl Default for HtmlContent {
 impl HtmlContent
 {
 	#[inline]
+	#[allow(unused)]
 	pub fn with_lines(lines: Vec<Line>) -> Self
 	{
 		HtmlContent {
