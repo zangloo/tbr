@@ -152,8 +152,9 @@ impl HtmlFonts {
 		for face in font_faces {
 			let mut refs = vec![];
 			for source in face.sources {
-				if let Err(idx) = self.fonts.binary_search_by(|(key, _)| key.cmp(&source)) {
-					if let Some(content) = data_resolver(&source) {
+				match self.fonts.binary_search_by(|(key, _)| key.cmp(&source)) {
+					Ok(idx) => refs.push(idx),
+					Err(idx) => if let Some(content) = data_resolver(&source) {
 						if let Ok(font) = FontVec::try_from_vec(content) {
 							self.fonts.insert(idx, (source, font));
 							for v in &mut refs {
