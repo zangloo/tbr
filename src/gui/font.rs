@@ -134,13 +134,16 @@ impl HtmlFonts {
 		!self.faces.is_empty()
 	}
 
-	pub fn reload<F>(&mut self, font_faces: Vec<HtmlFontFaceDesc>, data_resolver: F)
+	pub fn reload<F>(&mut self, mut font_faces: Vec<HtmlFontFaceDesc>, data_resolver: F)
 		where F: Fn(&str) -> Option<Vec<u8>>
 	{
 		if font_faces.is_empty() {
 			self.faces.clear();
 			return;
 		}
+		font_faces.sort_by(|a, b| {
+			a.family.cmp(&b.family)
+		});
 		if self.same_with(&font_faces) {
 			return;
 		}
@@ -164,15 +167,10 @@ impl HtmlFonts {
 				};
 			}
 			if !refs.is_empty() {
-				let family = face.family;
-				if let Err(idx) = self.faces.binary_search_by(|face| {
-					face.family.as_str().cmp(&family)
-				}) {
-					self.faces.insert(idx, HtmlFontFace {
-						family,
-						refs,
-					});
-				}
+				self.faces.push(HtmlFontFace {
+					family: face.family,
+					refs,
+				});
 			}
 		}
 	}
