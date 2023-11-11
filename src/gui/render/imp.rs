@@ -2,7 +2,6 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
-use ab_glyph::Font;
 use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
 use gtk4::{cairo, pango};
 use gtk4::prelude::GdkCairoContextExt;
@@ -17,7 +16,7 @@ use crate::common::Position;
 use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::load_image;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
-use crate::gui::font::Fonts;
+use crate::gui::font::{Fonts, HtmlFonts, UserFonts};
 use crate::html_convertor::{FontScale, FontWeight};
 
 pub const HAN_CHAR: char = '漢';
@@ -300,18 +299,17 @@ pub struct OutlineDrawData {
 impl OutlineDrawData {
 	fn measure(char: char, font_size: f32, font_weight: &FontWeight,
 		font_family_idx: &Option<u16>, font_family_names: Option<&IndexSet<String>>,
-		fonts: &Option<Fonts>) -> Option<Self>
+		fonts: Option<&impl Fonts>) -> Option<Self>
 	{
 		if let Some(fonts) = fonts {
 			let font_family_names = get_font_family_names(font_family_idx, font_family_names);
-			if let Some((font, outline)) = fonts.query(char, font_size, font_weight, font_family_names) {
+			if let Some((outline, rect)) = fonts.query(char, font_size, font_weight, font_family_names) {
 				let mut points = vec![];
 				outline.draw(|_, _, a| {
 					points.push((a * 255.) as u8);
 				});
 				let bounds = outline.px_bounds();
 				let draw_size = vec2(bounds.width(), bounds.height());
-				let rect = font.glyph_bounds(outline.glyph());
 				let size = vec2(rect.width(), rect.height());
 				let offset_x = bounds.min.x - rect.min.x;
 				let offset_y = bounds.min.y - rect.min.y;
@@ -352,7 +350,7 @@ impl OutlineDrawData {
 pub struct RenderContext
 {
 	pub colors: Colors,
-	pub fonts: Rc<Option<Fonts>>,
+	pub fonts: Rc<Option<UserFonts>>,
 
 	// font size in configuration
 	pub font_size: u8,
@@ -742,7 +740,7 @@ pub trait GuiRender {
 		}
 	}
 
-	fn apply_font_modified(&mut self, book_fonts: &Option<Fonts>,
+	fn apply_font_modified(&mut self, book_fonts: Option<&HtmlFonts>,
 		pango: &PangoContext, render_context: &mut RenderContext)
 	{
 		self.cache_mut().clear();
@@ -761,7 +759,7 @@ pub trait GuiRender {
 	fn get_char_measures(&mut self, layout: &PangoContext, char: char,
 		font_scale: &FontScale, font_weight: &FontWeight,
 		mut font_family_idx: &Option<u16>, font_family_names: Option<&IndexSet<String>>,
-		book_fonts: &Option<Fonts>, render_context: &mut RenderContext) -> CharMeasures
+		book_fonts: Option<&HtmlFonts>, render_context: &mut RenderContext) -> CharMeasures
 	{
 		const SPACE: char = ' ';
 		const FULL_SPACE: char = '　';
@@ -769,14 +767,10 @@ pub trait GuiRender {
 		let font_size = scale_font_size(render_context.font_size, &font_scale);
 		let font_weight = load_font_weight(&font_weight, render_context);
 		let render_fonts = if render_context.custom_font {
-			if book_fonts.is_some() {
-				book_fonts
-			} else {
-				&render_context.fonts
-			}
+			book_fonts
 		} else {
 			font_family_idx = &None;
-			&render_context.fonts
+			None
 		};
 
 		if let Some(data) = self.cache_get(char, font_size, &font_weight, font_family_idx) {
@@ -792,13 +786,15 @@ pub trait GuiRender {
 		match char {
 			SPACE => {
 				let measures = self.measure_char(
-					layout, 'S', font_size, font_weight, font_family_idx, font_family_names, render_fonts);
+					layout, 'S', font_size, font_weight, font_family_idx,
+					font_family_names, render_fonts, &render_context.fonts);
 				self.cache_insert(SPACE, font_size, &font_weight, font_family_idx, CharDrawData::Space(measures.size));
 				measures
 			}
 			FULL_SPACE => {
 				let measures = self.measure_char(
-					layout, HAN_CHAR, font_size, font_weight, font_family_idx, font_family_names, render_fonts);
+					layout, HAN_CHAR, font_size, font_weight, font_family_idx,
+					font_family_names, render_fonts, &render_context.fonts);
 				self.cache_insert(FULL_SPACE, font_size, &font_weight, font_family_idx, CharDrawData::Space(measures.size));
 				measures
 			}
@@ -809,13 +805,15 @@ pub trait GuiRender {
 				font_weight,
 				font_family_idx,
 				font_family_names,
-				render_fonts)
+				render_fonts,
+				&render_context.fonts)
 		}
 	}
 
 	fn measure_char(&mut self, layout: &PangoContext, char: char, font_size: f32,
 		font_weight: &FontWeight, font_family_idx: &Option<u16>,
-		font_family_names: Option<&IndexSet<String>>, fonts: &Option<Fonts>)
+		font_family_names: Option<&IndexSet<String>>,
+		book_fonts: Option<&HtmlFonts>, fonts: &Option<UserFonts>)
 		-> CharMeasures
 	{
 		if let Some(draw_data) = OutlineDrawData::measure(
@@ -824,7 +822,7 @@ pub trait GuiRender {
 			font_weight,
 			font_family_idx,
 			font_family_names,
-			fonts) {
+			book_fonts) {
 			let measures = CharMeasures {
 				size: draw_data.size,
 				draw_size: draw_data.draw_size,
@@ -836,23 +834,42 @@ pub trait GuiRender {
 			self.cache_insert(char, font_size, &font_weight, font_family_idx, CharDrawData::Outline(draw_data));
 			measures
 		} else {
-			let draw_data = PangoDrawData::measure(
+			if let Some(draw_data) = OutlineDrawData::measure(
 				char,
 				font_size,
 				font_weight,
 				font_family_idx,
 				font_family_names,
-				layout);
-			let measures = CharMeasures {
-				size: draw_data.size,
-				draw_size: draw_data.draw_size,
-				draw_offset: draw_data.draw_offset,
-				font_size,
-				font_weight: font_weight.clone(),
-				font_family_idx: font_family_idx.clone(),
-			};
-			self.cache_insert(char, font_size, &font_weight, font_family_idx, CharDrawData::Pango(draw_data));
-			measures
+				fonts.as_ref()) {
+				let measures = CharMeasures {
+					size: draw_data.size,
+					draw_size: draw_data.draw_size,
+					draw_offset: draw_data.draw_offset,
+					font_size,
+					font_weight: font_weight.clone(),
+					font_family_idx: font_family_idx.clone(),
+				};
+				self.cache_insert(char, font_size, &font_weight, font_family_idx, CharDrawData::Outline(draw_data));
+				measures
+			} else {
+				let draw_data = PangoDrawData::measure(
+					char,
+					font_size,
+					font_weight,
+					font_family_idx,
+					font_family_names,
+					layout);
+				let measures = CharMeasures {
+					size: draw_data.size,
+					draw_size: draw_data.draw_size,
+					draw_offset: draw_data.draw_offset,
+					font_size,
+					font_weight: font_weight.clone(),
+					font_family_idx: font_family_idx.clone(),
+				};
+				self.cache_insert(char, font_size, &font_weight, font_family_idx, CharDrawData::Pango(draw_data));
+				measures
+			}
 		}
 	}
 }

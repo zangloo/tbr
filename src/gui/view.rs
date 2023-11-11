@@ -12,7 +12,8 @@ use crate::color::Color32;
 use crate::common::Position;
 use crate::config::ReadingInfo;
 use crate::controller::{HighlightInfo, Render};
-use crate::gui::font::Fonts;
+use crate::gui::font::UserFonts;
+use crate::gui::HtmlFonts;
 use crate::gui::math::{Pos2, pos2};
 use crate::gui::render::RenderContext;
 
@@ -99,8 +100,8 @@ impl GuiView {
 	pub const CLEAR_SELECTION_SIGNAL: &str = "clear-selection";
 	pub const SCROLL_SIGNAL: &str = "scroll";
 
-	pub fn new(instance_name: &str, render_han: bool, book_fonts: &Option<Fonts>,
-		user_fonts: Rc<Option<Fonts>>, render_context: &mut RenderContext) -> Self
+	pub fn new(instance_name: &str, render_han: bool, book_fonts: Option<&HtmlFonts>,
+		user_fonts: Rc<Option<UserFonts>>, render_context: &mut RenderContext) -> Self
 	{
 		let view: GuiView = Object::builder().build();
 		view.set_vexpand(true);
@@ -231,19 +232,19 @@ impl GuiView {
 	}
 
 	#[inline]
-	pub fn set_font_size(&self, font_size: u8, book_fonts: &Option<Fonts>, render_context: &mut RenderContext)
+	pub fn set_font_size(&self, font_size: u8, book_fonts: Option<&HtmlFonts>, render_context: &mut RenderContext)
 	{
 		self.imp().set_font_size(font_size, book_fonts, render_context, &self.get_pango());
 	}
 
 	#[inline]
-	pub fn set_fonts(&self, book_fonts: &Option<Fonts>, user_fonts: Rc<Option<Fonts>>, render_context: &mut RenderContext)
+	pub fn set_fonts(&self, book_fonts: Option<&HtmlFonts>, user_fonts: Rc<Option<UserFonts>>, render_context: &mut RenderContext)
 	{
 		self.imp().set_fonts(book_fonts, user_fonts, &self.get_pango(), render_context);
 	}
 
 	#[inline]
-	pub fn set_custom_font(&self, custom_font: bool, book_fonts: &Option<Fonts>, render_context: &mut RenderContext)
+	pub fn set_custom_font(&self, custom_font: bool, book_fonts: Option<&HtmlFonts>, render_context: &mut RenderContext)
 	{
 		self.imp().set_custom_font(custom_font, book_fonts, &self.get_pango(), render_context);
 	}
@@ -288,7 +289,7 @@ mod imp {
 	use crate::common::Position;
 	use crate::config::ReadingInfo;
 	use crate::controller::HighlightInfo;
-	use crate::gui::font::Fonts;
+	use crate::gui::font::{HtmlFonts, UserFonts};
 	use crate::gui::math::{Pos2, Rect};
 	use crate::gui::render::{create_render, GuiRender, PointerPosition, RenderCell, RenderContext, RenderLine, ScrolledDrawData, ScrollRedrawMethod};
 	use crate::gui::view::{ClickTarget, MIN_TEXT_SELECT_DISTANCE, ScrollPosition};
@@ -653,7 +654,8 @@ mod imp {
 		}
 
 		#[inline(always)]
-		pub(super) fn set_fonts(&self, book_fonts: &Option<Fonts>, user_fonts: Rc<Option<Fonts>>, pango: &PangoContext,
+		pub(super) fn set_fonts(&self, book_fonts: Option<&HtmlFonts>,
+			user_fonts: Rc<Option<UserFonts>>, pango: &PangoContext,
 			render_context: &mut RenderContext)
 		{
 			render_context.fonts = user_fonts;
@@ -663,7 +665,7 @@ mod imp {
 			}
 		}
 
-		pub(super) fn set_font_size(&self, font_size: u8, book_fonts: &Option<Fonts>, render_context: &mut RenderContext,
+		pub(super) fn set_font_size(&self, font_size: u8, book_fonts: Option<&HtmlFonts>, render_context: &mut RenderContext,
 			pango: &PangoContext)
 		{
 			render_context.font_size = font_size;
@@ -671,7 +673,7 @@ mod imp {
 			render.apply_font_modified(book_fonts, pango, render_context);
 		}
 
-		pub(super) fn set_custom_font(&self, custom_font: bool, book_fonts: &Option<Fonts>,
+		pub(super) fn set_custom_font(&self, custom_font: bool, book_fonts: Option<&HtmlFonts>,
 			pango: &PangoContext, render_context: &mut RenderContext)
 		{
 			render_context.custom_font = custom_font;

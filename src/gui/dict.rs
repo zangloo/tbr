@@ -18,7 +18,7 @@ use crate::common::{txt_lines, Position};
 use crate::config::PathConfig;
 use crate::controller::{highlight_selection, HighlightInfo, Render};
 use crate::gui::{copy_to_clipboard, create_button, IconMap, MODIFIER_NONE};
-use crate::gui::font::Fonts;
+use crate::gui::font::UserFonts;
 use crate::gui::render::{RenderContext, ScrollRedrawMethod};
 use crate::gui::view::{GuiView, ScrollPosition};
 use crate::html_convertor::{html_content, HtmlContent};
@@ -170,20 +170,12 @@ impl DictionaryBook {
 					let mut new_lines = render_definition_text(single, &mut self.font_families);
 					lines.append(&mut new_lines);
 				}
-				HtmlContent {
-					title: None,
-					lines,
-					id_map: Default::default(),
-				}
+				HtmlContent::with_lines(lines)
 			}
 		} else {
 			let msg = i18n.msg("dictionary-no-definition");
 			let lines = txt_lines(&msg);
-			HtmlContent {
-				title: None,
-				lines,
-				id_map: Default::default(),
-			}
+			HtmlContent::with_lines(lines)
 		};
 		self.content = content;
 	}
@@ -191,7 +183,7 @@ impl DictionaryBook {
 
 impl DictionaryManager {
 	pub fn new(dictionary_paths: &Vec<PathConfig>, cache_dict: bool, font_size: u8,
-		fonts: Rc<Option<Fonts>>, i18n: &Rc<I18n>, icons: &Rc<IconMap>)
+		fonts: Rc<Option<UserFonts>>, i18n: &Rc<I18n>, icons: &Rc<IconMap>)
 		-> (Rc<RefCell<Self>>, gtk4::Box, SearchEntry)
 	{
 		let mut render_context = RenderContext::new(
@@ -266,16 +258,16 @@ impl DictionaryManager {
 	}
 
 	#[inline]
-	pub fn set_fonts(&mut self, fonts: Rc<Option<Fonts>>)
+	pub fn set_fonts(&mut self, fonts: Rc<Option<UserFonts>>)
 	{
-		self.view.set_fonts(&None, fonts, &mut self.render_context);
+		self.view.set_fonts(None, fonts, &mut self.render_context);
 		self.redraw(ScrollRedrawMethod::NoResetScroll);
 	}
 
 	#[inline]
 	pub fn set_font_size(&mut self, font_size: u8)
 	{
-		self.view.set_font_size(font_size, &None, &mut self.render_context);
+		self.view.set_font_size(font_size, None, &mut self.render_context);
 		self.redraw(ScrollRedrawMethod::NoResetScroll);
 	}
 

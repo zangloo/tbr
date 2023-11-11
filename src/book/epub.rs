@@ -19,7 +19,7 @@ use crate::common::{Position, TraceInfo};
 use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::frozen_map_get;
 #[cfg(feature = "gui")]
-use crate::gui::Fonts;
+use crate::gui::HtmlFonts;
 use crate::xhtml::xhtml_to_html;
 
 struct ManifestItem {
@@ -71,7 +71,7 @@ struct EpubBook<R: Read + Seek> {
 	font_families: IndexSet<String>,
 	chapter_index: usize,
 	#[cfg(feature = "gui")]
-	fonts: Option<Fonts>,
+	fonts: HtmlFonts,
 }
 
 pub struct EpubLoader {
@@ -270,20 +270,27 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 	}
 
 	#[cfg(feature = "gui")]
+	#[inline]
 	fn color_customizable(&self) -> bool
 	{
 		true
 	}
 
 	#[cfg(feature = "gui")]
+	#[inline]
 	fn fonts_customizable(&self) -> bool
 	{
 		true
 	}
 
 	#[cfg(feature = "gui")]
-	fn custom_fonts(&self) -> &Option<Fonts> {
-		&self.fonts
+	#[inline]
+	fn custom_fonts(&self) -> Option<&HtmlFonts> {
+		if self.fonts.has_faces() {
+			Some(&self.fonts)
+		} else {
+			None
+		}
 	}
 }
 
@@ -359,20 +366,6 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 		if chapter_index >= chapter_count {
 			chapter_index = chapter_count - 1;
 		}
-		#[cfg(feature = "gui")]
-			let fonts = {
-			let mut fonts_data = vec![];
-			for (_, item) in &content_opf.manifest {
-				if item.media_type == "application/font-sfnt"
-					|| item.media_type == "application/vnd.ms-opentype"
-					|| item.media_type == "font/ttf"
-					|| item.media_type == "font/otf" {
-					let data = zip_content(&mut zip, &item.href)?;
-					fonts_data.push(data);
-				}
-			}
-			Fonts::from_vec(fonts_data)?
-		};
 		let chapter_cache = HashMap::new();
 		let mut book = EpubBook {
 			zip: RefCell::new(zip),
@@ -384,7 +377,7 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 			images: Default::default(),
 			font_families: Default::default(),
 			#[cfg(feature = "gui")]
-			fonts,
+			fonts: HtmlFonts::new(),
 		};
 		book.load_chapter(chapter_index)?;
 		Ok(book)
@@ -409,16 +402,31 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 			Entry::Vacant(v) => {
 				let full_path = chapter_path(chapter_index, &self.content_opf)?;
 				let cwd = path_cwd(full_path);
-				let mut html_str = zip_string(&mut self.zip.borrow_mut(), full_path)?;
+				let mut zip = self.zip.borrow_mut();
+				let mut html_str = zip_string(&mut zip, full_path)?;
 				if full_path.to_lowercase().ends_with(".xhtml") {
 					html_str = xhtml_to_html(&html_str)?;
 				}
-				let html_content = html_str_content(&html_str, &mut self.font_families, Some(|path: &str| {
+				let (html_content, mut font_faces) = html_str_content(&html_str, &mut self.font_families, Some(|path: &str| {
 					let full_path = concat_path(cwd.clone(), &path)?;
 					frozen_map_get!(self.css_cache, full_path, || {
-						zip_string(&mut self.zip.borrow_mut(), &full_path).ok()
+						zip_string(&mut zip, &full_path).ok()
 					})
 				}))?;
+				drop(zip);
+				// make source url to full path
+				// will used as key for access
+				for face in &mut font_faces {
+					for source in &mut face.sources {
+						if let Some(full_path) = concat_path(cwd.clone(), &source) {
+							*source = full_path;
+						}
+					}
+				}
+				self.fonts.reload(font_faces, |path| {
+					let content = zip_content(&mut self.zip.borrow_mut(), path).ok()?;
+					Some(content)
+				});
 				let chapter = Chapter {
 					lines: html_content.lines,
 					id_map: html_content.id_map,

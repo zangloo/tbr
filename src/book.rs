@@ -23,7 +23,7 @@ use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File};
 use crate::controller::{HighlightInfo, HighlightMode};
 #[cfg(feature = "gui")]
-use crate::gui::Fonts;
+use crate::gui::HtmlFonts;
 #[cfg(feature = "gui")]
 use crate::html_convertor::{FontScale, FontWeight};
 use crate::html_convertor::TextStyle;
@@ -391,7 +391,7 @@ pub trait Book {
 	#[cfg(feature = "gui")]
 	fn fonts_customizable(&self) -> bool { false }
 	#[cfg(feature = "gui")]
-	fn custom_fonts(&self) -> &Option<Fonts> { &None }
+	fn custom_fonts(&self) -> Option<&HtmlFonts> { None }
 
 	fn range_highlight(&self, from: Position, to: Position)
 		-> Option<HighlightInfo>

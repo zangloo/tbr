@@ -12,9 +12,11 @@ use lightningcss::properties::{border, font, Property};
 use lightningcss::properties::border::{Border, BorderSideWidth};
 use lightningcss::properties::font::{AbsoluteFontWeight, FontFamily, FontSize, FontWeight as CssFontWeight};
 use lightningcss::properties::text::TextDecorationLine;
-use lightningcss::rules::CssRule;
+use lightningcss::rules::{CssRule, font_face};
+use lightningcss::rules::font_face::FontFaceProperty;
 use lightningcss::stylesheet::{ParserOptions, StyleSheet};
 use lightningcss::traits::Parse;
+use lightningcss::values;
 use lightningcss::values::color::CssColor;
 use lightningcss::values::length::{Length, LengthPercentage, LengthValue};
 use lightningcss::values::percentage;
@@ -26,6 +28,11 @@ use crate::color::Color32;
 use crate::common::Position;
 
 const DEFAULT_FONT_WEIGHT: u16 = 400;
+
+pub struct HtmlFontFaceDesc {
+	pub sources: Vec<String>,
+	pub family: String,
+}
 
 #[derive(Clone, Debug)]
 pub enum FontWeightValue {
@@ -194,11 +201,28 @@ pub struct HtmlContent {
 	pub id_map: HashMap<String, Position>,
 }
 
-impl Default for HtmlContent
+impl Default for HtmlContent {
+	#[inline]
+	fn default() -> Self
+	{
+		HtmlContent {
+			title: None,
+			lines: vec![Line::default()],
+			id_map: HashMap::new(),
+		}
+	}
+}
+
+impl HtmlContent
 {
 	#[inline]
-	fn default() -> Self {
-		HtmlContent { title: None, lines: vec![Line::default()], id_map: HashMap::new() }
+	pub fn with_lines(lines: Vec<Line>) -> Self
+	{
+		HtmlContent {
+			title: None,
+			lines,
+			id_map: HashMap::new(),
+		}
 	}
 }
 
@@ -212,18 +236,19 @@ struct ParseContext<'a> {
 #[inline]
 pub(crate) fn html_content(text: &str, font_family: &mut IndexSet<String>) -> Result<HtmlContent>
 {
-	html_str_content(&text, font_family, None::<fn(&str) -> Option<&'static str>>)
+	let content = html_str_content(&text, font_family, None::<fn(&str) -> Option<&'static str>>)?.0;
+	Ok(content)
 }
 
 pub(crate) fn html_str_content<'a, F>(str: &str, font_family: &mut IndexSet<String>,
-	file_resolver: Option<F>) -> Result<HtmlContent>
-	where F: Fn(&str) -> Option<&'a str>
+	file_resolver: Option<F>) -> Result<(HtmlContent, Vec<HtmlFontFaceDesc>)>
+	where F: FnMut(&str) -> Option<&'a str>
 {
 	let document = Html::parse_document(str);
-	let element_styles = load_styles(&document, font_family, file_resolver);
+	let (element_styles, font_faces) = load_styles(&document, font_family, file_resolver);
 	let mut context = ParseContext {
 		title: None,
-		content: Default::default(),
+		content: HtmlContent::default(),
 		element_styles,
 		font_family,
 	};
@@ -247,7 +272,7 @@ pub(crate) fn html_str_content<'a, F>(str: &str, font_family: &mut IndexSet<Stri
 	if context.content.lines.len() == 0 {
 		context.content.lines.push(Line::new(EMPTY_CHAPTER_CONTENT));
 	}
-	Ok(context.content)
+	Ok((context.content, font_faces))
 }
 
 fn newline_for_class(context: &mut ParseContext, element: &Element)
@@ -514,10 +539,11 @@ fn style_parse_options<'a>() -> ParserOptions<'a, 'a>
 }
 
 fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
-	file_resolver: Option<F>) -> HashMap<NodeId, HashSet<TextStyle>>
-	where F: Fn(&str) -> Option<&'a str>
+	file_resolver: Option<F>) -> (HashMap<NodeId, HashSet<TextStyle>>, Vec<HtmlFontFaceDesc>)
+	where F: FnMut(&str) -> Option<&'a str>
 {
 	let mut element_styles = HashMap::new();
+	let mut font_faces = vec![];
 
 	// load embedded styles
 	let mut stylesheets = vec![];
@@ -533,7 +559,7 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 		}
 	}
 
-	if let Some(file_resolver) = file_resolver {
+	if let Some(mut file_resolver) = file_resolver {
 		if let Ok(link_selector) = Selector::parse("link") {
 			let selection = document.select(&link_selector);
 			for element in selection.into_iter() {
@@ -550,40 +576,73 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 		}
 	}
 	if stylesheets.len() == 0 {
-		return element_styles;
+		return (element_styles, font_faces);
 	}
 
 	for style_sheet in stylesheets {
 		for rule in &style_sheet.rules.0 {
-			if let CssRule::Style(style_rule) = rule {
-				let mut styles = HashSet::new();
-				for property in &style_rule.declarations.declarations {
-					if let Some(style) = convert_style(property, font_families) {
-						styles.insert(style);
+			match rule {
+				CssRule::Style(style_rule) => {
+					let mut styles = HashSet::new();
+					for property in &style_rule.declarations.declarations {
+						if let Some(style) = convert_style(property, font_families) {
+							styles.insert(style);
+						}
 					}
-				}
-				if styles.len() == 0 {
-					continue;
-				}
-				let selector_str = style_rule.selectors.to_string();
-				if let Ok(selector) = Selector::parse(&selector_str) {
-					for element in document.select(&selector) {
-						let styles = styles.clone();
-						match element_styles.entry(element.id()) {
-							Entry::Occupied(o) => {
-								let orig = o.into_mut();
-								for new_style in styles {
-									orig.insert(new_style);
+					if styles.len() == 0 {
+						continue;
+					}
+					let selector_str = style_rule.selectors.to_string();
+					if let Ok(selector) = Selector::parse(&selector_str) {
+						for element in document.select(&selector) {
+							let styles = styles.clone();
+							match element_styles.entry(element.id()) {
+								Entry::Occupied(o) => {
+									let orig = o.into_mut();
+									for new_style in styles {
+										orig.insert(new_style);
+									}
 								}
+								Entry::Vacant(v) => { v.insert(styles); }
+							};
+						}
+					};
+				}
+				CssRule::FontFace(face) => {
+					let mut src = None;
+					let mut family = None;
+					for prop in &face.properties {
+						match prop {
+							FontFaceProperty::Source(source) => src = Some(source),
+							FontFaceProperty::FontFamily(ff) => match ff {
+								FontFamily::Generic(gff) => family = Some(gff.as_str()),
+								FontFamily::FamilyName(name) => family = Some(name.as_ref()),
 							}
-							Entry::Vacant(v) => { v.insert(styles); }
-						};
+							FontFaceProperty::FontStyle(_) => {}
+							FontFaceProperty::FontWeight(_) => {}
+							FontFaceProperty::FontStretch(_) => {}
+							FontFaceProperty::UnicodeRange(_) => {}
+							FontFaceProperty::Custom(_) => {}
+						}
 					}
-				};
+					if let (Some(source), Some(family)) = (src, family) {
+						let mut sources = vec![];
+						for src in source {
+							if let font_face::Source::Url(font_face::UrlSource { url: values::url::Url { url, .. }, .. }) = src {
+								sources.push(url.to_string());
+							}
+						}
+						font_faces.push(HtmlFontFaceDesc {
+							sources,
+							family: family.to_owned(),
+						})
+					}
+				}
+				_ => {}
 			}
 		}
 	}
-	element_styles
+	(element_styles, font_faces)
 }
 
 const HTML_DEFAULT_FONT_SIZE: f32 = 16.0;

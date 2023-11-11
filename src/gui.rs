@@ -29,7 +29,7 @@ use crate::container::{BookContent, BookName, Container, load_book, load_contain
 use crate::controller::Controller;
 use crate::gui::chapter_list::ChapterList;
 use crate::gui::dict::DictionaryManager;
-pub use crate::gui::font::Fonts;
+pub use crate::gui::font::HtmlFonts;
 use crate::gui::render::RenderContext;
 use crate::gui::view::{GuiView, update_mouse_pointer};
 use crate::open::Opener;
@@ -172,7 +172,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	} else {
 		bright_colors.clone()
 	};
-	let fonts = Fonts::from_files(&configuration.gui.fonts)?;
+	let fonts = font::user_fonts(&configuration.gui.fonts)?;
 	let fonts = Rc::new(fonts);
 	let container_manager = Default::default();
 	let i18n = I18n::new(&configuration.gui.lang).unwrap();
@@ -1233,7 +1233,7 @@ fn apply_settings(render_han: bool, locale: &str, fonts: Vec<PathConfig>,
 	};
 
 	let new_fonts = if paths_modified(&configuration.gui.fonts, &fonts) {
-		let new_fonts = match Fonts::from_files(&fonts) {
+		let new_fonts = match font::user_fonts(&fonts) {
 			Ok(fonts) => fonts,
 			Err(err) => {
 				let title = i18n.msg("font-files");
