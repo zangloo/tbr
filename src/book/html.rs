@@ -210,8 +210,9 @@ impl HtmlBook {
 	#[inline]
 	fn get_reading(&self, loading: BookLoadingInfo) -> ReadingInfo
 	{
-		loading.get_or_init(|reading|
-			reading.custom_color = true
-		)
+		loading.get_or_init(|reading| {
+			reading.custom_color = true;
+			reading.custom_font = true;
+		})
 	}
 }
