@@ -2,6 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
+use std::path::PathBuf;
 use anyhow::{anyhow, Result};
 use ego_tree::iter::Children;
 use ego_tree::{NodeId, NodeRef};
@@ -30,7 +31,7 @@ use crate::common::Position;
 const DEFAULT_FONT_WEIGHT: u16 = 400;
 
 pub struct HtmlFontFaceDesc {
-	pub sources: Vec<String>,
+	pub sources: Vec<PathBuf>,
 	pub family: String,
 }
 
@@ -234,19 +235,24 @@ struct ParseContext<'a> {
 	font_family: &'a mut IndexSet<String>,
 }
 
+pub trait HtmlResolver {
+	fn cwd(&self) -> PathBuf;
+	fn resolve(&self, path: &PathBuf, sub: &str) -> PathBuf;
+	fn css(&self, sub: &str) -> Option<(PathBuf, &str)>;
+}
+
 #[inline]
 pub(crate) fn html_content(text: &str, font_family: &mut IndexSet<String>) -> Result<HtmlContent>
 {
-	let content = html_str_content(&text, font_family, None::<fn(&str) -> Option<&'static str>>)?.0;
+	let content = html_str_content(&text, font_family, None)?.0;
 	Ok(content)
 }
 
-pub(crate) fn html_str_content<'a, F>(str: &str, font_family: &mut IndexSet<String>,
-	file_resolver: Option<F>) -> Result<(HtmlContent, Vec<HtmlFontFaceDesc>)>
-	where F: FnMut(&str) -> Option<&'a str>
+pub(crate) fn html_str_content(str: &str, font_family: &mut IndexSet<String>,
+	resolver: Option<&dyn HtmlResolver>) -> Result<(HtmlContent, Vec<HtmlFontFaceDesc>)>
 {
 	let document = Html::parse_document(str);
-	let (element_styles, font_faces) = load_styles(&document, font_family, file_resolver);
+	let (element_styles, font_faces) = load_styles(&document, font_family, resolver);
 	let mut context = ParseContext {
 		title: None,
 		content: HtmlContent::default(),
@@ -539,9 +545,8 @@ fn style_parse_options<'a>() -> ParserOptions<'a, 'a>
 	options
 }
 
-fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
-	file_resolver: Option<F>) -> (HashMap<NodeId, HashSet<TextStyle>>, Vec<HtmlFontFaceDesc>)
-	where F: FnMut(&str) -> Option<&'a str>
+fn load_styles(document: &Html, font_families: &mut IndexSet<String>,
+	resolver: Option<&dyn HtmlResolver>) -> (HashMap<NodeId, HashSet<TextStyle>>, Vec<HtmlFontFaceDesc>)
 {
 	let mut element_styles = HashMap::new();
 	let mut font_faces = vec![];
@@ -554,21 +559,22 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 			let mut text_iterator = style.text();
 			while let Some(text) = text_iterator.next() {
 				if let Ok(style_sheet) = StyleSheet::parse(&text, style_parse_options()) {
-					stylesheets.push(style_sheet);
+					let path = resolver.map(|r| r.cwd());
+					stylesheets.push((path, style_sheet));
 				}
 			}
 		}
 	}
 
-	if let Some(mut file_resolver) = file_resolver {
+	if let Some(resolver) = resolver {
 		if let Ok(link_selector) = Selector::parse("link") {
 			let selection = document.select(&link_selector);
 			for element in selection.into_iter() {
 				if let Some(href) = element.value().attr("href") {
 					if href.to_lowercase().ends_with(".css") {
-						if let Some(content) = file_resolver(href) {
+						if let Some((path, content)) = resolver.css(href) {
 							if let Ok(style_sheet) = StyleSheet::parse(&content, style_parse_options()) {
-								stylesheets.push(style_sheet);
+								stylesheets.push((Some(path), style_sheet));
 							}
 						}
 					}
@@ -576,11 +582,11 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 			}
 		}
 	}
-	if stylesheets.len() == 0 {
+	if stylesheets.is_empty() {
 		return (element_styles, font_faces);
 	}
 
-	for style_sheet in stylesheets {
+	for (path, style_sheet) in stylesheets {
 		for rule in &style_sheet.rules.0 {
 			match rule {
 				CssRule::Style(style_rule) => {
@@ -609,7 +615,7 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 						}
 					};
 				}
-				CssRule::FontFace(face) => {
+				CssRule::FontFace(face) => if let (Some(path), Some(resolver)) = (&path, resolver) {
 					let mut src = None;
 					let mut family = None;
 					for prop in &face.properties {
@@ -630,7 +636,7 @@ fn load_styles<'a, F>(document: &Html, font_families: &mut IndexSet<String>,
 						let mut sources = vec![];
 						for src in source {
 							if let font_face::Source::Url(font_face::UrlSource { url: values::url::Url { url, .. }, .. }) = src {
-								sources.push(url.to_string());
+								sources.push(resolver.resolve(path, url));
 							}
 						}
 						font_faces.push(HtmlFontFaceDesc {

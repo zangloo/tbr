@@ -1,5 +1,6 @@
 use std::fs::OpenOptions;
 use std::io::Read;
+use std::path::PathBuf;
 use std::sync::Arc;
 use ab_glyph::{Font, FontRef, FontVec, OutlinedGlyph, Rect};
 use anyhow::{anyhow, Result};
@@ -117,7 +118,7 @@ struct HtmlFontFace {
 }
 
 pub struct HtmlFonts {
-	fonts: Vec<(String, FontVec)>,
+	fonts: Vec<(PathBuf, FontVec)>,
 	faces: Vec<HtmlFontFace>,
 }
 
@@ -135,7 +136,7 @@ impl HtmlFonts {
 	}
 
 	pub fn reload<F>(&mut self, mut font_faces: Vec<HtmlFontFaceDesc>, data_resolver: F)
-		where F: Fn(&str) -> Option<Vec<u8>>
+		where F: Fn(&PathBuf) -> Option<Vec<u8>>
 	{
 		if font_faces.is_empty() {
 			self.faces.clear();

@@ -13,7 +13,7 @@ use roxmltree::{Children, Document, ExpandedName, Node};
 use zip::ZipArchive;
 
 use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader, TocInfo, ImageData};
-use crate::html_convertor::html_str_content;
+use crate::html_convertor::{html_str_content, HtmlResolver};
 use crate::list::ListIterator;
 use crate::common::{Position, TraceInfo};
 use crate::config::{BookLoadingInfo, ReadingInfo};
@@ -244,7 +244,7 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 		if target_file.is_empty() {
 			self.target_position(None, target_anchor)
 		} else {
-			let path = concat_path(cwd, target_file)?;
+			let path = concat_path_str(cwd, target_file)?;
 			self.target_position(Some(&path), target_anchor)
 		}
 	}
@@ -253,7 +253,7 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 	{
 		if let Ok(path) = chapter_path(self.current_chapter(), &self.content_opf) {
 			let cwd = path_cwd(path);
-			let full_path = concat_path(cwd, href)?;
+			let full_path = concat_path_str(cwd, href)?;
 			let bytes = frozen_map_get!(self.images, full_path, true, ||{
 				zip_content(&mut self.zip.borrow_mut(), &full_path).ok()
 			})?;
@@ -291,6 +291,39 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 		} else {
 			None
 		}
+	}
+}
+
+struct EpubResolver<'a, R: Read + Seek + 'static> {
+	cwd: PathBuf,
+	zip: &'a RefCell<ZipArchive<R>>,
+	css_cache: &'a FrozenMap<String, String>,
+}
+
+impl<'a, R: Read + Seek + 'static> HtmlResolver for EpubResolver<'a, R>
+{
+	#[inline]
+	fn cwd(&self) -> PathBuf
+	{
+		self.cwd.clone()
+	}
+
+	#[inline]
+	fn resolve(&self, path: &PathBuf, sub: &str) -> PathBuf
+	{
+		let cwd = path.clone();
+		concat_path(cwd, sub)
+	}
+
+	fn css(&self, sub: &str) -> Option<(PathBuf, &str)>
+	{
+		let mut full_path = concat_path(self.cwd.clone(), sub);
+		let path = path_str(&full_path)?;
+		let content = frozen_map_get!(self.css_cache, path, || {
+			zip_string(&mut self.zip.borrow_mut(), &path).ok()
+		})?;
+		full_path.pop();
+		Some((full_path, content))
 	}
 }
 
@@ -407,27 +440,20 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 				if full_path.to_lowercase().ends_with(".xhtml") {
 					html_str = xhtml_to_html(&html_str)?;
 				}
+				drop(zip);
+				let mut resolve = EpubResolver {
+					cwd,
+					zip: &self.zip,
+					css_cache: &self.css_cache,
+				};
 				#[allow(unused)]
-					let (html_content, mut font_faces) = html_str_content(&html_str, &mut self.font_families, Some(|path: &str| {
-					let full_path = concat_path(cwd.clone(), &path)?;
-					frozen_map_get!(self.css_cache, full_path, || {
-						zip_string(&mut zip, &full_path).ok()
-					})
-				}))?;
+					let (html_content, mut font_faces) = html_str_content(
+					&html_str, &mut self.font_families, Some(&mut resolve))?;
 				#[cfg(feature = "gui")]
 				{
-					drop(zip);
-					// make source url to full path
-					// will used as key for access
-					for face in &mut font_faces {
-						for source in &mut face.sources {
-							if let Some(full_path) = concat_path(cwd.clone(), &source) {
-								*source = full_path;
-							}
-						}
-					}
 					self.fonts.reload(font_faces, |path| {
-						let content = zip_content(&mut self.zip.borrow_mut(), path).ok()?;
+						let path_str = path_str(path)?;
+						let content = zip_content(&mut self.zip.borrow_mut(), &path_str).ok()?;
 						Some(content)
 					});
 				}
@@ -509,7 +535,7 @@ fn parse_nav_points(nav_points_element: Node, level: usize, nav_points: &mut Vec
 		let src = get_child(el, "content")?.attribute("src")?.to_string();
 		let mut src_split = src.split('#');
 		let src_file = src_split.next()?;
-		let src_file = concat_path(cwd.clone(), src_file)?;
+		let src_file = concat_path_str(cwd.clone(), src_file)?;
 		let src_file = Some(src_file);
 		let src_anchor = src_split.next().and_then(|str| Some(String::from(str)));
 		let label = get_child(el, "navLabel")
@@ -604,7 +630,7 @@ fn parse_nav_doc(text: &str, cwd: &PathBuf) -> Result<Vec<NavPoint>>
 					let src_file = parts.next()
 						.map(|a| a.to_string())
 						.ok_or(anyhow!("Navigation document entry href not resolve to an Top-level Content Document or fragment therein"))?;
-					let src_file = concat_path(cwd.clone(), &src_file);
+					let src_file = concat_path_str(cwd.clone(), &src_file);
 					let src_anchor = parts.next().map(|a| a.to_string());
 					(src_file, src_anchor)
 				} else {
@@ -659,7 +685,7 @@ fn parse_manifest(manifest: Node, path: &PathBuf) -> Manifest
 			if node.has_tag_name("item") {
 				let id = node.attribute("id")?.to_string();
 				let href = node.attribute("href")?;
-				let href = concat_path(path.clone(), href)?;
+				let href = concat_path_str(path.clone(), href)?;
 				return Some((
 					id.clone(),
 					ManifestItem {
@@ -753,7 +779,7 @@ fn chapter_path(chapter_index: usize, content_opf: &ContentOPF) -> Result<&str>
 	Ok(&item.href)
 }
 
-fn concat_path(mut path: PathBuf, mut sub_path: &str) -> Option<String>
+fn concat_path(mut path: PathBuf, mut sub_path: &str) -> PathBuf
 {
 	while sub_path.starts_with("../") {
 		path.pop();
@@ -762,11 +788,22 @@ fn concat_path(mut path: PathBuf, mut sub_path: &str) -> Option<String>
 	#[cfg(windows)]
 		let sub_path = &sub_path.replace("/", "\\");
 	path.push(sub_path);
+	path
+}
+
+fn path_str(path: &PathBuf) -> Option<String>
+{
 	let str = path.to_str()?;
 	#[cfg(windows)]
 	return Some(str.replace("\\", "/"));
 	#[cfg(not(windows))]
 	Some(str.to_owned())
+}
+
+#[inline]
+fn concat_path_str(path: PathBuf, sub_path: &str) -> Option<String>
+{
+	path_str(&concat_path(path, sub_path))
 }
 
 #[inline]

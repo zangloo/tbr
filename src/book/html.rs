@@ -2,12 +2,12 @@ use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use elsa::FrozenMap;
 use indexmap::IndexSet;
 
 use crate::book::{Book, LoadingChapter, Line, Loader, ImageData};
-use crate::html_convertor::{html_content, html_str_content, HtmlContent};
+use crate::html_convertor::{html_content, html_str_content, HtmlContent, HtmlResolver};
 use crate::common::{plain_text, TraceInfo};
 use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::frozen_map_get;
@@ -35,6 +35,37 @@ impl HtmlLoader {
 	}
 }
 
+struct HtmlContentResolver {
+	cwd: PathBuf,
+	css_cache: FrozenMap<String, String>,
+}
+
+impl HtmlResolver for HtmlContentResolver
+{
+	#[inline]
+	fn cwd(&self) -> PathBuf
+	{
+		self.cwd.clone()
+	}
+
+	#[inline]
+	fn resolve(&self, path: &PathBuf, sub: &str) -> PathBuf
+	{
+		path.join(sub)
+	}
+
+	fn css(&self, sub: &str) -> Option<(PathBuf, &str)>
+	{
+		let mut path = self.cwd.join(&sub);
+		let full_path = path.canonicalize().ok()?.to_str()?.to_string();
+		let content = frozen_map_get!(&self.css_cache, full_path, || {
+				fs::read_to_string(&path).ok()
+			})?;
+		path.pop();
+		Some((path, content))
+	}
+}
+
 impl Loader for HtmlLoader {
 	fn extensions(&self) -> &Vec<&'static str>
 	{
@@ -46,9 +77,8 @@ impl Loader for HtmlLoader {
 		-> Result<(Box<dyn Book>, ReadingInfo)>
 	{
 		let filename = loading.filename();
-		let path = PathBuf::from_str(filename)?;
-		let cwd = path.parent()
-			.ok_or(anyhow!("Failed get parent of {:#?}", path))?;
+		let mut cwd = PathBuf::from_str(filename)?;
+		cwd.pop();
 		let mut content: Vec<u8> = Vec::new();
 		file.read_to_end(&mut content)?;
 		let mut font_families = IndexSet::new();
@@ -56,34 +86,24 @@ impl Loader for HtmlLoader {
 		if filename.to_lowercase().ends_with(".xhtml") {
 			text = xhtml_to_html(&text)?;
 		}
-		let stylesheets: FrozenMap<String, String> = Default::default();
 		#[allow(unused)]
-			let (content, mut font_faces) = html_str_content(&text, &mut font_families, Some(|path: &str| {
-			let path = cwd.join(&path);
-			let full_path = path.canonicalize().ok()?.to_str()?.to_string();
-			frozen_map_get!(stylesheets, full_path, || {
-				fs::read_to_string(&path).ok()
-			})
-		}))?;
+			let (content, mut font_faces) = html_str_content(
+			&text,
+			&mut font_families,
+			Some(&HtmlContentResolver {
+				cwd: cwd.clone(),
+				css_cache: FrozenMap::new(),
+			}),
+		)?;
 		#[cfg(feature = "gui")]
 			let book = {
-			// make source url to full path
-			// will used as key for access
-			for face in &mut font_faces {
-				for source in &mut face.sources {
-					if let Some(full_path) = cwd.join(&source).to_str() {
-						*source = full_path.to_string();
-					}
-				}
-			}
 			let mut fonts = HtmlFonts::new();
 			fonts.reload(font_faces, |path| {
-				let path = PathBuf::from_str(path).ok()?;
 				let content = fs::read(path).ok()?;
 				Some(content)
 			});
 			HtmlBook {
-				path: Some(cwd.to_owned()),
+				path: Some(cwd),
 				content,
 				font_families,
 				fonts,
