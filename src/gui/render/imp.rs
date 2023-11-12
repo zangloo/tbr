@@ -834,43 +834,41 @@ pub trait GuiRender {
 			};
 			self.cache_insert(char, font_size, &font_weight, font_family_idx, CharDrawData::Outline(draw_data));
 			measures
+		} else if let Some(draw_data) = OutlineDrawData::measure(
+			char,
+			font_size,
+			font_weight,
+			font_family_idx,
+			font_family_names,
+			fonts.as_ref()) {
+			let measures = CharMeasures {
+				size: draw_data.size,
+				draw_size: draw_data.draw_size,
+				draw_offset: draw_data.draw_offset,
+				font_size,
+				font_weight: font_weight.clone(),
+				font_family_idx: font_family_idx.clone(),
+			};
+			self.cache_insert(char, font_size, &font_weight, font_family_idx, CharDrawData::Outline(draw_data));
+			measures
 		} else {
-			if let Some(draw_data) = OutlineDrawData::measure(
+			let draw_data = PangoDrawData::measure(
 				char,
 				font_size,
 				font_weight,
 				font_family_idx,
 				font_family_names,
-				fonts.as_ref()) {
-				let measures = CharMeasures {
-					size: draw_data.size,
-					draw_size: draw_data.draw_size,
-					draw_offset: draw_data.draw_offset,
-					font_size,
-					font_weight: font_weight.clone(),
-					font_family_idx: font_family_idx.clone(),
-				};
-				self.cache_insert(char, font_size, &font_weight, font_family_idx, CharDrawData::Outline(draw_data));
-				measures
-			} else {
-				let draw_data = PangoDrawData::measure(
-					char,
-					font_size,
-					font_weight,
-					font_family_idx,
-					font_family_names,
-					layout);
-				let measures = CharMeasures {
-					size: draw_data.size,
-					draw_size: draw_data.draw_size,
-					draw_offset: draw_data.draw_offset,
-					font_size,
-					font_weight: font_weight.clone(),
-					font_family_idx: font_family_idx.clone(),
-				};
-				self.cache_insert(char, font_size, &font_weight, font_family_idx, CharDrawData::Pango(draw_data));
-				measures
-			}
+				layout);
+			let measures = CharMeasures {
+				size: draw_data.size,
+				draw_size: draw_data.draw_size,
+				draw_offset: draw_data.draw_offset,
+				font_size,
+				font_weight: font_weight.clone(),
+				font_family_idx: font_family_idx.clone(),
+			};
+			self.cache_insert(char, font_size, &font_weight, font_family_idx, CharDrawData::Pango(draw_data));
+			measures
 		}
 	}
 }
