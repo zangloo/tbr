@@ -837,6 +837,10 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 				}
 				(Key::slash, MODIFIER_NONE) | (Key::f, ModifierType::CONTROL_MASK) => {
 					search_box.grab_focus();
+					if let Some(pattern) = gc.ctrl().selected() {
+						search_box.set_text(pattern)
+					}
+					search_box.select_region(0, -1);
 					glib::Propagation::Stop
 				}
 				(Key::Escape, MODIFIER_NONE) => {
