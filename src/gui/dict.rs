@@ -286,12 +286,22 @@ impl DictionaryManager {
 		self.push_dict_word(lookup_text);
 	}
 
-	fn select_text(&mut self, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64)
+	fn select_text(&mut self, from_line: u64, from_offset: u64, to_line: u64,
+		to_offset: u64, done: bool)
 	{
 		let from = Position::new(from_line as usize, from_offset as usize);
 		let to = Position::new(to_line as usize, to_offset as usize);
-		self.highlight = self.book.range_highlight(from, to);
-		self.redraw(ScrollRedrawMethod::NoResetScroll);
+		let highlight = self.book.range_highlight(from, to);
+		if done {
+			if let Some(selected) = highlight_selection(&highlight) {
+				self.set_lookup(selected.to_owned());
+			} else {
+				self.highlight = None;
+			}
+		} else {
+			self.highlight = highlight;
+			self.redraw(ScrollRedrawMethod::NoResetScroll);
+		}
 	}
 
 	#[inline]
@@ -524,7 +534,12 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 			false,
 			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
 				let mut dictionary_manager = dm.borrow_mut();
-				dictionary_manager.select_text(from_line, from_offset, to_line, to_offset);
+				dictionary_manager.select_text(
+					from_line,
+					from_offset,
+					to_line,
+					to_offset,
+					false);
 	        }),
 		);
 	}
@@ -537,7 +552,12 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 			false,
 			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
 				let mut dictionary_manager = dm.borrow_mut();
-				dictionary_manager.select_text(from_line, from_offset, to_line, to_offset);
+				dictionary_manager.select_text(
+					from_line,
+					from_offset,
+					to_line,
+					to_offset,
+					true);
 	        }),
 		);
 	}
