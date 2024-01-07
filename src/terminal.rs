@@ -11,8 +11,10 @@ use crate::{version_string, description, version};
 use crate::list::{list_dialog, ListIterator};
 use crate::config::{BookLoadingInfo, Configuration, Themes};
 use view::ReadingView;
+use crate::terminal::input_method::{InputMethod, setup_im};
 
 pub mod view;
+mod input_method;
 
 const STATUS_VIEW_NAME: &str = "status";
 const TEXT_VIEW_NAME: &str = "text";
@@ -25,6 +27,7 @@ const GOTO_LABEL_TEXT: &str = "Goto line: ";
 struct TerminalContext {
 	configuration: Configuration,
 	themes: Themes,
+	im: Option<Box<dyn InputMethod>>,
 }
 
 pub trait Listable {
@@ -57,7 +60,9 @@ pub fn start(mut configuration: Configuration, themes: Themes) -> Result<()> {
 	let theme = themes.get(configuration.dark_theme);
 	app.set_theme(theme.clone());
 	let reading_view = ReadingView::new(configuration.render_han, loading)?;
-	app.set_user_data(TerminalContext { configuration, themes });
+	// turn off ime at start
+	let im = setup_im();
+	app.set_user_data(TerminalContext { configuration, themes, im });
 	let status_view = LinearLayout::horizontal()
 		.child(TextView::new(&reading_view.status_msg())
 			.no_wrap()
@@ -214,32 +219,50 @@ fn goto_line(app: &mut Cursive) {
 	let reading_view: ViewRef<ReadingView> = app.find_name(TEXT_VIEW_NAME).unwrap();
 	let line_str = (reading_view.reading_info().line + 1).to_string();
 	setup_input_view(app, GOTO_LABEL_TEXT, &line_str, |s, line_no| {
-		let line_no = line_no.parse::<usize>()?;
-		let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
-		reading_view.goto_line(line_no)
-	});
+		if let Some(line_no) = line_no {
+			let line_no = line_no.parse::<usize>()?;
+			let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
+			reading_view.goto_line(line_no)
+		} else {
+			Ok(())
+		}
+	}, |_| {});
 }
 
 fn setup_search_view(app: &mut Cursive) {
+	fn set_im_active(s: &mut Cursive, active: Option<bool>, update_restore: bool)
+	{
+		s.with_user_data(|context: &mut TerminalContext| {
+			if let Some(im) = &mut context.im {
+				 im.set_active(active, update_restore);
+			}
+		});
+	}
 	let reading_view: ViewRef<ReadingView> = app.find_name(TEXT_VIEW_NAME).unwrap();
 	let search_pattern = reading_view.search_pattern();
+	set_im_active(app, None, false);
 	setup_input_view(app, SEARCH_LABEL_TEXT, search_pattern, |s, pattern| {
-		let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
-		reading_view.search(pattern)?;
+		set_im_active(s, Some(false), true);
+		if let Some(pattern) = pattern {
+			let mut reading_view: ViewRef<ReadingView> = s.find_name(TEXT_VIEW_NAME).unwrap();
+			reading_view.search(pattern)?;
+		}
 		Ok(())
-	});
+	}, |s| set_im_active(s, Some(false), true));
 }
 
-fn setup_input_view<F>(app: &mut Cursive, prefix: &str, preset: &str, submit: F)
-	where F: Fn(&mut Cursive, &str) -> Result<()> + 'static
+fn setup_input_view<F, C>(app: &mut Cursive, prefix: &str, preset: &str, submit: F, cancel: C)
+	where
+		F: Fn(&mut Cursive, Option<&str>) -> Result<()> + 'static,
+		C: Fn(&mut Cursive) + 'static,
 {
 	let input_view = EditView::new()
 		.on_submit(move |app, str| {
 			let pattern_len = str.len();
 			let result = if pattern_len == 0 {
-				Ok(())
+				(submit)(app, None)
 			} else {
-				(submit)(app, str)
+				(submit)(app, Some(str))
 			};
 			match result {
 				Ok(()) => {
@@ -259,7 +282,7 @@ fn setup_input_view<F>(app: &mut Cursive, prefix: &str, preset: &str, submit: F)
 			.content(preset)
 			.with_name(INPUT_VIEW_NAME)
 			.resized(SizeConstraint::Fixed(20), SizeConstraint::Fixed(1)))
-			.on_event(Esc, |s| {
+			.on_event(Esc, move |s| {
 				let mut layout: ViewRef<LinearLayout> = s.find_name(STATUS_LAYOUT_NAME).unwrap();
 				match layout.find_child_from_name(INPUT_LAYOUT_NAME) {
 					Some(idx) => {
@@ -270,6 +293,7 @@ fn setup_input_view<F>(app: &mut Cursive, prefix: &str, preset: &str, submit: F)
 					}
 					None => (),
 				};
+				cancel(s);
 			})
 		);
 
