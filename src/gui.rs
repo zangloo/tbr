@@ -270,6 +270,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		let gc = gc.clone();
 		let key_event = EventControllerKey::new();
 		key_event.connect_key_pressed(move |_, key, _, modifier| {
+			let (key, modifier) = ignore_cap(key, modifier);
 			match (key, modifier) {
 				(Key::space | Key::Page_Down, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
@@ -813,6 +814,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 	{
 		let gc = gc.clone();
 		window_key_event.connect_key_pressed(move |_, key, _, modifier| {
+			let (key, modifier) = ignore_cap(key, modifier);
 			match (key, modifier) {
 				(Key::Control_L, MODIFIER_NONE) => {
 					let view = &gc.ctrl().render;
@@ -1770,6 +1772,18 @@ fn mouse_pointer(view: &impl IsA<Widget>) -> Option<(f32, f32)>
 		None
 	} else {
 		Some((x, y))
+	}
+}
+
+#[inline]
+fn ignore_cap(key: Key, modifier: ModifierType) -> (Key, ModifierType)
+{
+	if modifier & ModifierType::LOCK_MASK == MODIFIER_NONE {
+		(key, modifier)
+	} else {
+		let modifier = modifier ^ ModifierType::LOCK_MASK;
+		let key = key.to_lower();
+		(key, modifier)
 	}
 }
 
