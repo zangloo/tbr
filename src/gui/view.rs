@@ -91,14 +91,14 @@ impl Render<RenderContext> for GuiView {
 }
 
 impl GuiView {
-	pub const WIDGET_NAME: &str = "book-view";
-	pub const OPEN_LINK_SIGNAL: &str = "open-link";
-	pub const OPEN_IMAGE_EXTERNAL_SIGNAL: &str = "open-image-external";
-	pub const OPEN_LINK_EXTERNAL_SIGNAL: &str = "open-link-external";
-	pub const SELECTING_TEXT_SIGNAL: &str = "select-text";
-	pub const TEXT_SELECTED_SIGNAL: &str = "text-selected";
-	pub const CLEAR_SELECTION_SIGNAL: &str = "clear-selection";
-	pub const SCROLL_SIGNAL: &str = "scroll";
+	pub const WIDGET_NAME: &'static str = "book-view";
+	pub const OPEN_LINK_SIGNAL: &'static str = "open-link";
+	pub const OPEN_IMAGE_EXTERNAL_SIGNAL: &'static str = "open-image-external";
+	pub const OPEN_LINK_EXTERNAL_SIGNAL: &'static str = "open-link-external";
+	pub const SELECTING_TEXT_SIGNAL: &'static str = "select-text";
+	pub const TEXT_SELECTED_SIGNAL: &'static str = "text-selected";
+	pub const CLEAR_SELECTION_SIGNAL: &'static str = "clear-selection";
+	pub const SCROLL_SIGNAL: &'static str = "scroll";
 
 	pub fn new(instance_name: &str, render_han: bool, book_fonts: Option<&HtmlFonts>,
 		user_fonts: Rc<Option<UserFonts>>, render_context: &mut RenderContext) -> Self
