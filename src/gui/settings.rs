@@ -5,9 +5,14 @@ use gtk4::gio::{Cancellable, File, ListStore};
 use gtk4::glib::{Cast, Object};
 use gtk4::prelude::{BoxExt, ButtonExt, CheckButtonExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, WidgetExt};
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
-use crate::config::PathConfig;
+use crate::config::{PathConfig, SidebarPosition};
 use crate::I18n;
 use crate::gui::{apply_settings, create_button, DICT_FILE_EXTENSIONS, FONT_FILE_EXTENSIONS, GuiContext, MODIFIER_NONE, IconMap};
+
+const SIDEBAR_POSITIONS: [SidebarPosition; 2] = [
+	SidebarPosition::Left,
+	SidebarPosition::Top,
+];
 
 pub(super) fn show(gc: &GuiContext) -> Window
 {
@@ -87,6 +92,29 @@ pub(super) fn show(gc: &GuiContext) -> Window
 			.build();
 		main.append(&cb);
 		cb
+	};
+
+	let sidebar_position_dropdown = {
+		let sidebar_position_box = gtk4::Box::new(Orientation::Horizontal, 0);
+		let sidebar_position_list = StringList::default();
+		let mut current_sidebar_position = 0;
+		for (idx, entry) in SIDEBAR_POSITIONS.iter().enumerate() {
+			sidebar_position_list.append(&i18n.msg(entry.i18n_key()));
+			if *entry == configuration.gui.sidebar_position {
+				current_sidebar_position = idx;
+			}
+		};
+		let sidebar_position_dropdown = DropDown::builder()
+			.margin_start(10)
+			.model(&sidebar_position_list)
+			.selected(current_sidebar_position as u32)
+			.build();
+
+		sidebar_position_box.append(&title_label(&i18n.msg("sidebar-position")));
+		sidebar_position_box.append(&sidebar_position_dropdown);
+		main.append(&sidebar_position_box);
+		main.append(&sidebar_position_dropdown);
+		sidebar_position_dropdown
 	};
 
 	let font_list = {
@@ -214,10 +242,14 @@ pub(super) fn show(gc: &GuiContext) -> Window
 			let dictionaries = collect_path_list(&dict_list, |path|
 				stardict::no_cache(path).is_ok());
 			let cache_dict = cache_dict_cb.is_active();
+			let sidebar_position = {
+				let idx = sidebar_position_dropdown.selected();
+				&SIDEBAR_POSITIONS[idx as usize]
+			};
 
 			if let Err((title, message)) = apply_settings(
 				render_han, locale, fonts, dictionaries, cache_dict,
-				ignore_font_weight, strip_empty_lines,
+				ignore_font_weight, strip_empty_lines, sidebar_position,
 				&gc, &mut gc.dm_mut()) {
 				AlertDialog::builder()
 					.modal(true)

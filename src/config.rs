@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use cursive::theme::{Error, load_theme_file, load_toml, Theme};
+#[cfg(feature = "gui")]
+use gtk4::Orientation;
 use rusqlite::{Connection, Row};
 use serde_derive::{Deserialize, Serialize};
 #[cfg(feature = "i18n")]
@@ -172,10 +174,49 @@ pub struct PathConfig {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 #[cfg(feature = "gui")]
+#[serde(rename_all = "snake_case")]
+pub enum SidebarPosition {
+	Left,
+	Top,
+}
+
+#[cfg(feature = "gui")]
+impl Default for SidebarPosition {
+	#[inline]
+	fn default() -> Self
+	{
+		SidebarPosition::Left
+	}
+}
+
+#[cfg(feature = "gui")]
+impl SidebarPosition {
+	#[inline]
+	pub fn paned_orientation(&self) -> Orientation
+	{
+		match self {
+			SidebarPosition::Left => Orientation::Horizontal,
+			SidebarPosition::Top => Orientation::Vertical,
+		}
+	}
+	#[inline]
+	pub fn i18n_key(&self) -> &'static str
+	{
+		match self {
+			SidebarPosition::Left => "sidebar-left",
+			SidebarPosition::Top => "sidebar-top",
+		}
+	}
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[cfg(feature = "gui")]
 pub struct GuiConfiguration {
 	pub fonts: Vec<PathConfig>,
 	pub font_size: u8,
 	pub sidebar_size: u32,
+	#[serde(default)]
+	pub sidebar_position: SidebarPosition,
 	#[serde(default = "default_locale")]
 	pub lang: String,
 	pub dictionaries: Vec<PathConfig>,
@@ -192,6 +233,7 @@ impl Default for GuiConfiguration
 			fonts: vec![],
 			font_size: 20,
 			sidebar_size: 300,
+			sidebar_position: Default::default(),
 			lang: default_locale(),
 			dictionaries: vec![],
 			cache_dict: false,

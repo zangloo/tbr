@@ -15,7 +15,7 @@ use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, Me
 use gtk4::glib;
 use gtk4::glib::{Bytes, closure_local, ExitCode, format_size, ObjectExt, SignalHandlerId, StaticType};
 use gtk4::graphene::Point;
-use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, IsA, NativeExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
+use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, IsA, NativeExt, OrientableExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
 use pangocairo::pango::EllipsizeMode;
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
@@ -24,7 +24,7 @@ use crate::{Asset, I18n, package_name};
 use crate::book::{Book, Colors, Line};
 use crate::color::Color32;
 use crate::common::{Position, txt_lines};
-use crate::config::{BookLoadingInfo, Configuration, PathConfig, ReadingInfo, Themes};
+use crate::config::{BookLoadingInfo, Configuration, PathConfig, ReadingInfo, SidebarPosition, Themes};
 use crate::container::{BookContent, BookName, Container, load_book, load_container, title_for_filename};
 use crate::controller::Controller;
 use crate::gui::chapter_list::ChapterList;
@@ -711,19 +711,38 @@ fn setup_sidebar(gc: &GuiContext, view: &GuiView, dict_view: &gtk4::Box,
 	sidebar.append(&sidebar_tab_switch);
 	sidebar.append(&gc.sidebar_stack);
 
+	let sidebar_position = &gc.cfg().gui.sidebar_position;
+	set_sidebar_position(gc, sidebar_position);
+
 	let paned = &gc.paned;
 	paned.set_start_child(Some(&sidebar));
 	paned.set_end_child(Some(view));
 	paned.set_position(0);
 
 	let gc = gc.clone();
-	paned.connect_position_notify(move |p| {
-		let position = p.position();
+	paned.connect_position_notify(move |paned| {
+		let position = paned.position();
 		if position > 0 {
-			gc.cfg_mut().gui.sidebar_size = position as u32;
-			gc.dm_mut().resize(position, None);
+			sidebar_updated(
+				&mut gc.cfg_mut(),
+				&mut gc.dm_mut(),
+				position)
 		}
 	});
+}
+
+fn sidebar_updated(configuration: &mut Configuration,
+	dictionary_manager: &mut DictionaryManager,
+	position: i32)
+{
+	configuration.gui.sidebar_size = position as u32;
+	dictionary_manager.resize(position, None);
+}
+
+#[inline]
+fn set_sidebar_position(gc: &GuiContext, position: &SidebarPosition)
+{
+	gc.paned.set_orientation(position.paned_orientation());
 }
 
 fn setup_chapter_list(gc1: &GuiContext)
@@ -1197,7 +1216,7 @@ fn update_title(window: &ApplicationWindow, filename: &str)
 
 fn apply_settings(render_han: bool, locale: &str, fonts: Vec<PathConfig>,
 	dictionaries: Vec<PathConfig>, cache_dict: bool, ignore_font_weight: bool,
-	strip_empty_lines: bool,
+	strip_empty_lines: bool, sidebar_position: &SidebarPosition,
 	gc: &GuiContext, dictionary_manager: &mut DictionaryManager)
 	-> Result<(), (String, String)>
 {
@@ -1237,6 +1256,15 @@ fn apply_settings(render_han: bool, locale: &str, fonts: Vec<PathConfig>,
 		configuration.gui.strip_empty_lines = strip_empty_lines;
 		redraw = true;
 	};
+	if configuration.gui.sidebar_position != *sidebar_position {
+		configuration.gui.sidebar_position = sidebar_position.clone();
+		set_sidebar_position(gc, &configuration.gui.sidebar_position);
+		let position = gc.paned.position();
+		if position > 0 {
+			sidebar_updated(&mut configuration, dictionary_manager, position);
+			redraw = true;
+		}
+	}
 
 	let new_fonts = if paths_modified(&configuration.gui.fonts, &fonts) {
 		let new_fonts = match font::user_fonts(&fonts) {
