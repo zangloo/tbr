@@ -15,7 +15,7 @@ use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, Me
 use gtk4::glib;
 use gtk4::glib::{Bytes, closure_local, ExitCode, format_size, ObjectExt, SignalHandlerId, StaticType};
 use gtk4::graphene::Point;
-use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkWindowExt, IsA, NativeExt, OrientableExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
+use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkApplicationExt, GtkWindowExt, IsA, NativeExt, OrientableExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
 use pangocairo::pango::EllipsizeMode;
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
@@ -1840,9 +1840,24 @@ pub fn start(configuration: Configuration, themes: Themes)
 		});
 	}
 
+	#[cfg(unix)]
+	{
+		handle_signal(2, app.clone());
+		handle_signal(15, app.clone());
+	}
 	if app.run_with_args::<String>(&[]) == ExitCode::FAILURE {
 		bail!("Failed start tbr")
 	}
 
 	Ok(None)
+}
+
+#[cfg(unix)]
+fn handle_signal(signum: i32, app: Application)
+{
+	glib::unix_signal_add_local_once(signum, move || {
+		for win in app.windows() {
+			win.close();
+		}
+	});
 }
