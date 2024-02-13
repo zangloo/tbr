@@ -146,6 +146,12 @@ impl Loader for HtmlLoader {
 
 impl Book for HtmlBook {
 	#[inline]
+	fn name(&self) -> Option<&str>
+	{
+		self.content.title.as_ref().map(|n| n.as_ref())
+	}
+
+	#[inline]
 	fn lines(&self) -> &Vec<Line>
 	{
 		&self.content.lines

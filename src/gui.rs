@@ -813,7 +813,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 	window.set_default_widget(Some(&view));
 	window.set_focus(Some(&view));
 	window.add_css_class("main-window");
-	update_title(window, &filename);
+	update_title(window, gc.ctrl().book.as_ref(), &filename);
 
 	let window_key_event = EventControllerKey::new();
 	{
@@ -1207,10 +1207,13 @@ fn update_button(btn: &Button, name: &str, tooltip: &str, icons: &IconMap)
 }
 
 #[inline(always)]
-fn update_title(window: &ApplicationWindow, filename: &str)
+fn update_title(window: &ApplicationWindow, book: &dyn Book, filename: &str)
 {
-	let filename = title_for_filename(filename);
-	let title = format!("{} - {}", package_name!(), filename);
+	let name = book.name()
+		.unwrap_or_else(|| {
+			title_for_filename(filename)
+		});
+	let title = format!("{} - {}", package_name!(), name);
 	window.set_title(Some(&title));
 }
 
@@ -1621,7 +1624,7 @@ impl GuiContext {
 										None
 									};
 									self.update_ui(custom_color, custom_font);
-									update_title(&self.window, &controller.reading.filename);
+									update_title(&self.window, controller.book.as_ref(), &controller.reading.filename);
 									controller.redraw(&mut render_context);
 									configuration.current = Some(controller.reading.filename.clone());
 									drop(controller);

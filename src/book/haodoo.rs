@@ -106,6 +106,7 @@ impl Loader for HaodooLoader {
 }
 
 struct HaodooBook<R: Read + Seek> {
+	name: String,
 	reader: R,
 	book_type: PDBType,
 	record_offsets: Vec<usize>,
@@ -155,6 +156,7 @@ fn parse_header<R: Read + Seek>(mut reader: R) -> Result<HaodooBook<R>> {
 		record_offsets.push(read_u32(&record_buffer, index << 3))
 	}
 	Ok(HaodooBook {
+		name: String::new(),
 		reader,
 		book_type,
 		record_offsets,
@@ -165,7 +167,14 @@ fn parse_header<R: Read + Seek>(mut reader: R) -> Result<HaodooBook<R>> {
 }
 
 impl<R: Read + Seek + 'static> Book for HaodooBook<R> {
-	fn chapter_count(&self) -> usize {
+	#[inline]
+	fn name(&self) -> Option<&str>
+	{
+		Some(&self.name)
+	}
+
+	fn chapter_count(&self) -> usize
+	{
 		if matches!(self.book_type, PDBType::PalmDoc) {
 			1
 		} else {
@@ -173,7 +182,8 @@ impl<R: Read + Seek + 'static> Book for HaodooBook<R> {
 		}
 	}
 
-	fn goto_chapter(&mut self, chapter_index: usize) -> Result<Option<usize>> {
+	fn goto_chapter(&mut self, chapter_index: usize) -> Result<Option<usize>>
+	{
 		match self.chapters.get(chapter_index) {
 			Some(Chapter { lines: Some(_), .. }) => {
 				self.chapter_index = chapter_index;
@@ -189,11 +199,13 @@ impl<R: Read + Seek + 'static> Book for HaodooBook<R> {
 		}
 	}
 
-	fn current_chapter(&self) -> usize {
+	fn current_chapter(&self) -> usize
+	{
 		self.chapter_index
 	}
 
-	fn title(&self, _line: usize, _offset: usize) -> Option<&str> {
+	fn title(&self, _line: usize, _offset: usize) -> Option<&str>
+	{
 		if matches!(self.book_type, PDBType::PalmDoc) {
 			None
 		} else {
@@ -217,11 +229,13 @@ impl<R: Read + Seek + 'static> Book for HaodooBook<R> {
 		Some(Box::new(iter))
 	}
 
-	fn toc_position(&mut self, toc_index: usize) -> Option<TraceInfo> {
+	fn toc_position(&mut self, toc_index: usize) -> Option<TraceInfo>
+	{
 		Some(TraceInfo { chapter: toc_index, line: 0, offset: 0 })
 	}
 
-	fn lines(&self) -> &Vec<Line> {
+	fn lines(&self) -> &Vec<Line>
+	{
 		match self.chapters.get(self.chapter_index) {
 			Some(Chapter { lines: Some(lines), .. }) => lines,
 			Some(Chapter { lines: None, .. })
@@ -231,7 +245,8 @@ impl<R: Read + Seek + 'static> Book for HaodooBook<R> {
 }
 
 impl<R: Read + Seek> HaodooBook<R> {
-	fn read_record(&mut self, record_index: usize) -> Result<Vec<u8>> {
+	fn read_record(&mut self, record_index: usize) -> Result<Vec<u8>>
+	{
 		let record_count = self.record_offsets.len();
 		if record_index >= record_count {
 			return Err(anyhow!("invalid record index: {}", record_index));
@@ -263,6 +278,7 @@ impl<R: Read + Seek> HaodooBook<R> {
 			.windows(escape.len())
 			.position(|window| window == escape)
 			.ok_or(anyhow!("Failed parse toc"))?;
+		self.name = String::from(encode.decode(&record[8..position]).0);
 		position += 3 * escape.len();
 		position += escape.len() + record[position..]
 			.windows(escape.len())
@@ -286,7 +302,8 @@ impl<R: Read + Seek> HaodooBook<R> {
 		}
 		Ok(())
 	}
-	fn load_toc(&mut self) -> Result<()> {
+	fn load_toc(&mut self) -> Result<()>
+	{
 		let record = self.read_record(0)?;
 		match self.book_type {
 			PDBType::PDB { encode } => {
@@ -342,7 +359,8 @@ impl<R: Read + Seek> HaodooBook<R> {
 		Ok(())
 	}
 
-	fn load_chapter(&mut self, chapter_index: usize) -> Result<Vec<Line>> {
+	fn load_chapter(&mut self, chapter_index: usize) -> Result<Vec<Line>>
+	{
 		let mut record = self.read_record(chapter_index + 1)?;
 		let text = match self.book_type {
 			PDBType::PDB { encode, .. } => {
@@ -365,12 +383,14 @@ impl<R: Read + Seek> HaodooBook<R> {
 }
 
 #[inline]
-fn read_u16(buf: &[u8], offset: usize) -> usize {
+fn read_u16(buf: &[u8], offset: usize) -> usize
+{
 	((buf[offset] as usize) << 8) | (buf[offset + 1] as usize)
 }
 
 #[inline]
-fn read_u32(buf: &[u8], offset: usize) -> usize {
+fn read_u32(buf: &[u8], offset: usize) -> usize
+{
 	((buf[offset] as usize) << 24)
 		| ((buf[offset + 1] as usize) << 16)
 		| ((buf[offset + 2] as usize) << 8)
@@ -378,7 +398,8 @@ fn read_u32(buf: &[u8], offset: usize) -> usize {
 }
 
 #[inline]
-fn decrypt_pdb(record: &mut [u8]) {
+fn decrypt_pdb(record: &mut [u8])
+{
 	let mut i = 0;
 	let length = record.len();
 	loop {

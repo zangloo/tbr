@@ -114,6 +114,12 @@ impl Loader for EpubLoader {
 
 impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 	#[inline]
+	fn name(&self) -> Option<&str>
+	{
+		Some(&self.content_opf.title)
+	}
+
+	#[inline]
 	fn chapter_count(&self) -> usize
 	{
 		self.content_opf.spine.len()

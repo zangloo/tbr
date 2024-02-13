@@ -384,6 +384,9 @@ impl<'a> Listable for TocInfo<'a> {
 }
 
 pub trait Book {
+	#[inline]
+	fn name(&self) -> Option<&str> { None }
+	#[inline]
 	fn chapter_count(&self) -> usize { 1 }
 	fn prev_chapter(&mut self) -> Result<Option<usize>>
 	{
@@ -408,21 +411,33 @@ pub trait Book {
 			Ok(Some(chapter_index))
 		}
 	}
+	#[inline]
 	fn current_chapter(&self) -> usize { 0 }
+	#[inline]
 	fn title(&self, _line: usize, _offset: usize) -> Option<&str> { None }
+	#[inline]
 	fn toc_index(&self, _line: usize, _offset: usize) -> usize { 0 }
+	#[inline]
 	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=TocInfo> + '_>> { None }
+	#[inline]
 	fn toc_position(&mut self, _toc_index: usize) -> Option<TraceInfo> { None }
 	fn lines(&self) -> &Vec<Line>;
+	#[inline]
 	fn leading_space(&self) -> usize { 2 }
+	#[inline]
 	fn link_position(&mut self, _line: usize, _link_index: usize) -> Option<TraceInfo> { None }
 	// (absolute path, content)
+	#[inline]
 	fn image<'a>(&'a self, _href: &'a str) -> Option<ImageData<'a>> { None }
+	#[inline]
 	fn font_family_names(&self) -> Option<&IndexSet<String>> { None }
+	#[inline]
 	#[cfg(feature = "gui")]
 	fn color_customizable(&self) -> bool { false }
+	#[inline]
 	#[cfg(feature = "gui")]
 	fn fonts_customizable(&self) -> bool { false }
+	#[inline]
 	#[cfg(feature = "gui")]
 	fn custom_fonts(&self) -> Option<&HtmlFonts> { None }
 
