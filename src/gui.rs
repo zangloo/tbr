@@ -916,6 +916,11 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					}
 					glib::Propagation::Stop
 				}
+				(Key::F11, MODIFIER_NONE) => {
+					let win = &gc.window;
+					win.set_fullscreened(!win.is_fullscreened());
+					glib::Propagation::Stop
+				}
 				_ => {
 					// println!("window pressed, key: {key}, modifier: {modifier}");
 					glib::Propagation::Proceed
