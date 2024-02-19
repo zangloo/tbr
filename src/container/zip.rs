@@ -7,7 +7,7 @@ use zip::ZipArchive;
 
 use crate::BookLoader;
 use crate::common::plain_text;
-use crate::container::{BookContent, BookName, Container, ContainerLoader};
+use crate::container::{BookContent, BookName, Container, ContainerLoader, title_for_filename};
 
 pub(crate) struct ZipLoader {}
 
@@ -50,10 +50,13 @@ pub(crate) struct ZipContainer {
 }
 
 impl Container for ZipContainer {
+	#[inline]
 	fn filename(&self) -> &str
 	{
 		&self.filename
 	}
+
+	#[inline]
 	fn inner_book_names(&self) -> Option<&Vec<BookName>>
 	{
 		Some(&self.files)
@@ -66,5 +69,15 @@ impl Container for ZipContainer {
 		let mut content = vec![];
 		zip_file.read_to_end(&mut content)?;
 		Ok(BookContent::Buf(content))
+	}
+
+	#[inline]
+	fn book_name(&self, inner_index: usize) -> &str
+	{
+		self.files
+			.get(inner_index)
+			.map_or_else(
+				|| title_for_filename(&self.filename),
+				|bn| &bn.name)
 	}
 }

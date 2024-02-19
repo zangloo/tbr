@@ -25,7 +25,7 @@ use crate::book::{Book, Colors, Line};
 use crate::color::Color32;
 use crate::common::{Position, txt_lines};
 use crate::config::{BookLoadingInfo, Configuration, PathConfig, ReadingInfo, SidebarPosition, Themes};
-use crate::container::{BookContent, BookName, Container, load_book, load_container, title_for_filename};
+use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::Controller;
 use crate::gui::chapter_list::ChapterList;
 use crate::gui::dict::DictionaryManager;
@@ -76,6 +76,7 @@ impl ReadmeContainer {
 }
 
 impl Container for ReadmeContainer {
+	#[inline]
 	fn filename(&self) -> &str
 	{
 		README_TEXT_FILENAME
@@ -91,6 +92,11 @@ impl Container for ReadmeContainer {
 	fn book_content(&mut self, _inner_index: usize) -> Result<BookContent>
 	{
 		Ok(BookContent::Buf(self.text.as_bytes().to_vec()))
+	}
+
+	fn book_name(&self, _inner_index: usize) -> &str
+	{
+		"The e-book reader"
 	}
 }
 
@@ -176,16 +182,15 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let fonts = Rc::new(fonts);
 	let container_manager = Default::default();
 	let i18n = I18n::new(&configuration.gui.lang).unwrap();
-	let (container, book, reading, filename) = if let Some(loading) = loading {
+	let (container, book, reading) = if let Some(loading) = loading {
 		let mut container = load_container(&container_manager, loading.filename())?;
 		let (book, reading) = load_book(&container_manager, &mut container, loading)?;
-		let filename = reading.filename.clone();
-		(container, book, reading, filename)
+		(container, book, reading)
 	} else {
 		let readme = i18n.msg("readme");
 		let container: Box<dyn Container> = Box::new(ReadmeContainer::new(readme.as_ref()));
 		let book: Box<dyn Book> = Box::new(ReadmeBook::new(readme.as_ref()));
-		(container, book, ReadingInfo::fake(README_TEXT_FILENAME), "The e-book reader".to_owned())
+		(container, book, ReadingInfo::fake(README_TEXT_FILENAME))
 	};
 
 	let i18n = Rc::new(i18n);
@@ -390,7 +395,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		view.add_controller(key_event);
 	}
 
-	setup_window(&gc, toolbar, view, theme_btn, search_box, filename);
+	setup_window(&gc, toolbar, view, theme_btn, search_box);
 	Ok(gc)
 }
 
@@ -801,7 +806,7 @@ fn switch_stack(tab_name: &str, gc: &GuiContext, toggle: bool) -> bool
 
 #[inline]
 fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
-	theme_btn: Button, search_box: SearchEntry, filename: String)
+	theme_btn: Button, search_box: SearchEntry)
 {
 	let header_bar = HeaderBar::new();
 	header_bar.set_height_request(32);
@@ -813,7 +818,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 	window.set_default_widget(Some(&view));
 	window.set_focus(Some(&view));
 	window.add_css_class("main-window");
-	update_title(window, gc.ctrl().book.as_ref(), &filename);
+	update_title(window, &gc.ctrl());
 
 	let window_key_event = EventControllerKey::new();
 	{
@@ -1212,12 +1217,9 @@ fn update_button(btn: &Button, name: &str, tooltip: &str, icons: &IconMap)
 }
 
 #[inline(always)]
-fn update_title(window: &ApplicationWindow, book: &dyn Book, filename: &str)
+fn update_title(window: &ApplicationWindow, controller: &GuiController)
 {
-	let name = book.name()
-		.unwrap_or_else(|| {
-			title_for_filename(filename)
-		});
+	let name = controller.reading_book_name();
 	let title = format!("{} - {}", package_name!(), name);
 	window.set_title(Some(&title));
 }
@@ -1629,7 +1631,7 @@ impl GuiContext {
 										None
 									};
 									self.update_ui(custom_color, custom_font);
-									update_title(&self.window, controller.book.as_ref(), &controller.reading.filename);
+									update_title(&self.window, &controller);
 									controller.redraw(&mut render_context);
 									configuration.current = Some(controller.reading.filename.clone());
 									drop(controller);

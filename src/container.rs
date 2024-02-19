@@ -74,6 +74,7 @@ pub trait Container {
 	fn filename(&self) -> &str;
 	fn inner_book_names(&self) -> Option<&Vec<BookName>>;
 	fn book_content(&mut self, inner_index: usize) -> Result<BookContent>;
+	fn book_name(&self, inner_index: usize) -> &str;
 }
 
 pub struct BookName {
@@ -105,19 +106,28 @@ pub struct DummyContainer {
 }
 
 impl Container for DummyContainer {
+	#[inline]
 	fn filename(&self) -> &str
 	{
 		&self.filename
 	}
 
+	#[inline]
 	fn inner_book_names(&self) -> Option<&Vec<BookName>>
 	{
 		None
 	}
 
+	#[inline]
 	fn book_content(&mut self, _inner_index: usize) -> Result<BookContent>
 	{
 		Ok(BookContent::File(self.filename.clone()))
+	}
+
+	#[inline]
+	fn book_name(&self, _inner_index: usize) -> &str
+	{
+		title_for_filename(&self.filename)
 	}
 }
 
@@ -131,7 +141,7 @@ impl DummyContainer {
 }
 
 #[inline]
-#[cfg(feature = "gui")]
+#[allow(unused)]
 pub fn title_for_filename(filename: &str) -> &str
 {
 	const SPLITTER: char = std::path::MAIN_SEPARATOR;

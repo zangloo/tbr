@@ -697,6 +697,17 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	{
 		self.highlight.is_some()
 	}
+
+	#[inline]
+	#[allow(unused)]
+	pub fn reading_book_name(&self) -> &str
+	{
+		self.book
+			.name()
+			.unwrap_or_else(|| {
+				self.container.book_name(self.reading.inner_book)
+			})
+	}
 }
 
 #[inline]
