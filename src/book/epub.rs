@@ -1,11 +1,13 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::fs;
 use std::io::Cursor;
 use std::io::Read;
 use std::io::Seek;
 use std::path::PathBuf;
+use std::str::FromStr;
 use anyhow::{anyhow, bail, Result};
 use elsa::FrozenMap;
 use indexmap::IndexSet;
@@ -61,8 +63,122 @@ struct Chapter {
 	id_map: HashMap<String, Position>,
 }
 
-struct EpubBook<R: Read + Seek> {
+trait EpubArchive {
+	fn is_encrypted(&self) -> bool;
+	fn content(&self, path: &str) -> Result<Vec<u8>>;
+	fn string(&self, path: &str) -> Result<String>
+	{
+		let buf = self.content(path)?;
+		Ok(String::from_utf8(buf)?)
+	}
+	fn exists(&self, path: &str) -> bool;
+}
+
+struct EpubZipArchive<R: Read + Seek> {
 	zip: RefCell<ZipArchive<R>>,
+}
+
+impl<R: Read + Seek> EpubZipArchive<R> {
+	#[inline]
+	fn new(reader: R) -> Result<Self>
+	{
+		let zip = ZipArchive::new(reader)?;
+		Ok(EpubZipArchive { zip: RefCell::new(zip) })
+	}
+}
+
+impl<R: Read + Seek> EpubArchive for EpubZipArchive<R> {
+	#[inline]
+	fn is_encrypted(&self) -> bool
+	{
+		self.zip.borrow().file_names().find(|f| *f == "META-INF/encryption.xml").is_some()
+	}
+
+	fn content(&self, path: &str) -> Result<Vec<u8>>
+	{
+		match self.zip.borrow_mut().by_name(path) {
+			Ok(mut file) => {
+				let mut buf = vec![];
+				file.read_to_end(&mut buf)?;
+				Ok(buf)
+			}
+			Err(e) => Err(anyhow!("failed load {}: {}", path, e.to_string())),
+		}
+	}
+
+	fn exists(&self, path: &str) -> bool
+	{
+		for name in self.zip.borrow().file_names() {
+			if name == path {
+				return true;
+			}
+		}
+		false
+	}
+}
+
+struct EpubExtractedArchive {
+	root: PathBuf,
+}
+
+impl EpubExtractedArchive {
+	#[inline]
+	fn new(filename: &str) -> Result<Self>
+	{
+		let mut root = PathBuf::from_str(filename)?;
+		if !root.pop() {
+			bail!("Invalid Extracted epub path");
+		}
+		if !root.pop() {
+			bail!("Invalid Extracted epub path");
+		}
+		// needed?
+		if !root.exists() {
+			bail!("Extracted epub root not exists");
+		}
+		Ok(EpubExtractedArchive { root })
+	}
+
+	#[inline]
+	fn target(&self, path: &str) -> PathBuf
+	{
+		let names = path.split(|c| c == '/');
+		let mut target = self.root.clone();
+		for name in names {
+			target.push(name);
+		}
+		target
+	}
+}
+
+impl EpubArchive for EpubExtractedArchive {
+	#[inline]
+	fn is_encrypted(&self) -> bool
+	{
+		self.exists("META-INF/encryption.xml")
+	}
+
+	#[inline]
+	fn content(&self, path: &str) -> Result<Vec<u8>>
+	{
+		Ok(fs::read(self.target(path))?)
+	}
+
+	#[inline]
+	fn string(&self, path: &str) -> Result<String>
+	{
+		Ok(fs::read_to_string(self.target(path))?)
+	}
+
+	#[inline]
+	fn exists(&self, path: &str) -> bool
+	{
+		self.target(path).exists()
+	}
+}
+
+struct EpubBook {
+	archive: Box<dyn EpubArchive>,
 	content_opf: ContentOPF,
 	toc: Vec<NavPoint>,
 	chapter_cache: HashMap<usize, Chapter>,
@@ -82,37 +198,58 @@ impl EpubLoader {
 	#[inline]
 	pub(crate) fn new() -> Self
 	{
-		let extensions = vec![".epub"];
+		let extensions = vec![".epub", ".xml"];
 		EpubLoader { extensions }
 	}
 }
 
 impl Loader for EpubLoader {
-	fn extensions(&self) -> &Vec<&'static str> {
+	fn extensions(&self) -> &Vec<&'static str>
+	{
 		&self.extensions
 	}
 
+	fn support(&self, filename: &str) -> bool
+	{
+		if filename.to_lowercase().ends_with(".epub") {
+			return true;
+		}
+		if filename.ends_with("META-INF/container.xml") {
+			return true;
+		}
+		false
+	}
+
 	#[inline]
-	fn load_file(&self, _filename: &str, file: std::fs::File,
+	fn load_file(&self, filename: &str, file: std::fs::File,
 		loading_chapter: LoadingChapter, loading: BookLoadingInfo)
 		-> Result<(Box<dyn Book>, ReadingInfo)>
 	{
-		let book = EpubBook::new(file, loading_chapter)?;
+		let archive: Box<dyn EpubArchive> = if filename.to_lowercase().ends_with(".epub") {
+			Box::new(EpubZipArchive::new(file)?)
+		} else {
+			Box::new(EpubExtractedArchive::new(filename)?)
+		};
+		let book = EpubBook::new(archive, loading_chapter)?;
 		let reading = book.get_reading(loading);
 		Ok((Box::new(book), reading))
 	}
 
-	fn load_buf(&self, _filename: &str, content: Vec<u8>,
+	fn load_buf(&self, filename: &str, content: Vec<u8>,
 		loading_chapter: LoadingChapter, loading: BookLoadingInfo)
 		-> Result<(Box<dyn Book>, ReadingInfo)>
 	{
-		let book = EpubBook::new(Cursor::new(content), loading_chapter)?;
+		if !filename.to_lowercase().ends_with(".epub") {
+			bail!("Not support extracted epub in other container.")
+		}
+		let archive = EpubZipArchive::new(Cursor::new(content))?;
+		let book = EpubBook::new(Box::new(archive), loading_chapter)?;
 		let reading = book.get_reading(loading);
 		Ok((Box::new(book), reading))
 	}
 }
 
-impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
+impl Book for EpubBook {
 	#[inline]
 	fn name(&self) -> Option<&str>
 	{
@@ -261,7 +398,7 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 			let cwd = path_cwd(path);
 			let full_path = concat_path_str(cwd, href)?;
 			let bytes = frozen_map_get!(self.images, full_path, true, ||{
-				zip_content(&mut self.zip.borrow_mut(), &full_path).ok()
+				self.archive.content(&full_path).ok()
 			})?;
 			Some(ImageData::Borrowed((Cow::Owned(full_path), bytes)))
 		} else {
@@ -300,13 +437,13 @@ impl<'a, R: Read + Seek + 'static> Book for EpubBook<R> {
 	}
 }
 
-struct EpubResolver<'a, R: Read + Seek + 'static> {
+struct EpubResolver<'a> {
 	cwd: PathBuf,
-	zip: &'a RefCell<ZipArchive<R>>,
+	archive: &'a dyn EpubArchive,
 	css_cache: &'a FrozenMap<String, String>,
 }
 
-impl<'a, R: Read + Seek + 'static> HtmlResolver for EpubResolver<'a, R>
+impl<'a> HtmlResolver for EpubResolver<'a>
 {
 	#[inline]
 	fn cwd(&self) -> PathBuf
@@ -326,21 +463,20 @@ impl<'a, R: Read + Seek + 'static> HtmlResolver for EpubResolver<'a, R>
 		let mut full_path = concat_path(self.cwd.clone(), sub);
 		let path = path_str(&full_path)?;
 		let content = frozen_map_get!(self.css_cache, path, || {
-			zip_string(&mut self.zip.borrow_mut(), &path).ok()
+			self.archive.string( &path).ok()
 		})?;
 		full_path.pop();
 		Some((full_path, content))
 	}
 }
 
-impl<R: Read + Seek + 'static> EpubBook<R> {
-	pub fn new(reader: R, loading_chapter: LoadingChapter) -> Result<Self>
+impl EpubBook {
+	pub fn new(archive: Box<dyn EpubArchive>, loading_chapter: LoadingChapter) -> Result<Self>
 	{
-		let mut zip = ZipArchive::new(reader)?;
-		if is_encrypted(&zip) {
+		if archive.is_encrypted() {
 			return Err(anyhow!("Encrypted epub."));
 		}
-		let container_text = zip_string(&mut zip, "META-INF/container.xml")?;
+		let container_text = archive.string("META-INF/container.xml")?;
 		let doc = Document::parse(&container_text)?;
 		let root = doc.root_element();
 		let rootfiles = get_child(root, "rootfiles").ok_or(anyhow!("invalid container.xml: no rootfiles"))?;
@@ -350,13 +486,13 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 			Some(p) => p.to_path_buf(),
 			None => PathBuf::new(),
 		};
-		let content_opf_text = zip_string(&mut zip, &content_opf_path)?;
-		let content_opf = parse_content_opf(&content_opf_text, &content_opf_dir, &zip)
+		let content_opf_text = archive.string(&content_opf_path)?;
+		let content_opf = parse_content_opf(&content_opf_text, &content_opf_dir, archive.as_ref())
 			.ok_or(anyhow!("Malformatted content.opf file"))?;
 
 		let mut toc = match content_opf.manifest.get(content_opf.toc_id.as_ref().unwrap_or(&"ncx".to_string())) {
 			Some(ManifestItem { href, .. }) => {
-				let ncx_text = zip_string(&mut zip, href)?;
+				let ncx_text = archive.string(href)?;
 				let cwd = path_cwd(href);
 				parse_ncx(&ncx_text, &cwd)?
 			}
@@ -365,7 +501,7 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 				for (_id, item) in &content_opf.manifest {
 					if let Some(properties) = &item.properties {
 						if properties.contains("nav") {
-							let nav_text = zip_string(&mut zip, &item.href)?;
+							let nav_text = archive.string(&item.href)?;
 							let cwd = path_cwd(&item.href);
 							toc = Some(parse_nav_doc(&nav_text, &cwd)?);
 							break;
@@ -407,7 +543,7 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 		}
 		let chapter_cache = HashMap::new();
 		let mut book = EpubBook {
-			zip: RefCell::new(zip),
+			archive,
 			content_opf,
 			toc,
 			chapter_cache,
@@ -441,15 +577,13 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 			Entry::Vacant(v) => {
 				let full_path = chapter_path(chapter_index, &self.content_opf)?;
 				let cwd = path_cwd(full_path);
-				let mut zip = self.zip.borrow_mut();
-				let mut html_str = zip_string(&mut zip, full_path)?;
+				let mut html_str = self.archive.string(full_path)?;
 				if full_path.to_lowercase().ends_with(".xhtml") {
 					html_str = xhtml_to_html(&html_str)?;
 				}
-				drop(zip);
 				let mut resolve = EpubResolver {
 					cwd,
-					zip: &self.zip,
+					archive: self.archive.as_ref(),
 					css_cache: &self.css_cache,
 				};
 				#[allow(unused)]
@@ -459,7 +593,7 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 				{
 					self.fonts.reload(font_faces, |path| {
 						let path_str = path_str(path)?;
-						let content = zip_content(&mut self.zip.borrow_mut(), &path_str).ok()?;
+						let content = self.archive.content(&path_str).ok()?;
 						Some(content)
 					});
 				}
@@ -508,26 +642,6 @@ impl<R: Read + Seek + 'static> EpubBook<R> {
 			let chapter = self.load_chapter(chapter_index).ok()?;
 			target_position_in_chapter(chapter_index, chapter, &target_anchor)
 		}
-	}
-}
-
-#[inline]
-fn zip_string<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<String>
-{
-	let buf = zip_content(zip, name)?;
-	Ok(String::from_utf8(buf)?)
-}
-
-#[inline]
-fn zip_content<R: Read + Seek>(zip: &mut ZipArchive<R>, name: &str) -> Result<Vec<u8>>
-{
-	match zip.by_name(name) {
-		Ok(mut file) => {
-			let mut buf = vec![];
-			file.read_to_end(&mut buf)?;
-			Ok(buf)
-		}
-		Err(e) => Err(anyhow!("failed load {}: {}", name, e.to_string())),
 	}
 }
 
@@ -708,15 +822,14 @@ fn parse_manifest(manifest: Node, path: &PathBuf) -> Manifest
 }
 
 #[inline]
-fn parse_spine<R: Read + Seek>(spine: Node, manifest: &Manifest, zip: &ZipArchive<R>) -> Option<(Spine, Option<String>)>
+fn parse_spine(spine: Node, manifest: &Manifest, archive: &dyn EpubArchive) -> Option<(Spine, Option<String>)>
 {
-	let file_names: HashSet<&str> = zip.file_names().collect();
 	let chapters = spine.children()
 		.filter_map(|node| {
 			if node.has_tag_name("itemref") {
 				let id = node.attribute("idref")?.to_string();
 				let item = manifest.get(&id)?;
-				if file_names.contains(&item.href as &str) {
+				if archive.exists(&item.href as &str) {
 					return Some(id);
 				}
 			}
@@ -727,7 +840,7 @@ fn parse_spine<R: Read + Seek>(spine: Node, manifest: &Manifest, zip: &ZipArchiv
 	Some((chapters, toc_id))
 }
 
-fn parse_content_opf<R: Read + Seek>(text: &str, content_opf_dir: &PathBuf, zip: &ZipArchive<R>) -> Option<ContentOPF>
+fn parse_content_opf(text: &str, content_opf_dir: &PathBuf, archive: &dyn EpubArchive) -> Option<ContentOPF>
 {
 	let doc = Document::parse(text).ok()?;
 	let package = doc.root_element();
@@ -743,7 +856,7 @@ fn parse_content_opf<R: Read + Seek>(text: &str, content_opf_dir: &PathBuf, zip:
 		.map_or(String::new(), |e| e.text()
 			.map_or(String::new(), |s| s.to_owned()));
 	let manifest = parse_manifest(manifest, content_opf_dir);
-	let (spine, toc_id) = parse_spine(spine, &manifest, zip)?;
+	let (spine, toc_id) = parse_spine(spine, &manifest, archive)?;
 	Some(ContentOPF {
 		title,
 		author,
@@ -752,12 +865,6 @@ fn parse_content_opf<R: Read + Seek>(text: &str, content_opf_dir: &PathBuf, zip:
 		spine,
 		toc_id,
 	})
-}
-
-#[inline]
-fn is_encrypted<R: Read + Seek>(zip: &ZipArchive<R>) -> bool
-{
-	zip.file_names().find(|f| *f == "META-INF/encryption.xml").is_some()
 }
 
 fn toc_title(nav_point: &NavPoint) -> &str {
