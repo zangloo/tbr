@@ -375,7 +375,7 @@ fn create_list(title: &str, paths: &Vec<PathConfig>, gc: &GuiContext)
 		.min_content_height(120)
 		.build();
 	let list_label = title_label(title);
-	let list_add_btn = create_button("add.svg", &gc.i18n.msg("add-title"), &gc.icons, true);
+	let list_add_btn = create_button("add.svg", Some(&gc.i18n.msg("add-title")), &gc.icons, true);
 	let label_box = gtk4::Box::builder()
 		.orientation(Orientation::Horizontal)
 		.spacing(10)
@@ -392,7 +392,7 @@ fn create_list_row(obj: &Object, i18n: &I18n, icons: &IconMap, list: &ListStore)
 	let entry = obj.downcast_ref::<PathConfigEntry>()
 		.expect("Needs to be PathConfigEntry");
 	let config = entry.imp().path.borrow();
-	let remove_btn = create_button("remove.svg", &i18n.msg("remove-title"), icons, true);
+	let remove_btn = create_button("remove.svg", Some(&i18n.msg("remove-title")), icons, true);
 	let checkbox = CheckButton::builder()
 		.label(&path_str(&config.path))
 		.active(config.enabled)

@@ -1,5 +1,4 @@
 use std::env;
-use std::borrow::Cow;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::ops::{Deref, Index};
@@ -11,11 +10,11 @@ use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, Popover, PopoverMenu, PositionType, SearchEntry, Separator, Stack, ToggleButton, Widget, Window};
 use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle, Texture};
 use gtk4::gdk_pixbuf::Pixbuf;
-use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuModel, SimpleAction, SimpleActionGroup};
+use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuItem, MenuModel, SimpleAction, SimpleActionGroup};
 use gtk4::glib;
-use gtk4::glib::{Bytes, closure_local, ExitCode, format_size, ObjectExt, SignalHandlerId, StaticType};
+use gtk4::glib::{Bytes, closure_local, ExitCode, format_size, ObjectExt, StaticType, ToVariant, Variant};
 use gtk4::graphene::Point;
-use gtk4::prelude::{ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkApplicationExt, GtkWindowExt, IsA, NativeExt, OrientableExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
+use gtk4::prelude::{ActionExt, ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkApplicationExt, GtkWindowExt, IsA, NativeExt, OrientableExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
 use pangocairo::pango::EllipsizeMode;
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
@@ -53,6 +52,17 @@ const FONT_FILE_EXTENSIONS: [&str; 3] = ["ttf", "otf", "ttc"];
 const DICT_FILE_EXTENSIONS: [&str; 1] = ["ifo"];
 const SIDEBAR_CHAPTER_LIST_NAME: &str = "chapter_list";
 const SIDEBAR_DICT_NAME: &str = "dictionary_list";
+
+const OPEN_FILE_KEY: &str = "file-open";
+const HISTORY_KEY: &str = "history";
+const RELOAD_KEY: &str = "reload";
+const BOOK_INFO_KEY: &str = "book-info";
+const SIDEBAR_KEY: &str = "sidebar";
+const THEME_KEY: &str = "dark-theme";
+const CUSTOM_COLOR_KEY: &str = "with-custom-color";
+const CUSTOM_FONT_KEY: &str = "with-custom-font";
+const SETTINGS_KEY: &str = "settings-dialog";
+
 const COPY_CONTENT_KEY: &str = "copy-content";
 const DICT_LOOKUP_KEY: &str = "lookup-dictionary";
 
@@ -221,6 +231,9 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		&icons,
 	);
 
+	let dark_theme = configuration.dark_theme;
+	drop(configuration);
+
 	let custom_color = if book.color_customizable() {
 		Some(reading.custom_color)
 	} else {
@@ -239,9 +252,6 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		Box::new(view.clone()),
 		&mut render_context);
 
-	let (theme_icon, theme_tooltip) = get_theme_icon(configuration.dark_theme, &i18n);
-	drop(configuration);
-
 	let ctx = Rc::new(RefCell::new(render_context));
 	let ctrl = Rc::new(RefCell::new(controller));
 	let (gc, chapter_list_view) = GuiContext::new(app, &cfg, &ctrl, &ctx, dm, icons, i18n.clone(),
@@ -252,9 +262,9 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	setup_view(&gc, &view);
 	setup_chapter_list(&gc);
 
-	let (toolbar, theme_btn, search_box)
-		= setup_toolbar(&gc, &view, &lookup_entry, custom_color, custom_font,
-		theme_icon, &theme_tooltip);
+	let (toolbar, search_box)
+		= setup_toolbar(&gc, &view, &lookup_entry, dark_theme,
+		custom_color, custom_font);
 
 	{
 		let gc = gc.clone();
@@ -395,7 +405,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		view.add_controller(key_event);
 	}
 
-	setup_window(&gc, toolbar, view, theme_btn, search_box);
+	setup_window(&gc, toolbar, view, search_box);
 	Ok(gc)
 }
 
@@ -770,7 +780,7 @@ fn setup_chapter_list(gc1: &GuiContext)
 		gc1.chapter_list.handle_cancel(move |empty| {
 			// when search entry has no text, empty is true
 			if empty {
-				toggle_sidebar(&gc);
+				gc.toggle_sidebar();
 			} else {
 				gc.ctrl().render.grab_focus();
 			}
@@ -784,12 +794,12 @@ fn switch_stack(tab_name: &str, gc: &GuiContext, toggle: bool) -> bool
 	let stack = &gc.sidebar_stack;
 	if paned.position() == 0 {
 		stack.set_visible_child_name(tab_name);
-		toggle_sidebar(gc);
+		gc.toggle_sidebar();
 		true
 	} else if let Some(current_tab_name) = stack.visible_child_name() {
 		if current_tab_name == tab_name {
 			if toggle {
-				toggle_sidebar(gc);
+				gc.toggle_sidebar();
 				false
 			} else {
 				true
@@ -806,7 +816,7 @@ fn switch_stack(tab_name: &str, gc: &GuiContext, toggle: bool) -> bool
 
 #[inline]
 fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
-	theme_btn: Button, search_box: SearchEntry)
+	search_box: SearchEntry)
 {
 	let header_bar = HeaderBar::new();
 	header_bar.set_height_request(32);
@@ -871,7 +881,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 				}
 				(Key::Escape, MODIFIER_NONE) => {
 					if gc.paned.position() != 0 {
-						toggle_sidebar(&gc);
+						gc.toggle_sidebar();
 						glib::Propagation::Stop
 					} else {
 						glib::Propagation::Proceed
@@ -894,17 +904,15 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					glib::Propagation::Stop
 				}
 				(Key::t, MODIFIER_NONE) => {
-					switch_theme(&theme_btn, &gc);
+					gc.switch_theme();
 					glib::Propagation::Stop
 				}
 				(Key::T, ModifierType::SHIFT_MASK) => {
-					let active = gc.custom_color_btn.is_active();
-					gc.custom_color_btn.set_active(!active);
+					gc.custom_color_action.activate(None);
 					glib::Propagation::Stop
 				}
 				(Key::F, ModifierType::SHIFT_MASK) => {
-					let active = gc.custom_font_btn.is_active();
-					gc.custom_font_btn.set_active(!active);
+					gc.custom_font_action.activate(None);
 					glib::Propagation::Stop
 				}
 				(Key::s, ModifierType::CONTROL_MASK) => {
@@ -956,29 +964,6 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 	window.present();
 }
 
-#[inline(always)]
-fn get_theme_icon(dark_theme: bool, i18n: &I18n) -> (&'static str, Cow<str>) {
-	if dark_theme {
-		("theme_bright.svg", i18n.msg("theme-bright"))
-	} else {
-		("theme_dark.svg", i18n.msg("theme-dark"))
-	}
-}
-
-fn toggle_sidebar(gc: &GuiContext)
-{
-	let paned = &gc.paned;
-	let sidebar_btn = &gc.sidebar_btn;
-	let (icon, tooltip, position) = if paned.position() == 0 {
-		("sidebar_off.svg", gc.i18n.msg("sidebar-off"), gc.cfg().gui.sidebar_size as i32)
-	} else {
-		paned.end_child().unwrap().grab_focus();
-		("sidebar_on.svg", gc.i18n.msg("sidebar-on"), 0)
-	};
-	update_button(sidebar_btn, icon, &tooltip, &gc.icons);
-	paned.set_position(position);
-}
-
 fn switch_render(gc: &GuiContext)
 {
 	let mut configuration = gc.cfg_mut();
@@ -990,31 +975,12 @@ fn switch_render(gc: &GuiContext)
 	controller.redraw(&mut render_context);
 }
 
-fn switch_theme(theme_btn: &Button, gc: &GuiContext)
-{
-	let mut configuration = gc.cfg_mut();
-	let dark_theme = !configuration.dark_theme;
-	configuration.dark_theme = dark_theme;
-	let (theme_icon, theme_tooltip) = get_theme_icon(dark_theme, &gc.i18n);
-	update_button(theme_btn, theme_icon, &theme_tooltip, &gc.icons);
-	let mut render_context = gc.ctx_mut();
-	render_context.colors = if dark_theme {
-		gc.dark_colors.clone()
-	} else {
-		gc.bright_colors.clone()
-	};
-	let mut controller = gc.ctrl_mut();
-	controller.redraw(&mut render_context);
-	view::update_css(&gc.css_provider, "main", &render_context.colors.background);
-}
-
 #[inline]
 fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
-	custom_color: Option<bool>, custom_font: Option<bool>,
-	theme_icon: &str, theme_tooltip: &str) -> (gtk4::Box, Button, SearchEntry)
+	dark_theme: bool, custom_color: Option<bool>, custom_font: Option<bool>)
+	-> (gtk4::Box, SearchEntry)
 {
 	let i18n = &gc.i18n;
-	let icons = &gc.icons;
 
 	let toolbar = gtk4::Box::builder()
 		.css_classes(vec!["toolbar"])
@@ -1024,7 +990,7 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	{
 		let gc = gc.clone();
 		sidebar_button.connect_clicked(move |_| {
-			toggle_sidebar(&gc);
+			gc.toggle_sidebar();
 		});
 		toolbar.append(sidebar_button);
 	}
@@ -1032,7 +998,7 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	{
 		let gc = gc.clone();
 		lookup_entry.connect_stop_search(move |_| {
-			toggle_sidebar(&gc);
+			gc.toggle_sidebar();
 		});
 	}
 
@@ -1052,87 +1018,8 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 		view.add_controller(drop_target);
 	}
 
-	let file_button = create_button("file_open.svg", &i18n.msg("file-open"), &icons, false);
-	{
-		let gc = gc.clone();
-		file_button.connect_clicked(move |_| {
-			gc.open_dialog();
-		});
-		toolbar.append(&file_button);
-	}
-	gc.reload_history();
-
-	{
-		let history_button = create_button("history.svg", &i18n.msg("history"), &icons, false);
-		history_button.insert_action_group("popup", Some(&gc.action_group));
-		gc.history_popover.set_parent(&history_button);
-		let gc = gc.clone();
-		history_button.connect_clicked(move |_| {
-			gc.show_history();
-		});
-		toolbar.append(&history_button);
-	}
-	{
-		let reload_button = create_button("reload.svg", &i18n.msg("reload"), &icons, false);
-		let gc = gc.clone();
-		reload_button.connect_clicked(move |_| {
-			gc.reload_book();
-		});
-		toolbar.append(&reload_button);
-	}
-
-	{
-		let info_button = &gc.book_info_btn;
-		let gc = gc.clone();
-		info_button.connect_clicked(move |_| {
-			if let Err(err) = gc.book_info() {
-				gc.error(&gc.i18n.args_msg("failed-load-reading", vec![
-					("error", err.to_string()),
-				]));
-			}
-		});
-		toolbar.append(info_button);
-	}
-
-	let theme_button = create_button(theme_icon, theme_tooltip, &icons, false);
-	{
-		let gc = gc.clone();
-		theme_button.connect_clicked(move |btn| {
-			switch_theme(btn, &gc);
-		});
-		toolbar.append(&theme_button);
-	}
-
-	{
-		let custom_color_button = &gc.custom_color_btn;
-		if let Some(custom_color) = custom_color {
-			custom_color_button.set_active(custom_color);
-		} else {
-			custom_color_button.set_active(false);
-			custom_color_button.set_sensitive(false)
-		}
-		toolbar.append(custom_color_button);
-	}
-
-	{
-		let custom_font_button = &gc.custom_font_btn;
-		if let Some(custom_font) = custom_font {
-			custom_font_button.set_active(custom_font);
-		} else {
-			custom_font_button.set_active(false);
-			custom_font_button.set_sensitive(false)
-		}
-		toolbar.append(custom_font_button);
-	}
-
-	let settings_button = create_button("setting.svg", &i18n.msg("settings-dialog"), &icons, false);
-	{
-		let gc = gc.clone();
-		settings_button.connect_clicked(move |_| {
-			settings::show(&gc);
-		});
-		toolbar.append(&settings_button);
-	}
+	setup_main_menu(gc, view, dark_theme, custom_color, custom_font);
+	toolbar.append(&gc.menu_btn);
 
 	let search_box = SearchEntry::builder()
 		.placeholder_text(i18n.msg("search-hint"))
@@ -1141,7 +1028,148 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 		.build();
 	toolbar.append(&search_box);
 
-	(toolbar, theme_button, search_box)
+	(toolbar, search_box)
+}
+
+fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
+	custom_color: Option<bool>, custom_font: Option<bool>)
+{
+	#[inline]
+	fn append_action<F>(menu: &Menu, action_group: &SimpleActionGroup,
+		i18n: &Rc<I18n>, key: &str, callback: F)
+		where F: Fn(&SimpleAction, Option<&Variant>) + 'static
+	{
+		let action = SimpleAction::new(key, None);
+		action.connect_activate(callback);
+		let title = i18n.msg(key);
+		let action_name = format!("main.{}", key);
+		let menu_item = MenuItem::new(Some(&title), Some(&action_name));
+		menu.append_item(&menu_item);
+		action_group.add_action(&action);
+	}
+
+	#[inline]
+	fn append_toggle_action<F>(menu: &Menu, action_group: &SimpleActionGroup,
+		i18n: &Rc<I18n>, key: &str, action: &SimpleAction,
+		toggle: Option<bool>, callback: F)
+		where F: Fn(&SimpleAction, Option<&Variant>) + 'static
+	{
+		if let Some(active) = toggle {
+			action.set_state(&active.to_variant());
+		} else {
+			action.set_state(&false.to_variant());
+			action.set_enabled(false);
+		}
+		action.connect_activate(callback);
+		let title = i18n.msg(key);
+		let action_name = format!("main.{}", key);
+		let menu_item = MenuItem::new(Some(&title), Some(&action_name));
+		menu.append_item(&menu_item);
+		action_group.add_action(action);
+	}
+
+	let button = &gc.menu_btn;
+
+	let action_group = SimpleActionGroup::new();
+	let menu = Menu::new();
+	let i18n = &gc.i18n;
+	let section = Menu::new();
+	menu.append_section(None, &section);
+
+	button.insert_action_group("main", Some(&action_group));
+
+	{
+		let gc = gc.clone();
+		append_action(&section, &action_group, i18n,
+			OPEN_FILE_KEY, move |_, _| {
+				gc.open_dialog();
+			});
+	}
+
+	gc.history_popover.set_parent(button);
+	button.insert_action_group("history", Some(&gc.action_group));
+	gc.reload_history();
+	{
+		let gc = gc.clone();
+		append_action(&section, &action_group, i18n,
+			HISTORY_KEY, move |_, _| {
+				gc.show_history();
+			});
+	}
+
+	{
+		let gc = gc.clone();
+		append_action(&section, &action_group, i18n,
+			RELOAD_KEY, move |_, _| {
+				gc.reload_book();
+			});
+	}
+
+	{
+		let gc = gc.clone();
+		append_action(&section, &action_group, i18n,
+			BOOK_INFO_KEY, move |_, _| {
+				if let Err(err) = gc.book_info() {
+					gc.error(&gc.i18n.args_msg("failed-load-reading", vec![
+						("error", err.to_string()),
+					]));
+				}
+			});
+	}
+
+	{
+		let gc = gc.clone();
+		append_action(&section, &action_group, i18n,
+			SETTINGS_KEY, move |_, _| {
+				settings::show(&gc);
+			});
+	}
+
+	{
+		let action = &gc.theme_action;
+		let gc = gc.clone();
+		append_toggle_action(&section, &action_group, i18n,
+			THEME_KEY, action, Some(dark_theme), move |_, _| {
+				gc.switch_theme();
+			});
+	}
+
+	let section = Menu::new();
+	menu.append_section(None, &section);
+
+	{
+		let action = &gc.custom_color_action;
+		let gc = gc.clone();
+		append_toggle_action(&section, &action_group, i18n,
+			CUSTOM_COLOR_KEY, action, custom_color, move |_, _| {
+				gc.toggle_custom_color();
+			});
+	}
+
+	{
+		let action = &gc.custom_font_action;
+		let gc = gc.clone();
+		append_toggle_action(&section, &action_group, i18n,
+			CUSTOM_FONT_KEY, action, custom_font, move |_, _| {
+				gc.toggle_custom_font();
+			});
+	}
+
+
+	let pm = PopoverMenu::builder()
+		.has_arrow(false)
+		.position(PositionType::Bottom)
+		.menu_model(&MenuModel::from(menu))
+		.build();
+	pm.set_parent(button);
+	{
+		let view = view.clone();
+		pm.connect_visible_notify(move |_| {
+			view.grab_focus();
+		});
+	}
+
+	button.connect_clicked(move |_| pm.popup());
 }
 
 #[inline]
@@ -1160,17 +1188,21 @@ fn load_button_image(name: &str, icons: &IconMap, inline: bool) -> Image
 }
 
 #[inline]
-fn update_toggle_button(btn: &ToggleButton, handle_id: &SignalHandlerId, active: Option<bool>)
+fn update_toggle_action(action: &SimpleAction, active: Option<bool>)
 {
-	btn.block_signal(handle_id);
 	if let Some(active) = active {
-		btn.set_sensitive(true);
-		btn.set_active(active);
+		action.set_enabled(true);
+		action.set_state(&active.to_variant());
 	} else {
-		btn.set_sensitive(false);
-		btn.set_active(false);
+		action.set_enabled(false);
+		action.set_state(&false.to_variant());
 	}
-	btn.unblock_signal(handle_id);
+}
+
+#[inline]
+fn create_toggle_action(name: &str) -> SimpleAction
+{
+	SimpleAction::new_stateful(name, None, &false.to_variant())
 }
 
 fn create_toggle_button(active: bool, name: &str, i18n_key: &str,
@@ -1189,31 +1221,21 @@ fn create_toggle_button(active: bool, name: &str, i18n_key: &str,
 }
 
 #[inline]
-fn create_button(name: &str, tooltip: &str, icons: &IconMap, inline: bool) -> Button
+fn create_button(name: &str, tooltip: Option<&str>, icons: &IconMap, inline: bool) -> Button
 {
 	let image = load_button_image(name, icons, inline);
 	let button = Button::builder()
 		.child(&image)
 		.focus_on_click(false)
 		.focusable(false)
-		.tooltip_text(tooltip)
 		.build();
+	button.set_tooltip_text(tooltip);
+
 	if inline {
 		button.add_css_class("inline");
 		button.set_valign(Align::Center);
 	}
 	button
-}
-
-#[inline]
-fn update_button(btn: &Button, name: &str, tooltip: &str, icons: &IconMap)
-{
-	let texture = icons.get(name).unwrap();
-	let image = Image::from_paintable(Some(texture));
-	image.set_width_request(ICON_SIZE);
-	image.set_height_request(ICON_SIZE);
-	btn.set_tooltip_text(Some(tooltip));
-	btn.set_child(Some(&image));
 }
 
 #[inline(always)]
@@ -1364,12 +1386,11 @@ struct GuiContextInner {
 	status_bar: Label,
 	paned: Paned,
 	sidebar_stack: Stack,
-	sidebar_btn: Button,
-	custom_color_btn: ToggleButton,
-	custom_color_handler_id: SignalHandlerId,
-	custom_font_btn: ToggleButton,
-	custom_font_handler_id: SignalHandlerId,
-	book_info_btn: Button,
+	sidebar_btn: ToggleButton,
+	theme_action: SimpleAction,
+	custom_color_action: SimpleAction,
+	custom_font_action: SimpleAction,
+	menu_btn: Button,
 	chapter_list: ChapterList,
 	icons: Rc<IconMap>,
 	i18n: Rc<I18n>,
@@ -1433,48 +1454,11 @@ impl GuiContext {
 		let sidebar_stack = Stack::builder()
 			.vexpand(true)
 			.build();
-		let sidebar_btn = create_button("sidebar_on.svg", &i18n.msg("sidebar-on"), &icons, false);
-		let custom_color_btn = create_toggle_button(
-			false,
-			"custom_color.svg",
-			"with-custom-color",
-			&icons,
-			&i18n,
-		);
-		let custom_color_handler_id = {
-			let ctrl = ctrl.clone();
-			let ctx = ctx.clone();
-			custom_color_btn.connect_toggled(move |btn| {
-				let custom_color = btn.is_active();
-				let mut controller = ctrl.borrow_mut();
-				controller.reading.custom_color = custom_color;
-				let mut render_context = ctx.borrow_mut();
-				render_context.custom_color = custom_color;
-				controller.redraw(&mut render_context);
-			})
-		};
-		let custom_font_btn = create_toggle_button(
-			false,
-			"custom_font.svg",
-			"with-custom-font",
-			&icons,
-			&i18n,
-		);
-		let custom_font_handler_id = {
-			let ctrl = ctrl.clone();
-			let ctx = ctx.clone();
-			custom_font_btn.connect_toggled(move |btn| {
-				let custom_font = btn.is_active();
-				let mut controller = ctrl.borrow_mut();
-				controller.reading.custom_font = custom_font;
-				let mut render_context = ctx.borrow_mut();
-				controller.render.set_custom_font(
-					custom_font,
-					controller.book.custom_fonts(),
-					&mut render_context);
-				controller.redraw(&mut render_context);
-			})
-		};
+		let sidebar_btn = create_toggle_button(false, "sidebar.svg",
+			SIDEBAR_KEY, &icons, &i18n);
+		let theme_action = create_toggle_action(THEME_KEY);
+		let custom_color_action = create_toggle_action(CUSTOM_COLOR_KEY);
+		let custom_font_action = create_toggle_action(CUSTOM_FONT_KEY);
 
 		let file_dialog = FileDialog::new();
 		file_dialog.set_title(&i18n.msg("file-open-title"));
@@ -1496,7 +1480,7 @@ impl GuiContext {
 			view.grab_focus();
 		});
 
-		let book_info_btn = create_button("file_info.svg", &i18n.msg("book-info"), &icons, false);
+		let menu_btn = create_button("menu.svg", Some(&i18n.msg("menu")), &icons, false);
 
 		let inner = GuiContextInner {
 			cfg: cfg.clone(),
@@ -1512,11 +1496,10 @@ impl GuiContext {
 			paned,
 			sidebar_stack,
 			sidebar_btn,
-			custom_color_btn,
-			custom_color_handler_id,
-			custom_font_btn,
-			custom_font_handler_id,
-			book_info_btn,
+			theme_action,
+			custom_color_action,
+			custom_font_action,
+			menu_btn,
 			chapter_list,
 			icons,
 			i18n,
@@ -1567,13 +1550,11 @@ impl GuiContext {
 	#[inline]
 	fn update_ui(&self, custom_color: Option<bool>, custom_font: Option<bool>)
 	{
-		update_toggle_button(
-			&self.custom_color_btn,
-			&self.custom_color_handler_id,
+		update_toggle_action(
+			&self.custom_color_action,
 			custom_color);
-		update_toggle_button(
-			&self.custom_font_btn,
-			&self.custom_font_handler_id,
+		update_toggle_action(
+			&self.custom_font_action,
 			custom_font);
 	}
 
@@ -1714,7 +1695,7 @@ impl GuiContext {
 		let popover = Popover::builder()
 			.child(&container)
 			.build();
-		popover.set_parent(&self.book_info_btn);
+		popover.set_parent(&self.menu_btn);
 		popover.popup();
 		Ok(())
 	}
@@ -1735,8 +1716,62 @@ impl GuiContext {
 			});
 		}
 		self.action_group.add_action(&action);
-		let menu_action_name = format!("popup.{}", action_name);
+		let menu_action_name = format!("history.{}", action_name);
 		menu.append(Some(&path_str), Some(&menu_action_name));
+	}
+
+	fn toggle_sidebar(&self)
+	{
+		let paned = &self.paned;
+		let (on, position) = if paned.position() == 0 {
+			(true, self.cfg().gui.sidebar_size as i32)
+		} else {
+			(false, 0)
+		};
+		self.sidebar_btn.set_active(on);
+		paned.set_position(position);
+	}
+
+	fn switch_theme(&self)
+	{
+		let mut configuration = self.cfg_mut();
+		let dark_theme = !configuration.dark_theme;
+		self.theme_action.set_state(&dark_theme.to_variant());
+		configuration.dark_theme = dark_theme;
+		let mut render_context = self.ctx_mut();
+		render_context.colors = if dark_theme {
+			self.dark_colors.clone()
+		} else {
+			self.bright_colors.clone()
+		};
+		let mut controller = self.ctrl_mut();
+		controller.redraw(&mut render_context);
+		view::update_css(&self.css_provider, "main", &render_context.colors.background);
+	}
+
+	fn toggle_custom_color(&self)
+	{
+		let mut controller = self.ctrl_mut();
+		let custom_color = !controller.reading.custom_color;
+		self.custom_color_action.set_state(&custom_color.to_variant());
+		controller.reading.custom_color = custom_color;
+		let mut render_context = self.ctx_mut();
+		render_context.custom_color = custom_color;
+		controller.redraw(&mut render_context);
+	}
+
+	fn toggle_custom_font(&self)
+	{
+		let mut controller = self.ctrl_mut();
+		let custom_font = !controller.reading.custom_font;
+		self.custom_font_action.set_state(&custom_font.to_variant());
+		controller.reading.custom_font = custom_font;
+		let mut render_context = self.ctx_mut();
+		controller.render.set_custom_font(
+			custom_font,
+			controller.book.custom_fonts(),
+			&mut render_context);
+		controller.redraw(&mut render_context);
 	}
 
 	#[inline]

@@ -201,8 +201,8 @@ impl DictionaryManager {
 			book.custom_fonts(),
 			fonts,
 			&mut render_context);
-		let backward_btn = create_button("backward_disabled.svg", "", icons, false);
-		let forward_btn = create_button("forward_disabled.svg", "", icons, false);
+		let backward_btn = create_button("backward_disabled.svg", None, icons, false);
+		let forward_btn = create_button("forward_disabled.svg", None, icons, false);
 		let lookup_input = SearchEntry::builder()
 			.placeholder_text(i18n.msg("lookup-dictionary").as_ref())
 			.activates_default(true)
