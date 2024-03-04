@@ -21,6 +21,7 @@ lang = 语言
 search-hint = 查找
 with-custom-color = 使用书籍设定颜色
 with-custom-font = 使用书籍设定字体
+custom-style = 自定义样式
 strip-empty-lines = 隐藏空行
 tab-chapter = 章节
 tab-dictionary = 字典
@@ -39,3 +40,5 @@ filter-chapter = 过滤章节标题
 
 dictionary-no-definition = 无字典解释
 failed-load-reading = 加载文件信息失败：{ $error }
+
+custom-style-dialog-title = 设定自定义样式

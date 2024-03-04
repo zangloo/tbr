@@ -24,6 +24,7 @@ pub struct ReadingInfo {
 	pub custom_color: bool,
 	pub custom_font: bool,
 	pub strip_empty_lines: bool,
+	pub custom_style: Option<String>,
 }
 
 impl ReadingInfo {
@@ -41,13 +42,18 @@ impl ReadingInfo {
 			custom_color: false,
 			custom_font: false,
 			strip_empty_lines: false,
+			custom_style: None,
 		}
 	}
 
 	#[inline]
-	pub fn load_inner_book(&self, inner_book: usize) -> BookLoadingInfo
+	pub fn load_inner_book(&self, inner_book: usize, custom_style: Option<String>) -> BookLoadingInfo
 	{
-		BookLoadingInfo::ChangeInnerBook(&self.filename, inner_book, self.row_id)
+		BookLoadingInfo::ChangeInnerBook(
+			&self.filename,
+			inner_book,
+			self.row_id,
+			custom_style)
 	}
 
 	#[inline]
@@ -79,7 +85,7 @@ impl Listable for ReadingInfo {
 #[allow(unused)]
 pub enum BookLoadingInfo<'a> {
 	NewReading(&'a str, usize, usize),
-	ChangeInnerBook(&'a str, usize, i64),
+	ChangeInnerBook(&'a str, usize, i64, Option<String>),
 	History(ReadingInfo),
 	Reload(ReadingInfo),
 }
@@ -109,8 +115,9 @@ impl<'a> BookLoadingInfo<'a> {
 				custom_color: false,
 				custom_font: false,
 				strip_empty_lines: false,
+				custom_style: None,
 			},
-			BookLoadingInfo::ChangeInnerBook(filename, inner_book, row_id) =>
+			BookLoadingInfo::ChangeInnerBook(filename, inner_book, row_id, custom_style) =>
 				ReadingInfo {
 					row_id,
 					filename: filename.to_owned(),
@@ -121,6 +128,7 @@ impl<'a> BookLoadingInfo<'a> {
 					custom_color: false,
 					custom_font: false,
 					strip_empty_lines: false,
+					custom_style: custom_style.clone(),
 				},
 			BookLoadingInfo::History(reading) | BookLoadingInfo::Reload(reading) => reading,
 		}
@@ -142,11 +150,12 @@ impl<'a> BookLoadingInfo<'a> {
 					custom_color: false,
 					custom_font: false,
 					strip_empty_lines: false,
+					custom_style: None,
 				};
 				f(&mut reading);
 				reading
 			}
-			BookLoadingInfo::ChangeInnerBook(filename, inner_book, row_id) => {
+			BookLoadingInfo::ChangeInnerBook(filename, inner_book, row_id, custom_style) => {
 				let mut reading = ReadingInfo {
 					row_id,
 					filename: filename.to_owned(),
@@ -157,6 +166,7 @@ impl<'a> BookLoadingInfo<'a> {
 					custom_color: false,
 					custom_font: false,
 					strip_empty_lines: false,
+					custom_style: custom_style.clone(),
 				};
 				f(&mut reading);
 				reading
@@ -285,6 +295,7 @@ impl Configuration {
 			custom_color: row.get(6)?,
 			custom_font: row.get(7)?,
 			strip_empty_lines: row.get(8)?,
+			custom_style: row.get(9)?,
 		})
 	}
 
@@ -305,6 +316,7 @@ select row_id,
        custom_color,
        custom_font,
        strip_empty_lines,
+       custom_style,
        ts
 from history
 where filename = ?
@@ -329,6 +341,7 @@ select row_id,
        custom_color,
        custom_font,
        strip_empty_lines,
+       custom_style,
        ts
 from history
 where row_id = ?
@@ -347,11 +360,12 @@ where row_id = ?
 		if reading.row_id == 0 {
 			self.history_db.execute("
 insert into history (filename, inner_book, chapter, line, position,
-                     custom_color, custom_font, strip_empty_lines, ts)
-values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     custom_color, custom_font, strip_empty_lines, custom_style,
+                      ts)
+values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ", (&reading.filename, reading.inner_book, reading.chapter, reading.line,
 				reading.position, reading.custom_color, reading.custom_font,
-				reading.strip_empty_lines, ts))?;
+				reading.strip_empty_lines, &reading.custom_style, ts))?;
 			reading.row_id = self.history_db.last_insert_rowid();
 		} else {
 			self.history_db.execute("
@@ -364,11 +378,13 @@ set filename          = ?,
     custom_color      = ?,
     custom_font       = ?,
     strip_empty_lines = ?,
+    custom_style      = ?,
     ts                = ?
 where row_id = ?
 ", (&reading.filename, reading.inner_book, reading.chapter, reading.line,
 				reading.position, reading.custom_color, reading.custom_font,
-				reading.strip_empty_lines, ts, reading.row_id))?;
+				reading.strip_empty_lines, &reading.custom_style, ts,
+				reading.row_id))?;
 		}
 		Ok(())
 	}
@@ -533,36 +549,36 @@ create table history
     custom_color      unsigned big int,
     custom_font       unsigned big int,
     strip_empty_lines unsigned big int,
+    custom_style      varchar,
     ts                unsigned big int,
     unique (filename)
 )", ())?;
 		conn
 	} else {
-		// let connection = Connection::open(path)?;
-		// upgrade_db(&connection)?;
-		// connection
-		Connection::open(path)?
+		let connection = Connection::open(path)?;
+		upgrade_db(&connection)?;
+		connection
 	};
 	Ok(connection)
 }
 
-// #[inline]
-// fn upgrade_db(connection: &Connection) -> Result<()>
-// {
-// 	let mut stmt = connection.prepare("select version from info")?;
-// 	let mut rows = stmt.query([])?;
-// 	let row = rows.next()?;
-// 	let version: u64 = if let Some(row) = row {
-// 		row.get(0)?
-// 	} else {
-// 		0
-// 	};
-// 	if version == 0 {
-// 		connection.execute("alter table history rename column custom_color to custom_color", [])?;
-// 		connection.execute("insert into info (version) values (1)", [])?;
-// 	}
-// 	Ok(())
-// }
+#[inline]
+fn upgrade_db(connection: &Connection) -> Result<()>
+{
+	let mut stmt = connection.prepare("select version from info")?;
+	let mut rows = stmt.query([])?;
+	let row = rows.next()?;
+	let version: u64 = if let Some(row) = row {
+		row.get(0)?
+	} else {
+		0
+	};
+	if version == 0 {
+		connection.execute("alter table history add custom_style varchar", [])?;
+		connection.execute("insert into info (version) values (1)", [])?;
+	}
+	Ok(())
+}
 
 fn query(conn: &Connection, limit: usize, exclude: &Option<String>) -> Result<Vec<ReadingInfo>>
 {
@@ -576,6 +592,7 @@ select row_id,
        custom_color,
        custom_font,
        strip_empty_lines,
+       custom_style,
        ts
 from history
 order by ts desc

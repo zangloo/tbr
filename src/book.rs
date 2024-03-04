@@ -440,6 +440,9 @@ pub trait Book {
 	#[inline]
 	#[cfg(feature = "gui")]
 	fn custom_fonts(&self) -> Option<&HtmlFonts> { None }
+	#[inline]
+	#[cfg(feature = "gui")]
+	fn style_customizable(&self) -> bool { false }
 
 	fn range_highlight(&self, from: Position, to: Position)
 		-> Option<HighlightInfo>

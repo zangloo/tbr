@@ -188,6 +188,7 @@ struct EpubBook {
 	chapter_index: usize,
 	#[cfg(feature = "gui")]
 	fonts: HtmlFonts,
+	custom_style: Option<String>,
 }
 
 pub struct EpubLoader {
@@ -230,8 +231,8 @@ impl Loader for EpubLoader {
 		} else {
 			Box::new(EpubExtractedArchive::new(filename)?)
 		};
-		let book = EpubBook::new(archive, loading_chapter)?;
-		let reading = book.get_reading(loading);
+		let reading = get_reading(loading);
+		let book = EpubBook::new(archive, loading_chapter, &reading.custom_style)?;
 		Ok((Box::new(book), reading))
 	}
 
@@ -243,8 +244,8 @@ impl Loader for EpubLoader {
 			bail!("Not support extracted epub in other container.")
 		}
 		let archive = EpubZipArchive::new(Cursor::new(content))?;
-		let book = EpubBook::new(Box::new(archive), loading_chapter)?;
-		let reading = book.get_reading(loading);
+		let reading = get_reading(loading);
+		let book = EpubBook::new(Box::new(archive), loading_chapter, &reading.custom_style)?;
 		Ok((Box::new(book), reading))
 	}
 }
@@ -435,12 +436,20 @@ impl Book for EpubBook {
 			None
 		}
 	}
+
+	#[cfg(feature = "gui")]
+	#[inline]
+	fn style_customizable(&self) -> bool
+	{
+		true
+	}
 }
 
 struct EpubResolver<'a> {
 	cwd: PathBuf,
 	archive: &'a dyn EpubArchive,
 	css_cache: &'a FrozenMap<String, String>,
+	custom_style: Option<&'a str>,
 }
 
 impl<'a> HtmlResolver for EpubResolver<'a>
@@ -468,10 +477,16 @@ impl<'a> HtmlResolver for EpubResolver<'a>
 		full_path.pop();
 		Some((full_path, content))
 	}
+
+	fn custom_style(&self) -> Option<&str>
+	{
+		self.custom_style
+	}
 }
 
 impl EpubBook {
-	pub fn new(archive: Box<dyn EpubArchive>, loading_chapter: LoadingChapter) -> Result<Self>
+	pub fn new(archive: Box<dyn EpubArchive>, loading_chapter: LoadingChapter,
+		custom_style: &Option<String>) -> Result<Self>
 	{
 		if archive.is_encrypted() {
 			return Err(anyhow!("Encrypted epub."));
@@ -553,21 +568,10 @@ impl EpubBook {
 			font_families: Default::default(),
 			#[cfg(feature = "gui")]
 			fonts: HtmlFonts::new(),
+			custom_style: custom_style.clone(),
 		};
 		book.load_chapter(chapter_index)?;
 		Ok(book)
-	}
-
-	#[inline]
-	fn get_reading(&self, loading: BookLoadingInfo) -> ReadingInfo
-	{
-		#[cfg(not(feature = "gui"))]
-		{ loading.get() }
-		#[cfg(feature = "gui")]
-		loading.get_or_init(|reading| {
-			reading.custom_color = true;
-			reading.custom_font = true;
-		})
 	}
 
 	fn load_chapter(&mut self, chapter_index: usize) -> Result<&Chapter>
@@ -585,6 +589,7 @@ impl EpubBook {
 					cwd,
 					archive: self.archive.as_ref(),
 					css_cache: &self.css_cache,
+					custom_style: self.custom_style.as_ref().map(|s| s.as_ref()),
 				};
 				#[allow(unused)]
 					let (html_content, mut font_faces) = html_str_content(
@@ -931,4 +936,16 @@ fn path_cwd(path: &str) -> PathBuf
 fn get_child<'a, 'b>(node: Node<'a, 'b>, name: &str) -> Option<Node<'a, 'b>>
 {
 	node.children().find(|child| child.tag_name().name() == name)
+}
+
+#[inline]
+fn get_reading(loading: BookLoadingInfo) -> ReadingInfo
+{
+	#[cfg(not(feature = "gui"))]
+	{ loading.get() }
+	#[cfg(feature = "gui")]
+	loading.get_or_init(|reading| {
+		reading.custom_color = true;
+		reading.custom_font = true;
+	})
 }

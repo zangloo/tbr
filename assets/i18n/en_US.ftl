@@ -21,6 +21,7 @@ lang = Language
 search-hint = Search
 with-custom-color = Book custom color
 with-custom-font = Book custom font
+custom-style = Custom styles
 strip-empty-lines = No empty lines
 tab-chapter = Chapter
 tab-dictionary = Dictionary
@@ -39,3 +40,5 @@ filter-chapter = Filter chapters
 
 dictionary-no-definition = No definition in dictionary
 failed-load-reading = Failed load reading book info：{ $error }
+
+custom-style-dialog-title = set custom styles

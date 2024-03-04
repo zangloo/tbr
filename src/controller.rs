@@ -231,7 +231,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			// for reload content
 			BookLoadingInfo::History(self.reading.clone())
 		} else {
-			self.reading.load_inner_book(inner_book)
+			self.reading.load_inner_book(inner_book, self.reading.custom_style.clone())
 		};
 		let (book, reading) = load_book(&self.container_manager, &mut self.container, loading)?;
 		self.book = book;

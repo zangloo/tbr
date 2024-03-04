@@ -40,6 +40,7 @@ mod math;
 mod settings;
 mod chapter_list;
 mod font;
+mod custom_style;
 
 const MODIFIER_NONE: ModifierType = ModifierType::empty();
 
@@ -61,6 +62,7 @@ const SIDEBAR_KEY: &str = "sidebar";
 const THEME_KEY: &str = "dark-theme";
 const CUSTOM_COLOR_KEY: &str = "with-custom-color";
 const CUSTOM_FONT_KEY: &str = "with-custom-font";
+const CUSTOM_STYLE_KEY: &str = "custom-style";
 const SETTINGS_KEY: &str = "settings-dialog";
 
 const COPY_CONTENT_KEY: &str = "copy-content";
@@ -173,6 +175,27 @@ fn load_image(bytes: &[u8]) -> Option<Pixbuf>
 	Some(image)
 }
 
+fn custom_settings(book: &dyn Book, reading: &ReadingInfo)
+	-> (Option<bool>, Option<bool>, Option<Option<String>>)
+{
+	let custom_color = if book.color_customizable() {
+		Some(reading.custom_color)
+	} else {
+		None
+	};
+	let custom_font = if book.fonts_customizable() {
+		Some(reading.custom_font)
+	} else {
+		None
+	};
+	let custom_style = if book.style_customizable() {
+		Some(reading.custom_style.clone())
+	} else {
+		None
+	};
+	(custom_color, custom_font, custom_style)
+}
+
 fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Themes>) -> Result<GuiContext>
 {
 	let configuration = cfg.borrow_mut();
@@ -234,16 +257,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let dark_theme = configuration.dark_theme;
 	drop(configuration);
 
-	let custom_color = if book.color_customizable() {
-		Some(reading.custom_color)
-	} else {
-		None
-	};
-	let custom_font = if book.fonts_customizable() {
-		Some(reading.custom_font)
-	} else {
-		None
-	};
+	let (custom_color, custom_font, custom_style) = custom_settings(book.as_ref(), &reading);
 	let controller = Controller::from_data(
 		reading,
 		container_manager,
@@ -264,7 +278,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 
 	let (toolbar, search_box)
 		= setup_toolbar(&gc, &view, &lookup_entry, dark_theme,
-		custom_color, custom_font);
+		custom_color, custom_font, custom_style);
 
 	{
 		let gc = gc.clone();
@@ -915,6 +929,10 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					gc.custom_font_action.activate(None);
 					glib::Propagation::Stop
 				}
+				(Key::S, ModifierType::SHIFT_MASK) => {
+					gc.custom_style_dialog();
+					glib::Propagation::Stop
+				}
 				(Key::s, ModifierType::CONTROL_MASK) => {
 					settings::show(&gc);
 					glib::Propagation::Stop
@@ -977,8 +995,8 @@ fn switch_render(gc: &GuiContext)
 
 #[inline]
 fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
-	dark_theme: bool, custom_color: Option<bool>, custom_font: Option<bool>)
-	-> (gtk4::Box, SearchEntry)
+	dark_theme: bool, custom_color: Option<bool>, custom_font: Option<bool>,
+	custom_style: Option<Option<String>>) -> (gtk4::Box, SearchEntry)
 {
 	let i18n = &gc.i18n;
 
@@ -1018,7 +1036,7 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 		view.add_controller(drop_target);
 	}
 
-	setup_main_menu(gc, view, dark_theme, custom_color, custom_font);
+	setup_main_menu(gc, view, dark_theme, custom_color, custom_font, custom_style);
 	toolbar.append(&gc.menu_btn);
 
 	let search_box = SearchEntry::builder()
@@ -1032,23 +1050,29 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 }
 
 fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
-	custom_color: Option<bool>, custom_font: Option<bool>)
+	custom_color: Option<bool>, custom_font: Option<bool>,
+	custom_style: Option<Option<String>>)
 {
 	#[inline]
-	fn append_action<F>(menu: &Menu, action_group: &SimpleActionGroup,
+	fn create_action<F>(menu: &Menu, action_group: &SimpleActionGroup,
 		i18n: &Rc<I18n>, key: &str, callback: F)
 		where F: Fn(&SimpleAction, Option<&Variant>) + 'static
 	{
 		let action = SimpleAction::new(key, None);
+		append_action(menu, action_group, i18n, key, &action, callback)
+	}
+	fn append_action<F>(menu: &Menu, action_group: &SimpleActionGroup,
+		i18n: &Rc<I18n>, key: &str, action: &SimpleAction, callback: F)
+		where F: Fn(&SimpleAction, Option<&Variant>) + 'static
+	{
 		action.connect_activate(callback);
 		let title = i18n.msg(key);
 		let action_name = format!("main.{}", key);
 		let menu_item = MenuItem::new(Some(&title), Some(&action_name));
 		menu.append_item(&menu_item);
-		action_group.add_action(&action);
+		action_group.add_action(action);
 	}
 
-	#[inline]
 	fn append_toggle_action<F>(menu: &Menu, action_group: &SimpleActionGroup,
 		i18n: &Rc<I18n>, key: &str, action: &SimpleAction,
 		toggle: Option<bool>, callback: F)
@@ -1080,7 +1104,7 @@ fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
 
 	{
 		let gc = gc.clone();
-		append_action(&section, &action_group, i18n,
+		create_action(&section, &action_group, i18n,
 			OPEN_FILE_KEY, move |_, _| {
 				gc.open_dialog();
 			});
@@ -1091,7 +1115,7 @@ fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
 	gc.reload_history();
 	{
 		let gc = gc.clone();
-		append_action(&section, &action_group, i18n,
+		create_action(&section, &action_group, i18n,
 			HISTORY_KEY, move |_, _| {
 				gc.show_history();
 			});
@@ -1099,7 +1123,7 @@ fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
 
 	{
 		let gc = gc.clone();
-		append_action(&section, &action_group, i18n,
+		create_action(&section, &action_group, i18n,
 			RELOAD_KEY, move |_, _| {
 				gc.reload_book();
 			});
@@ -1107,7 +1131,7 @@ fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
 
 	{
 		let gc = gc.clone();
-		append_action(&section, &action_group, i18n,
+		create_action(&section, &action_group, i18n,
 			BOOK_INFO_KEY, move |_, _| {
 				if let Err(err) = gc.book_info() {
 					gc.error(&gc.i18n.args_msg("failed-load-reading", vec![
@@ -1119,7 +1143,7 @@ fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
 
 	{
 		let gc = gc.clone();
-		append_action(&section, &action_group, i18n,
+		create_action(&section, &action_group, i18n,
 			SETTINGS_KEY, move |_, _| {
 				settings::show(&gc);
 			});
@@ -1155,6 +1179,17 @@ fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
 			});
 	}
 
+	{
+		let action = &gc.custom_style_action;
+		if custom_style.is_none() {
+			action.set_enabled(false);
+		}
+		let gc = gc.clone();
+		append_action(&section, &action_group, i18n,
+			CUSTOM_STYLE_KEY, action, move |_, _| {
+				gc.custom_style_dialog();
+			});
+	}
 
 	let pm = PopoverMenu::builder()
 		.has_arrow(false)
@@ -1197,6 +1232,12 @@ fn update_toggle_action(action: &SimpleAction, active: Option<bool>)
 		action.set_enabled(false);
 		action.set_state(&false.to_variant());
 	}
+}
+
+#[inline]
+fn create_action(name: &str) -> SimpleAction
+{
+	SimpleAction::new(name, None)
 }
 
 #[inline]
@@ -1390,6 +1431,7 @@ struct GuiContextInner {
 	theme_action: SimpleAction,
 	custom_color_action: SimpleAction,
 	custom_font_action: SimpleAction,
+	custom_style_action: SimpleAction,
 	menu_btn: Button,
 	chapter_list: ChapterList,
 	icons: Rc<IconMap>,
@@ -1459,6 +1501,7 @@ impl GuiContext {
 		let theme_action = create_toggle_action(THEME_KEY);
 		let custom_color_action = create_toggle_action(CUSTOM_COLOR_KEY);
 		let custom_font_action = create_toggle_action(CUSTOM_FONT_KEY);
+		let custom_style_action = create_action(CUSTOM_STYLE_KEY);
 
 		let file_dialog = FileDialog::new();
 		file_dialog.set_title(&i18n.msg("file-open-title"));
@@ -1499,6 +1542,7 @@ impl GuiContext {
 			theme_action,
 			custom_color_action,
 			custom_font_action,
+			custom_style_action,
 			menu_btn,
 			chapter_list,
 			icons,
@@ -1548,7 +1592,8 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn update_ui(&self, custom_color: Option<bool>, custom_font: Option<bool>)
+	fn update_ui(&self, custom_color: Option<bool>, custom_font: Option<bool>,
+		custom_style: Option<Option<String>>)
 	{
 		update_toggle_action(
 			&self.custom_color_action,
@@ -1556,6 +1601,7 @@ impl GuiContext {
 		update_toggle_action(
 			&self.custom_font_action,
 			custom_font);
+		self.custom_style_action.set_enabled(custom_style.is_some());
 	}
 
 	#[inline]
@@ -1601,17 +1647,9 @@ impl GuiContext {
 						Ok(loading) =>
 							match controller.switch_container(loading, &mut render_context) {
 								Ok(msg) => {
-									let custom_color = if controller.book.color_customizable() {
-										Some(controller.reading.custom_color)
-									} else {
-										None
-									};
-									let custom_font = if controller.book.fonts_customizable() {
-										Some(controller.reading.custom_font)
-									} else {
-										None
-									};
-									self.update_ui(custom_color, custom_font);
+									let (custom_color, custom_font, custom_style) = custom_settings(
+										controller.book.as_ref(), &controller.reading);
+									self.update_ui(custom_color, custom_font, custom_style);
 									update_title(&self.window, &controller);
 									controller.redraw(&mut render_context);
 									configuration.current = Some(controller.reading.filename.clone());
@@ -1772,6 +1810,32 @@ impl GuiContext {
 			controller.book.custom_fonts(),
 			&mut render_context);
 		controller.redraw(&mut render_context);
+	}
+
+	fn custom_style_dialog(&self)
+	{
+		let controller = self.ctrl();
+		let reading = &controller.reading;
+		let gc = self.clone();
+		custom_style::dialog(&reading.custom_style, &self.i18n, &self.window, move |new_style| {
+			let mut controller = gc.ctrl_mut();
+			let custom_style = if let Some(custom_style) = &controller.reading.custom_style {
+				if new_style == *custom_style {
+					return;
+				} else if new_style.is_empty() {
+					None
+				} else {
+					Some(new_style)
+				}
+			} else if new_style.is_empty() {
+				return;
+			} else {
+				Some(new_style)
+			};
+			controller.reading.custom_style = custom_style;
+			drop(controller);
+			gc.reload_book();
+		});
 	}
 
 	#[inline]

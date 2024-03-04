@@ -38,6 +38,7 @@ impl HtmlLoader {
 struct HtmlContentResolver {
 	cwd: PathBuf,
 	css_cache: FrozenMap<String, String>,
+	custom_style: Option<String>,
 }
 
 impl HtmlResolver for HtmlContentResolver
@@ -64,6 +65,11 @@ impl HtmlResolver for HtmlContentResolver
 		path.pop();
 		Some((path, content))
 	}
+
+	fn custom_style(&self) -> Option<&str>
+	{
+		self.custom_style.as_ref().map(|s| s.as_str())
+	}
 }
 
 impl Loader for HtmlLoader {
@@ -86,6 +92,7 @@ impl Loader for HtmlLoader {
 		if filename.to_lowercase().ends_with(".xhtml") {
 			text = xhtml_to_html(&text)?;
 		}
+		let reading = get_reading(loading);
 		#[allow(unused)]
 			let (content, mut font_faces) = html_str_content(
 			&text,
@@ -93,6 +100,7 @@ impl Loader for HtmlLoader {
 			Some(&HtmlContentResolver {
 				cwd: cwd.clone(),
 				css_cache: FrozenMap::new(),
+				custom_style: reading.custom_style.clone(),
 			}),
 		)?;
 		#[cfg(feature = "gui")]
@@ -115,7 +123,6 @@ impl Loader for HtmlLoader {
 			content,
 			font_families,
 		};
-		let reading = book.get_reading(loading);
 		Ok((
 			Box::new(book),
 			reading
@@ -136,7 +143,7 @@ impl Loader for HtmlLoader {
 			#[cfg(feature = "gui")]
 			fonts: HtmlFonts::new(),
 		};
-		let reading = book.get_reading(loading);
+		let reading = get_reading(loading);
 		Ok((
 			Box::new(book),
 			reading,
@@ -210,15 +217,20 @@ impl Book for HtmlBook {
 			None
 		}
 	}
+
+	#[cfg(feature = "gui")]
+	#[inline]
+	fn style_customizable(&self) -> bool
+	{
+		true
+	}
 }
 
-impl HtmlBook {
-	#[inline]
-	fn get_reading(&self, loading: BookLoadingInfo) -> ReadingInfo
-	{
-		loading.get_or_init(|reading| {
-			reading.custom_color = true;
-			reading.custom_font = true;
-		})
-	}
+#[inline]
+fn get_reading(loading: BookLoadingInfo) -> ReadingInfo
+{
+	loading.get_or_init(|reading| {
+		reading.custom_color = true;
+		reading.custom_font = true;
+	})
 }

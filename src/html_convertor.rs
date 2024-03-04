@@ -239,6 +239,7 @@ pub trait HtmlResolver {
 	fn cwd(&self) -> PathBuf;
 	fn resolve(&self, path: &PathBuf, sub: &str) -> PathBuf;
 	fn css(&self, sub: &str) -> Option<(PathBuf, &str)>;
+	fn custom_style(&self) -> Option<&str>;
 }
 
 #[inline]
@@ -551,8 +552,18 @@ fn load_styles(document: &Html, font_families: &mut IndexSet<String>,
 	let mut element_styles = HashMap::new();
 	let mut font_faces = vec![];
 
-	// load embedded styles
 	let mut stylesheets = vec![];
+	// first load custom styles
+	if let Some(resolver) = resolver {
+		if let Some(custom_style) = resolver.custom_style() {
+			if let Ok(style_sheet) = StyleSheet::parse(custom_style, style_parse_options()) {
+				let path = resolver.cwd();
+				stylesheets.push((Some(path), style_sheet));
+			}
+		}
+	}
+
+	// load embedded styles
 	if let Ok(style_selector) = Selector::parse("style") {
 		let mut style_iterator = document.select(&style_selector);
 		while let Some(style) = style_iterator.next() {
