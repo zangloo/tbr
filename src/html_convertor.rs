@@ -1,6 +1,6 @@
+use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::path::PathBuf;
 use anyhow::{anyhow, Result};
@@ -76,31 +76,42 @@ pub enum TextStyle {
 	BackgroundColor(Color32),
 }
 
-impl Hash for TextStyle {
-	fn hash<H: Hasher>(&self, state: &mut H) {
-		match self {
-			TextStyle::Line(_) => state.write_u8(1),
-			TextStyle::Border => state.write_u8(2),
-			TextStyle::FontSize { .. } => state.write_u8(3),
-			TextStyle::FontWeight(_) => state.write_u8(4),
-			TextStyle::FontFamily(_) => state.write_u8(5),
-			TextStyle::Image(_) => state.write_u8(6),
-			TextStyle::Link(_) => state.write_u8(7),
-			TextStyle::Color(_) => state.write_u8(8),
-			TextStyle::BackgroundColor(_) => state.write_u8(9),
-		};
-	}
-}
-
-impl Eq for TextStyle {}
-
-impl PartialEq<Self> for TextStyle {
+impl TextStyle {
 	#[inline]
-	fn eq(&self, other: &Self) -> bool
+	fn id(&self) -> usize
 	{
-		std::mem::discriminant(self) == std::mem::discriminant(other)
+		match self {
+			TextStyle::Line(_) => 1,
+			TextStyle::Border => 2,
+			TextStyle::FontSize { .. } => 3,
+			TextStyle::FontWeight(_) => 4,
+			TextStyle::FontFamily(_) => 5,
+			TextStyle::Image(_) => 6,
+			TextStyle::Link(_) => 7,
+			TextStyle::Color(_) => 8,
+			TextStyle::BackgroundColor(_) => 9,
+		}
+	}
+	#[inline]
+	fn cmp(&self, another: &TextStyle) -> Ordering
+	{
+		let a = self.id();
+		let b = another.id();
+		if a > b {
+			Ordering::Less
+		} else if a < b {
+			Ordering::Greater
+		} else {
+			Ordering::Equal
+		}
 	}
 }
+
+// style with !important or not
+#[derive(Clone, Debug)]
+struct LeveledTextStyle(TextStyle, bool);
+
+type LeveledTextStyleSet = Vec<LeveledTextStyle>;
 
 #[derive(Clone, Debug)]
 pub struct FontScale(f32);
@@ -231,7 +242,7 @@ impl HtmlContent
 struct ParseContext<'a> {
 	title: Option<String>,
 	content: HtmlContent,
-	element_styles: HashMap<NodeId, HashSet<TextStyle>>,
+	element_styles: HashMap<NodeId, LeveledTextStyleSet>,
 	font_family: &'a mut IndexSet<String>,
 }
 
@@ -325,17 +336,15 @@ fn new_paragraph(child: NodeRef<Node>, context: &mut ParseContext)
 }
 
 #[inline]
-fn push_font_size(styles: &mut HashSet<TextStyle>, font_level: u8, relative: bool)
+fn unique_and_insert_font_size(styles: &mut LeveledTextStyleSet, font_level: u8, relative: bool)
 {
-	// not insert dup ones
-	styles.insert(font_size_level(font_level, relative));
+	unique_and_insert_style(styles, font_size_level(font_level, relative));
 }
 
 #[inline]
-fn replace_font_size(styles: &mut HashSet<TextStyle>, font_level: u8, relative: bool)
+fn replace_font_size(styles: &mut LeveledTextStyleSet, font_level: u8, relative: bool)
 {
-	// replace if exists
-	styles.replace(font_size_level(font_level, relative));
+	insert_or_replace_style(styles, font_size_level(font_level, relative), false);
 }
 
 const DIV_PUSH_CLASSES: [&str; 3] = ["contents", "toc", "mulu"];
@@ -374,8 +383,8 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 					local_name!("table") => {
 						// will not render table
 						// remove line and border styles
-						element_styles.remove(&TextStyle::Border);
-						element_styles.remove(&LINE_TO_REMOVE);
+						remove_style(&mut element_styles, &TextStyle::Border);
+						remove_style(&mut element_styles, &LINE_TO_REMOVE);
 						convert_dom_to_lines(child.children(), context);
 					}
 					local_name!("title") => {
@@ -402,35 +411,35 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						newline_for_class(context, element);
 					}
 					local_name!("h1") => {
-						push_font_size(&mut element_styles, 6, false);
+						unique_and_insert_font_size(&mut element_styles, 6, false);
 						new_paragraph(child, context);
 					}
 					| local_name!("h2") => {
-						push_font_size(&mut element_styles, 5, false);
+						unique_and_insert_font_size(&mut element_styles, 5, false);
 						new_paragraph(child, context);
 					}
 					| local_name!("h3") => {
-						push_font_size(&mut element_styles, 4, false);
+						unique_and_insert_font_size(&mut element_styles, 4, false);
 						new_paragraph(child, context);
 					}
 					| local_name!("h4") => {
-						push_font_size(&mut element_styles, 3, false);
+						unique_and_insert_font_size(&mut element_styles, 3, false);
 						new_paragraph(child, context);
 					}
 					| local_name!("h5") => {
-						push_font_size(&mut element_styles, 2, false);
+						unique_and_insert_font_size(&mut element_styles, 2, false);
 						new_paragraph(child, context);
 					}
 					| local_name!("h6") => {
-						push_font_size(&mut element_styles, 1, false);
+						unique_and_insert_font_size(&mut element_styles, 1, false);
 						new_paragraph(child, context);
 					}
 					local_name!("small") => {
-						push_font_size(&mut element_styles, 2, true);
+						unique_and_insert_font_size(&mut element_styles, 2, true);
 						convert_dom_to_lines(child.children(), context);
 					}
 					local_name!("big") => {
-						push_font_size(&mut element_styles, 4, true);
+						unique_and_insert_font_size(&mut element_styles, 4, true);
 						convert_dom_to_lines(child.children(), context);
 					}
 					local_name!("p")
@@ -451,7 +460,7 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						if let Some(color_text) = element.attr("color") {
 							if let Ok(color) = CssColor::parse_string(color_text) {
 								if let Some(color) = css_color(&color) {
-									element_styles.replace(TextStyle::Color(color));
+									insert_or_replace_style(&mut element_styles, TextStyle::Color(color), false);
 								}
 							}
 						}
@@ -459,7 +468,7 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 					}
 					local_name!("a") => {
 						if let Some(href) = element.attr("href") {
-							element_styles.replace(TextStyle::Link(href.to_string()));
+							insert_or_replace_style(&mut element_styles, TextStyle::Link(href.to_string()), false);
 						}
 						convert_dom_to_lines(child.children(), context);
 					}
@@ -488,7 +497,7 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 						if len > offset {
 							let range = offset..len;
 							for style in &element_styles {
-								line.push_style(style.clone(), range.clone());
+								line.push_style(style.0.clone(), range.clone());
 							}
 						}
 						offset = 0;
@@ -502,22 +511,21 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 }
 
 #[inline]
-fn load_element_styles(element: &Element, node_id: NodeId, context: &mut ParseContext) -> HashSet<TextStyle>
+fn load_element_styles(element: &Element, node_id: NodeId, context: &mut ParseContext) -> LeveledTextStyleSet
 {
-	let mut element_styles = HashSet::new();
+	let mut element_styles = vec![];
 	if let Some(style) = element.attr("style") {
 		if let Ok(declaration) = DeclarationBlock::parse_string(style, style_parse_options()) {
 			for property in &declaration.declarations {
 				if let Some(style) = convert_style(property, context.font_family) {
-					element_styles.insert(style);
+					insert_or_replace_style(&mut element_styles, style, false);
 				}
 			}
 		}
 	}
 	if let Some(styles) = context.element_styles.remove(&node_id) {
 		for style in styles {
-			// will not insert dup styles
-			element_styles.insert(style);
+			insert_or_replace_style(&mut element_styles, style.0, style.1);
 		}
 	};
 	element_styles
@@ -546,8 +554,35 @@ fn style_parse_options<'a>() -> ParserOptions<'a, 'a>
 	options
 }
 
+fn insert_or_replace_style(styles: &mut LeveledTextStyleSet, style: TextStyle, important: bool)
+{
+	match styles.binary_search_by(|s| s.0.cmp(&style)) {
+		Ok(idx) => if important || !styles[idx].1 {
+			styles[idx] = LeveledTextStyle(style, important);
+		}
+		Err(idx) => styles.insert(idx, LeveledTextStyle(style, important)),
+	}
+}
+
+/// insert if unique, will not insert if exists
+#[inline]
+fn unique_and_insert_style(styles: &mut LeveledTextStyleSet, style: TextStyle)
+{
+	if let Err(idx) = styles.binary_search_by(|s| s.0.cmp(&style)) {
+		styles.insert(idx, LeveledTextStyle(style, false));
+	}
+}
+
+#[inline]
+fn remove_style(styles: &mut LeveledTextStyleSet, style: &TextStyle)
+{
+	if let Ok(idx) = styles.binary_search_by(|s| s.0.cmp(&style)) {
+		styles.remove(idx);
+	}
+}
+
 fn load_styles(document: &Html, font_families: &mut IndexSet<String>,
-	resolver: Option<&dyn HtmlResolver>) -> (HashMap<NodeId, HashSet<TextStyle>>, Vec<HtmlFontFaceDesc>)
+	resolver: Option<&dyn HtmlResolver>) -> (HashMap<NodeId, LeveledTextStyleSet>, Vec<HtmlFontFaceDesc>)
 {
 	let mut element_styles = HashMap::new();
 	let mut font_faces = vec![];
@@ -601,10 +636,15 @@ fn load_styles(document: &Html, font_families: &mut IndexSet<String>,
 		for rule in &style_sheet.rules.0 {
 			match rule {
 				CssRule::Style(style_rule) => {
-					let mut styles = HashSet::new();
+					let mut styles = vec![];
+					for property in &style_rule.declarations.important_declarations {
+						if let Some(style) = convert_style(property, font_families) {
+							insert_or_replace_style(&mut styles, style, true)
+						}
+					}
 					for property in &style_rule.declarations.declarations {
 						if let Some(style) = convert_style(property, font_families) {
-							styles.insert(style);
+							insert_or_replace_style(&mut styles, style, false)
 						}
 					}
 					if styles.len() == 0 {
@@ -618,7 +658,7 @@ fn load_styles(document: &Html, font_families: &mut IndexSet<String>,
 								Entry::Occupied(o) => {
 									let orig = o.into_mut();
 									for new_style in styles {
-										orig.insert(new_style);
+										insert_or_replace_style(orig, new_style.0, new_style.1);
 									}
 								}
 								Entry::Vacant(v) => { v.insert(styles); }
