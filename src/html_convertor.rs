@@ -588,29 +588,6 @@ fn load_styles(document: &Html, font_families: &mut IndexSet<String>,
 	let mut font_faces = vec![];
 
 	let mut stylesheets = vec![];
-	// first load custom styles
-	if let Some(resolver) = resolver {
-		if let Some(custom_style) = resolver.custom_style() {
-			if let Ok(style_sheet) = StyleSheet::parse(custom_style, style_parse_options()) {
-				let path = resolver.cwd();
-				stylesheets.push((Some(path), style_sheet));
-			}
-		}
-	}
-
-	// load embedded styles
-	if let Ok(style_selector) = Selector::parse("style") {
-		let mut style_iterator = document.select(&style_selector);
-		while let Some(style) = style_iterator.next() {
-			let mut text_iterator = style.text();
-			while let Some(text) = text_iterator.next() {
-				if let Ok(style_sheet) = StyleSheet::parse(&text, style_parse_options()) {
-					let path = resolver.map(|r| r.cwd());
-					stylesheets.push((path, style_sheet));
-				}
-			}
-		}
-	}
 
 	if let Some(resolver) = resolver {
 		if let Ok(link_selector) = Selector::parse("link") {
@@ -628,6 +605,31 @@ fn load_styles(document: &Html, font_families: &mut IndexSet<String>,
 			}
 		}
 	}
+
+	// load embedded styles, , will overwrite previous
+	if let Ok(style_selector) = Selector::parse("style") {
+		let mut style_iterator = document.select(&style_selector);
+		while let Some(style) = style_iterator.next() {
+			let mut text_iterator = style.text();
+			while let Some(text) = text_iterator.next() {
+				if let Ok(style_sheet) = StyleSheet::parse(&text, style_parse_options()) {
+					let path = resolver.map(|r| r.cwd());
+					stylesheets.push((path, style_sheet));
+				}
+			}
+		}
+	}
+
+	// load custom styles, will overwrite previous
+	if let Some(resolver) = resolver {
+		if let Some(custom_style) = resolver.custom_style() {
+			if let Ok(style_sheet) = StyleSheet::parse(custom_style, style_parse_options()) {
+				let path = resolver.cwd();
+				stylesheets.push((Some(path), style_sheet));
+			}
+		}
+	}
+
 	if stylesheets.is_empty() {
 		return (element_styles, font_faces);
 	}
