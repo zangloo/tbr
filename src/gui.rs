@@ -232,7 +232,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 
 	let mut render_context = RenderContext::new(
 		colors,
-		configuration.gui.font_size,
+		reading.font_size,
 		reading.custom_color,
 		reading.custom_font,
 		book.leading_space(),
@@ -248,7 +248,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	let (dm, dict_view, lookup_entry) = DictionaryManager::new(
 		&configuration.gui.dictionaries,
 		configuration.gui.cache_dict,
-		configuration.gui.font_size,
+		configuration.gui.dict_font_size,
 		fonts,
 		&i18n,
 		&icons,
@@ -378,30 +378,28 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 				}
 				(Key::equal, ModifierType::CONTROL_MASK) => {
 					apply(&gc, |controller, render_context| {
-						let mut configuration = cfg.borrow_mut();
-						if configuration.gui.font_size < MAX_FONT_SIZE {
-							configuration.gui.font_size += 2;
+						let reading = &mut controller.reading;
+						if reading.font_size < MAX_FONT_SIZE {
+							reading.font_size += 2;
 							controller.render.set_font_size(
-								configuration.gui.font_size,
+								reading.font_size,
 								controller.book.custom_fonts(),
 								render_context);
 							controller.redraw(render_context);
-							gc.dm_mut().set_font_size(configuration.gui.font_size);
 						}
 					});
 					glib::Propagation::Stop
 				}
 				(Key::minus, ModifierType::CONTROL_MASK) => {
 					apply(&gc, |controller, render_context| {
-						let mut configuration = gc.cfg_mut();
-						if configuration.gui.font_size > MIN_FONT_SIZE {
-							configuration.gui.font_size -= 2;
+						let reading = &mut controller.reading;
+						if reading.font_size > MIN_FONT_SIZE {
+							reading.font_size -= 2;
 							controller.render.set_font_size(
-								configuration.gui.font_size,
+								reading.font_size,
 								controller.book.custom_fonts(),
 								render_context);
 							controller.redraw(render_context);
-							gc.dm_mut().set_font_size(configuration.gui.font_size);
 						}
 					});
 					glib::Propagation::Stop
@@ -981,7 +979,8 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					eprintln!("Failed save reading info: {}", e.to_string());
 				}
 			}
-			let configuration = gc.cfg();
+			let mut configuration = gc.cfg_mut();
+			configuration.gui.dict_font_size = gc.dm.borrow().font_size();
 			if let Err(e) = configuration.save() {
 				eprintln!("Failed save configuration: {}", e.to_string());
 			}
@@ -1655,13 +1654,20 @@ impl GuiContext {
 						}
 					}
 					match configuration.reading(filepath) {
-						Ok(loading) =>
+						Ok(loading) => {
+							let orig_font_size = reading.font_size;
 							match controller.switch_container(loading, &mut render_context) {
 								Ok(msg) => {
 									let (custom_color, custom_font, custom_style) = custom_settings(
 										controller.book.as_ref(), &controller.reading);
 									self.update_ui(custom_color, custom_font, custom_style);
 									update_title(&self.window, &controller);
+									if orig_font_size != controller.reading.font_size {
+										controller.render.set_font_size(
+											controller.reading.font_size,
+											controller.book.custom_fonts(),
+											&mut render_context);
+									}
 									controller.redraw(&mut render_context);
 									configuration.current = Some(controller.reading.filename.clone());
 									drop(controller);
@@ -1675,6 +1681,7 @@ impl GuiContext {
 								Err(e) =>
 									self.error(&e.to_string()),
 							}
+						}
 						Err(err) => self.error(&err.to_string()),
 					}
 				}

@@ -17,7 +17,7 @@ use crate::color::Color32;
 use crate::common::{txt_lines, Position};
 use crate::config::PathConfig;
 use crate::controller::{highlight_selection, HighlightInfo, Render};
-use crate::gui::{copy_to_clipboard, create_button, IconMap, ignore_cap, MODIFIER_NONE};
+use crate::gui::{copy_to_clipboard, create_button, IconMap, ignore_cap, MAX_FONT_SIZE, MIN_FONT_SIZE, MODIFIER_NONE};
 use crate::gui::font::UserFonts;
 use crate::gui::render::{RenderContext, ScrollRedrawMethod};
 use crate::gui::view::{GuiView, ScrollPosition};
@@ -269,6 +269,12 @@ impl DictionaryManager {
 	{
 		self.view.set_font_size(font_size, None, &mut self.render_context);
 		self.redraw(ScrollRedrawMethod::NoResetScroll);
+	}
+
+	#[inline]
+	pub fn font_size(&self) -> u8
+	{
+		self.render_context.font_size
 	}
 
 	#[inline]
@@ -606,6 +612,22 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 					let dictionary_manager = dm.borrow();
 					if let Some(selected_text) = highlight_selection(&dictionary_manager.highlight) {
 						copy_to_clipboard(selected_text);
+					}
+					glib::Propagation::Stop
+				}
+				(Key::equal, ModifierType::CONTROL_MASK) => {
+					let mut dictionary_manager = dm.borrow_mut();
+					let font_size = dictionary_manager.render_context.font_size;
+					if font_size < MAX_FONT_SIZE {
+						dictionary_manager.set_font_size(font_size + 2);
+					}
+					glib::Propagation::Stop
+				}
+				(Key::minus, ModifierType::CONTROL_MASK) => {
+					let mut dictionary_manager = dm.borrow_mut();
+					let font_size = dictionary_manager.render_context.font_size;
+					if font_size > MIN_FONT_SIZE {
+						dictionary_manager.set_font_size(font_size - 2);
 					}
 					glib::Propagation::Stop
 				}

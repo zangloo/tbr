@@ -25,6 +25,7 @@ pub struct ReadingInfo {
 	pub custom_font: bool,
 	pub strip_empty_lines: bool,
 	pub custom_style: Option<String>,
+	pub font_size: u8,
 }
 
 impl ReadingInfo {
@@ -43,17 +44,19 @@ impl ReadingInfo {
 			custom_font: false,
 			strip_empty_lines: false,
 			custom_style: None,
+			font_size: default_font_size(),
 		}
 	}
 
 	#[inline]
-	pub fn load_inner_book(&self, inner_book: usize, custom_style: Option<String>) -> BookLoadingInfo
+	pub fn load_inner_book(&self, inner_book: usize) -> BookLoadingInfo
 	{
 		BookLoadingInfo::ChangeInnerBook(
 			&self.filename,
 			inner_book,
 			self.row_id,
-			custom_style)
+			self.custom_style.clone(),
+			self.font_size)
 	}
 
 	#[inline]
@@ -85,7 +88,7 @@ impl Listable for ReadingInfo {
 #[allow(unused)]
 pub enum BookLoadingInfo<'a> {
 	NewReading(&'a str, usize, usize),
-	ChangeInnerBook(&'a str, usize, i64, Option<String>),
+	ChangeInnerBook(&'a str, usize, i64, Option<String>, u8),
 	History(ReadingInfo),
 	Reload(ReadingInfo),
 }
@@ -116,8 +119,9 @@ impl<'a> BookLoadingInfo<'a> {
 				custom_font: false,
 				strip_empty_lines: false,
 				custom_style: None,
+				font_size: default_font_size(),
 			},
-			BookLoadingInfo::ChangeInnerBook(filename, inner_book, row_id, custom_style) =>
+			BookLoadingInfo::ChangeInnerBook(filename, inner_book, row_id, custom_style, font_size) =>
 				ReadingInfo {
 					row_id,
 					filename: filename.to_owned(),
@@ -129,6 +133,7 @@ impl<'a> BookLoadingInfo<'a> {
 					custom_font: false,
 					strip_empty_lines: false,
 					custom_style: custom_style.clone(),
+					font_size,
 				},
 			BookLoadingInfo::History(reading) | BookLoadingInfo::Reload(reading) => reading,
 		}
@@ -151,11 +156,12 @@ impl<'a> BookLoadingInfo<'a> {
 					custom_font: false,
 					strip_empty_lines: false,
 					custom_style: None,
+					font_size: default_font_size(),
 				};
 				f(&mut reading);
 				reading
 			}
-			BookLoadingInfo::ChangeInnerBook(filename, inner_book, row_id, custom_style) => {
+			BookLoadingInfo::ChangeInnerBook(filename, inner_book, row_id, custom_style, font_size) => {
 				let mut reading = ReadingInfo {
 					row_id,
 					filename: filename.to_owned(),
@@ -167,6 +173,7 @@ impl<'a> BookLoadingInfo<'a> {
 					custom_font: false,
 					strip_empty_lines: false,
 					custom_style: custom_style.clone(),
+					font_size,
 				};
 				f(&mut reading);
 				reading
@@ -223,7 +230,8 @@ impl SidebarPosition {
 #[cfg(feature = "gui")]
 pub struct GuiConfiguration {
 	pub fonts: Vec<PathConfig>,
-	pub font_size: u8,
+	#[serde(default = "default_font_size")]
+	pub dict_font_size: u8,
 	pub sidebar_size: u32,
 	#[serde(default)]
 	pub sidebar_position: SidebarPosition,
@@ -243,7 +251,7 @@ impl Default for GuiConfiguration
 	fn default() -> Self {
 		GuiConfiguration {
 			fonts: vec![],
-			font_size: 20,
+			dict_font_size: default_font_size(),
 			sidebar_size: 300,
 			sidebar_position: Default::default(),
 			lang: default_locale(),
@@ -299,6 +307,8 @@ impl Configuration {
 			custom_font: row.get(7)?,
 			strip_empty_lines: row.get(8)?,
 			custom_style: row.get(9)?,
+			font_size: row.get::<usize, Option<u8>>(10)?.
+				unwrap_or(default_font_size()),
 		})
 	}
 
@@ -320,6 +330,7 @@ select row_id,
        custom_font,
        strip_empty_lines,
        custom_style,
+       font_size,
        ts
 from history
 where filename = ?
@@ -345,6 +356,7 @@ select row_id,
        custom_font,
        strip_empty_lines,
        custom_style,
+       font_size,
        ts
 from history
 where row_id = ?
@@ -363,12 +375,13 @@ where row_id = ?
 		if reading.row_id == 0 {
 			self.history_db.execute("
 insert into history (filename, inner_book, chapter, line, position,
-                     custom_color, custom_font, strip_empty_lines, custom_style,
-                      ts)
-values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     custom_color, custom_font, strip_empty_lines,
+                     custom_style, font_size, ts)
+values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ", (&reading.filename, reading.inner_book, reading.chapter, reading.line,
 				reading.position, reading.custom_color, reading.custom_font,
-				reading.strip_empty_lines, &reading.custom_style, ts))?;
+				reading.strip_empty_lines, &reading.custom_style,
+				reading.font_size, ts))?;
 			reading.row_id = self.history_db.last_insert_rowid();
 		} else {
 			self.history_db.execute("
@@ -382,12 +395,13 @@ set filename          = ?,
     custom_font       = ?,
     strip_empty_lines = ?,
     custom_style      = ?,
+    font_size         = ?,
     ts                = ?
 where row_id = ?
 ", (&reading.filename, reading.inner_book, reading.chapter, reading.line,
 				reading.position, reading.custom_color, reading.custom_font,
-				reading.strip_empty_lines, &reading.custom_style, ts,
-				reading.row_id))?;
+				reading.strip_empty_lines, &reading.custom_style,
+				reading.font_size, ts, reading.row_id))?;
 		}
 		Ok(())
 	}
@@ -532,6 +546,12 @@ fn default_locale() -> String
 }
 
 #[inline]
+fn default_font_size() -> u8
+{
+	20
+}
+
+#[inline]
 fn load_history_db(path: &PathBuf) -> Result<Connection>
 {
 	let connection = if !path.exists() {
@@ -553,6 +573,7 @@ create table history
     custom_font       unsigned big int,
     strip_empty_lines unsigned big int,
     custom_style      varchar,
+    font_siz          unsigned big int,
     ts                unsigned big int,
     unique (filename)
 )", ())?;
@@ -580,6 +601,10 @@ fn upgrade_db(connection: &Connection) -> Result<()>
 		connection.execute("alter table history add custom_style varchar", [])?;
 		connection.execute("insert into info (version) values (1)", [])?;
 	}
+	if version < 2 {
+		connection.execute("alter table history add font_size unsigned big int", [])?;
+		connection.execute("update info set version = 2", [])?;
+	}
 	Ok(())
 }
 
@@ -596,6 +621,7 @@ select row_id,
        custom_font,
        strip_empty_lines,
        custom_style,
+       font_size,
        ts
 from history
 order by ts desc
