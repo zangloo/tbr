@@ -342,7 +342,10 @@ where filename = ?
 		if let Some(info) = iter.next() {
 			Ok(BookLoadingInfo::History(info?))
 		} else {
-			Ok(BookLoadingInfo::NewReading(filename, 0, 0, self.gui.default_font_size))
+			#[cfg(feature = "gui")]
+			{ Ok(BookLoadingInfo::NewReading(filename, 0, 0, self.gui.default_font_size)) }
+			#[cfg(not(feature = "gui"))]
+			{ Ok(BookLoadingInfo::NewReading(filename, 0, 0, default_font_size())) }
 		}
 	}
 
