@@ -64,6 +64,7 @@ pub(super) fn show(gc: &GuiContext) -> Window
 
 		locale_box.append(&title_label(&i18n.msg("lang")));
 		locale_box.append(&locale_dropdown);
+		locale_box.append(&Label::new(Some(&i18n.msg("need-restart"))));
 		main.append(&locale_box);
 		locale_dropdown
 	};

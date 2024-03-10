@@ -43,3 +43,4 @@ dictionary-no-definition = 无字典解释
 failed-load-reading = 加载文件信息失败：{ $error }
 
 custom-style-dialog-title = 设定自定义样式
+need-restart = (需重启)

@@ -43,3 +43,4 @@ dictionary-no-definition = No definition in dictionary
 failed-load-reading = Failed load reading book info：{ $error }
 
 custom-style-dialog-title = set custom styles
+need-restart = (Need restart)
