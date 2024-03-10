@@ -709,11 +709,21 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 			false,
 			closure_local!(move |_: GuiView, delta: i32| {
 				if delta > 0 {
-					handle(&gc, |controller, render_context|
-						controller.step_next(render_context));
+					if gc.cfg().gui.scroll_for_page{
+						handle(&gc, |controller, render_context|
+							controller.next_page(render_context));
+					} else {
+						handle(&gc, |controller, render_context|
+							controller.step_next(render_context));
+					}
 				} else {
-					handle(&gc, |controller, render_context|
-						controller.step_prev(render_context));
+					if gc.cfg().gui.scroll_for_page{
+						handle(&gc, |controller, render_context|
+							controller.prev_page(render_context));
+					} else {
+						handle(&gc, |controller, render_context|
+							controller.step_prev(render_context));
+					}
 				}
 	        }),
 		);
@@ -1289,7 +1299,7 @@ fn update_title(window: &ApplicationWindow, controller: &GuiController)
 
 fn apply_settings(render_han: bool, locale: &str, fonts: Vec<PathConfig>,
 	dictionaries: Vec<PathConfig>, cache_dict: bool, ignore_font_weight: bool,
-	strip_empty_lines: bool, sidebar_position: &SidebarPosition,
+	strip_empty_lines: bool, scroll_for_page: bool, sidebar_position: &SidebarPosition,
 	gc: &GuiContext, dictionary_manager: &mut DictionaryManager)
 	-> Result<(), (String, String)>
 {
@@ -1321,6 +1331,7 @@ fn apply_settings(render_han: bool, locale: &str, fonts: Vec<PathConfig>,
 		false
 	};
 
+	configuration.gui.scroll_for_page = scroll_for_page;
 	if configuration.gui.ignore_font_weight != ignore_font_weight {
 		configuration.gui.ignore_font_weight = ignore_font_weight;
 		redraw = true;

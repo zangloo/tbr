@@ -14,6 +14,17 @@ const SIDEBAR_POSITIONS: [SidebarPosition; 2] = [
 	SidebarPosition::Top,
 ];
 
+#[inline]
+fn append_checkbox(title: &str, checked: bool, main_box: &gtk4::Box) -> CheckButton
+{
+	let cb = CheckButton::builder()
+		.label(title)
+		.active(checked)
+		.build();
+	main_box.append(&cb);
+	cb
+}
+
 pub(super) fn show(gc: &GuiContext) -> Window
 {
 	let i18n = &gc.i18n;
@@ -58,41 +69,34 @@ pub(super) fn show(gc: &GuiContext) -> Window
 	};
 
 	let render_han_cb = {
-		let han = configuration.render_han;
-		let han_cb = CheckButton::builder()
-			.label(i18n.msg("render-han"))
-			.active(han)
-			.build();
-		let xi_cb = CheckButton::builder()
-			.label(i18n.msg("render-xi"))
-			.active(!han)
-			.group(&han_cb)
-			.build();
 		let b = gtk4::Box::new(Orientation::Horizontal, 10);
 		b.append(&title_label(&i18n.msg("settings-render-label")));
-		b.append(&han_cb);
-		b.append(&xi_cb);
+		let han = configuration.render_han;
+		let han_cb = append_checkbox(
+			&i18n.msg("render-han"),
+			han,
+			&b);
+		let xi_cb = append_checkbox(
+			&i18n.msg("render-xi"),
+			!han,
+			&b);
+		xi_cb.set_group(Some(&han_cb));
 		main.append(&b);
 		han_cb
 	};
 
-	let ignore_font_weight_cb = {
-		let cb = CheckButton::builder()
-			.label(i18n.msg("ignore-font-weight"))
-			.active(configuration.gui.ignore_font_weight)
-			.build();
-		main.append(&cb);
-		cb
-	};
-
-	let strip_empty_lines_cb = {
-		let cb = CheckButton::builder()
-			.label(i18n.msg("strip-empty-lines"))
-			.active(configuration.gui.strip_empty_lines)
-			.build();
-		main.append(&cb);
-		cb
-	};
+	let ignore_font_weight_cb = append_checkbox(
+		&i18n.msg("ignore-font-weight"),
+		configuration.gui.ignore_font_weight,
+		&main);
+	let strip_empty_lines_cb = append_checkbox(
+		&i18n.msg("strip-empty-lines"),
+		configuration.gui.strip_empty_lines,
+		&main);
+	let scroll_for_page_cb = append_checkbox(
+		&i18n.msg("scroll-for-page"),
+		configuration.gui.scroll_for_page,
+		&main);
 
 	let sidebar_position_dropdown = {
 		let sidebar_position_box = gtk4::Box::new(Orientation::Horizontal, 0);
@@ -208,15 +212,10 @@ pub(super) fn show(gc: &GuiContext) -> Window
 		dict_list
 	};
 
-	let cache_dict_cb = {
-		let cb = CheckButton::builder()
-			.label(i18n.msg("cache-dictionary"))
-			.active(configuration.gui.cache_dict)
-			.build();
-		main.append(&cb);
-		cb
-	};
-
+	let cache_dict_cb = append_checkbox(
+		&i18n.msg("cache-dictionary"),
+		configuration.gui.cache_dict,
+		&main);
 	let button_box = gtk4::Box::new(Orientation::Horizontal, 10);
 	button_box.set_halign(Align::End);
 	{
@@ -237,6 +236,7 @@ pub(super) fn show(gc: &GuiContext) -> Window
 			};
 			let ignore_font_weight = ignore_font_weight_cb.is_active();
 			let strip_empty_lines = strip_empty_lines_cb.is_active();
+			let scroll_for_page = scroll_for_page_cb.is_active();
 			let fonts = collect_path_list(&font_list, |path|
 				path.exists() && path.is_file());
 			let dictionaries = collect_path_list(&dict_list, |path|
@@ -249,8 +249,8 @@ pub(super) fn show(gc: &GuiContext) -> Window
 
 			if let Err((title, message)) = apply_settings(
 				render_han, locale, fonts, dictionaries, cache_dict,
-				ignore_font_weight, strip_empty_lines, sidebar_position,
-				&gc, &mut gc.dm_mut()) {
+				ignore_font_weight, strip_empty_lines, scroll_for_page,
+				sidebar_position, &gc, &mut gc.dm_mut()) {
 				AlertDialog::builder()
 					.modal(true)
 					.message(&title)
@@ -393,13 +393,9 @@ fn create_list_row(obj: &Object, i18n: &I18n, icons: &IconMap, list: &ListStore)
 		.expect("Needs to be PathConfigEntry");
 	let config = entry.imp().path.borrow();
 	let remove_btn = create_button("remove.svg", Some(&i18n.msg("remove-title")), icons, true);
-	let checkbox = CheckButton::builder()
-		.label(&path_str(&config.path))
-		.active(config.enabled)
-		.build();
 	let entry_box = gtk4::Box::new(Orientation::Horizontal, 10);
 	entry_box.append(&remove_btn);
-	entry_box.append(&checkbox);
+	let checkbox = append_checkbox(&path_str(&config.path), config.enabled, &entry_box);
 	let row = ListBoxRow::new();
 	row.set_child(Some(&entry_box));
 

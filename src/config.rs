@@ -233,6 +233,8 @@ pub struct GuiConfiguration {
 	pub cache_dict: bool,
 	pub strip_empty_lines: bool,
 	pub ignore_font_weight: bool,
+	#[serde(default)]
+	pub scroll_for_page: bool,
 }
 
 #[cfg(feature = "gui")]
@@ -249,6 +251,7 @@ impl Default for GuiConfiguration
 			cache_dict: false,
 			strip_empty_lines: false,
 			ignore_font_weight: false,
+			scroll_for_page: false,
 		}
 	}
 }
