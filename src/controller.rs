@@ -286,7 +286,8 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 					let loading = BookLoadingInfo::NewReading(
 						&reading.filename,
 						reading.inner_book - 1,
-						usize::MAX);
+						usize::MAX,
+						reading.font_size);
 					let (book, mut new_reading) = load_book(&self.container_manager, &mut self.container, loading)?;
 					self.book = book;
 					let lines = self.book.lines();

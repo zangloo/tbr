@@ -1,13 +1,13 @@
 use std::path::PathBuf;
-use gtk4::{AlertDialog, Align, Button, CheckButton, DropDown, EventControllerKey, FileDialog, FileFilter, glib, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode, Separator, StringList, Window};
+use gtk4::{AlertDialog, Align, Button, CheckButton, DropDown, Entry, EventControllerKey, FileDialog, FileFilter, glib, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode, Separator, StringList, Window};
 use gtk4::gdk::Key;
 use gtk4::gio::{Cancellable, File, ListStore};
 use gtk4::glib::{Cast, Object};
-use gtk4::prelude::{BoxExt, ButtonExt, CheckButtonExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, WidgetExt};
+use gtk4::prelude::{BoxExt, ButtonExt, CheckButtonExt, EditableExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, WidgetExt};
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
 use crate::config::{PathConfig, SidebarPosition};
 use crate::I18n;
-use crate::gui::{apply_settings, create_button, DICT_FILE_EXTENSIONS, FONT_FILE_EXTENSIONS, GuiContext, MODIFIER_NONE, IconMap};
+use crate::gui::{apply_settings, create_button, DICT_FILE_EXTENSIONS, FONT_FILE_EXTENSIONS, GuiContext, MODIFIER_NONE, IconMap, MIN_FONT_SIZE, MAX_FONT_SIZE, alert};
 
 const SIDEBAR_POSITIONS: [SidebarPosition; 2] = [
 	SidebarPosition::Left,
@@ -122,6 +122,22 @@ pub(super) fn show(gc: &GuiContext) -> Window
 		sidebar_position_dropdown
 	};
 
+	let font_size_entry = {
+		let entry = Entry::builder()
+			.text(&format!("{}", configuration.gui.default_font_size))
+			.build();
+
+		let fs_box = gtk4::Box::new(Orientation::Horizontal, 10);
+		fs_box.append(&title_label(&i18n.msg("default-font-size")));
+		fs_box.append(&entry);
+		fs_box.append(&Label::builder()
+			.label(&format!("({} - {})", MIN_FONT_SIZE, MAX_FONT_SIZE))
+			.build());
+
+		main.append(&fs_box);
+		entry
+	};
+
 	let font_list = {
 		let title = i18n.msg("font-files");
 		let (label, view, font_list, font_add_btn) = create_list(
@@ -227,6 +243,20 @@ pub(super) fn show(gc: &GuiContext) -> Window
 		let locale_dropdown = locale_dropdown.clone();
 		let gc = gc.clone();
 		ok_btn.connect_clicked(move |_| {
+			let default_font_size = if let Ok(default_font_size) = font_size_entry
+				.text()
+				.to_string()
+				.trim()
+				.parse() {
+				if default_font_size < MIN_FONT_SIZE || default_font_size > MAX_FONT_SIZE {
+					alert(&gc.i18n.msg("invalid-default-font-size"), &dialog);
+					return;
+				}
+				default_font_size
+			} else {
+				alert(&gc.i18n.msg("invalid-default-font-size"), &dialog);
+				return;
+			};
 			let render_han = render_han_cb.is_active();
 			let locale = {
 				let idx = locale_dropdown.selected();
@@ -251,7 +281,7 @@ pub(super) fn show(gc: &GuiContext) -> Window
 			if let Err((title, message)) = apply_settings(
 				render_han, locale, fonts, dictionaries, cache_dict,
 				ignore_font_weight, strip_empty_lines, scroll_for_page,
-				sidebar_position, &gc, &mut gc.dm_mut()) {
+				default_font_size, sidebar_position, &gc, &mut gc.dm_mut()) {
 				AlertDialog::builder()
 					.modal(true)
 					.message(&title)

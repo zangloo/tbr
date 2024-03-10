@@ -32,7 +32,7 @@ impl ContainerManager {
 		-> Result<(Box<dyn Book>, ReadingInfo)>
 	{
 		let (book_index, chapter) = match &loading {
-			BookLoadingInfo::NewReading(_, inner_book, chapter) => (*inner_book, *chapter),
+			BookLoadingInfo::NewReading(_, inner_book, chapter, _) => (*inner_book, *chapter),
 			BookLoadingInfo::ChangeInnerBook(_, inner_book, _, _, _) => (*inner_book, 0),
 			BookLoadingInfo::History(reading) | BookLoadingInfo::Reload(reading)
 			=> (reading.inner_book, reading.chapter),

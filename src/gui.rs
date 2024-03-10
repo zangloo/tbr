@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
-use gtk4::{Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, Popover, PopoverMenu, PositionType, SearchEntry, Separator, Stack, ToggleButton, Widget, Window};
+use gtk4::{AlertDialog, Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, Popover, PopoverMenu, PositionType, SearchEntry, Separator, Stack, ToggleButton, Widget, Window};
 use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle, Texture};
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuItem, MenuModel, SimpleAction, SimpleActionGroup};
@@ -1298,7 +1298,8 @@ fn update_title(window: &ApplicationWindow, controller: &GuiController)
 
 fn apply_settings(render_han: bool, locale: &str, fonts: Vec<PathConfig>,
 	dictionaries: Vec<PathConfig>, cache_dict: bool, ignore_font_weight: bool,
-	strip_empty_lines: bool, scroll_for_page: bool, sidebar_position: &SidebarPosition,
+	strip_empty_lines: bool, scroll_for_page: bool, default_font_size: u8,
+	sidebar_position: &SidebarPosition,
 	gc: &GuiContext, dictionary_manager: &mut DictionaryManager)
 	-> Result<(), (String, String)>
 {
@@ -1331,6 +1332,7 @@ fn apply_settings(render_han: bool, locale: &str, fonts: Vec<PathConfig>,
 	};
 
 	configuration.gui.scroll_for_page = scroll_for_page;
+	configuration.gui.default_font_size = default_font_size;
 	if configuration.gui.ignore_font_weight != ignore_font_weight {
 		configuration.gui.ignore_font_weight = ignore_font_weight;
 		redraw = true;
@@ -1987,4 +1989,14 @@ fn handle_signal(signum: i32, app: Application)
 			win.close();
 		}
 	});
+}
+
+#[inline]
+fn alert(msg: &str, parent: &impl IsA<Window>)
+{
+	AlertDialog::builder()
+		.message(msg)
+		.modal(true)
+		.build()
+		.show(Some(parent))
 }

@@ -87,7 +87,7 @@ impl Listable for ReadingInfo {
 
 #[allow(unused)]
 pub enum BookLoadingInfo<'a> {
-	NewReading(&'a str, usize, usize),
+	NewReading(&'a str, usize, usize, u8),
 	ChangeInnerBook(&'a str, usize, i64, Option<String>, u8),
 	History(ReadingInfo),
 	Reload(ReadingInfo),
@@ -108,7 +108,7 @@ impl<'a> BookLoadingInfo<'a> {
 	pub fn get(self) -> ReadingInfo
 	{
 		match self {
-			BookLoadingInfo::NewReading(filename, inner_book, chapter) => ReadingInfo {
+			BookLoadingInfo::NewReading(filename, inner_book, chapter, font_size) => ReadingInfo {
 				row_id: 0,
 				filename: filename.to_owned(),
 				inner_book,
@@ -119,7 +119,7 @@ impl<'a> BookLoadingInfo<'a> {
 				custom_font: false,
 				strip_empty_lines: false,
 				custom_style: None,
-				font_size: default_font_size(),
+				font_size,
 			},
 			BookLoadingInfo::ChangeInnerBook(filename, inner_book, row_id, custom_style, font_size) =>
 				ReadingInfo {
@@ -144,7 +144,7 @@ impl<'a> BookLoadingInfo<'a> {
 		where F: FnOnce(&mut ReadingInfo)
 	{
 		match self {
-			BookLoadingInfo::NewReading(filename, inner_book, chapter) => {
+			BookLoadingInfo::NewReading(filename, inner_book, chapter, font_size) => {
 				let mut reading = ReadingInfo {
 					row_id: 0,
 					filename: filename.to_owned(),
@@ -156,7 +156,7 @@ impl<'a> BookLoadingInfo<'a> {
 					custom_font: false,
 					strip_empty_lines: false,
 					custom_style: None,
-					font_size: default_font_size(),
+					font_size,
 				};
 				f(&mut reading);
 				reading
@@ -231,6 +231,8 @@ impl SidebarPosition {
 pub struct GuiConfiguration {
 	pub fonts: Vec<PathConfig>,
 	#[serde(default = "default_font_size")]
+	pub default_font_size: u8,
+	#[serde(default = "default_font_size")]
 	pub dict_font_size: u8,
 	pub sidebar_size: u32,
 	#[serde(default)]
@@ -251,6 +253,7 @@ impl Default for GuiConfiguration
 	fn default() -> Self {
 		GuiConfiguration {
 			fonts: vec![],
+			default_font_size: default_font_size(),
 			dict_font_size: default_font_size(),
 			sidebar_size: 300,
 			sidebar_position: Default::default(),
@@ -339,7 +342,7 @@ where filename = ?
 		if let Some(info) = iter.next() {
 			Ok(BookLoadingInfo::History(info?))
 		} else {
-			Ok(BookLoadingInfo::NewReading(filename, 0, 0))
+			Ok(BookLoadingInfo::NewReading(filename, 0, 0, self.gui.default_font_size))
 		}
 	}
 
