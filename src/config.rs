@@ -579,7 +579,7 @@ create table history
     custom_font       unsigned big int,
     strip_empty_lines unsigned big int,
     custom_style      varchar,
-    font_siz          unsigned big int,
+    font_size         unsigned big int,
     ts                unsigned big int,
     unique (filename)
 )", ())?;
