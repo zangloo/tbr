@@ -1,18 +1,56 @@
+use std::cell::RefCell;
 use std::path::PathBuf;
-use gtk4::{AlertDialog, Align, Button, CheckButton, DropDown, Entry, EventControllerKey, FileDialog, FileFilter, glib, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode, Separator, StringList, Window};
+use std::rc::Rc;
+use gtk4::{AlertDialog, Align, ApplicationWindow, Button, CheckButton, DropDown, Entry, EventControllerKey, FileDialog, FileFilter, glib, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode, Separator, StringList, Window};
 use gtk4::gdk::Key;
 use gtk4::gio::{Cancellable, File, ListStore};
 use gtk4::glib::{Cast, Object};
 use gtk4::prelude::{BoxExt, ButtonExt, CheckButtonExt, EditableExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, WidgetExt};
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
-use crate::config::{PathConfig, SidebarPosition};
+use crate::config::{Configuration, PathConfig, SidebarPosition};
 use crate::I18n;
-use crate::gui::{apply_settings, create_button, DICT_FILE_EXTENSIONS, FONT_FILE_EXTENSIONS, GuiContext, MODIFIER_NONE, IconMap, MIN_FONT_SIZE, MAX_FONT_SIZE, alert};
+use crate::gui::{create_button, DICT_FILE_EXTENSIONS, FONT_FILE_EXTENSIONS, MODIFIER_NONE, IconMap, MIN_FONT_SIZE, MAX_FONT_SIZE, alert, GuiContext, set_sidebar_position, sidebar_updated, font};
+use crate::gui::font::UserFonts;
 
 const SIDEBAR_POSITIONS: [SidebarPosition; 2] = [
 	SidebarPosition::Left,
 	SidebarPosition::Top,
 ];
+
+pub(super) struct Settings {
+	gcs: Rc<RefCell<Vec<GuiContext>>>,
+}
+
+impl Settings {
+	#[inline]
+	pub fn new(gcs: Rc<RefCell<Vec<GuiContext>>>) -> Self
+	{
+		Settings { gcs }
+	}
+
+	#[inline]
+	pub fn dialog(&self, gc: &GuiContext)
+	{
+		let gcs = self.gcs.clone();
+		let gc2 = gc.clone();
+		show(&gc.cfg, &gc.window, &gc.i18n, &gc.icons, move |params, new_fonts| {
+			apply_settings(&gcs, params, new_fonts, &gc2)
+		});
+	}
+}
+
+struct SettingsParam<'a> {
+	render_han: bool,
+	locale: &'a str,
+	fonts: Vec<PathConfig>,
+	dictionaries: Vec<PathConfig>,
+	cache_dict: bool,
+	ignore_font_weight: bool,
+	strip_empty_lines: bool,
+	scroll_for_page: bool,
+	default_font_size: u8,
+	sidebar_position: &'a SidebarPosition,
+}
 
 #[inline]
 fn append_checkbox(title: &str, checked: bool, main_box: &gtk4::Box) -> CheckButton
@@ -25,12 +63,13 @@ fn append_checkbox(title: &str, checked: bool, main_box: &gtk4::Box) -> CheckBut
 	cb
 }
 
-pub(super) fn show(gc: &GuiContext) -> Window
+fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
+	i18n: &Rc<I18n>, icons: &Rc<IconMap>, apply: F) -> Window
+	where F: Fn(SettingsParam, Option<Option<UserFonts>>) + 'static
 {
-	let i18n = &gc.i18n;
 	let dialog = Window::builder()
 		.title(i18n.msg("settings-dialog-title"))
-		.transient_for(&gc.window)
+		.transient_for(window)
 		.default_width(500)
 		.default_height(500)
 		.resizable(false)
@@ -44,7 +83,7 @@ pub(super) fn show(gc: &GuiContext) -> Window
 	main.set_margin_end(10);
 	dialog.set_child(Some(&main));
 
-	let configuration = gc.cfg();
+	let configuration = cfg.borrow();
 
 	let locale_dropdown = {
 		let locale_box = gtk4::Box::new(Orientation::Horizontal, 0);
@@ -143,7 +182,8 @@ pub(super) fn show(gc: &GuiContext) -> Window
 		let (label, view, font_list, font_add_btn) = create_list(
 			&title,
 			&configuration.gui.fonts,
-			gc,
+			i18n,
+			icons,
 		);
 		let font_dialog = FileDialog::new();
 		font_dialog.set_title(&title);
@@ -183,7 +223,8 @@ pub(super) fn show(gc: &GuiContext) -> Window
 		let (label, view, dict_list, dict_add_btn) = create_list(
 			&title,
 			&configuration.gui.dictionaries,
-			gc,
+			i18n,
+			icons,
 		);
 		let dict_dialog = FileDialog::new();
 		dict_dialog.set_title(&title);
@@ -196,13 +237,13 @@ pub(super) fn show(gc: &GuiContext) -> Window
 		{
 			let dialog = dialog.clone();
 			let dict_list = dict_list.clone();
-			let gc = gc.clone();
 			let title = title.to_string();
+			let i18n = i18n.clone();
 			dict_add_btn.connect_clicked(move |_| {
 				let dict_list = dict_list.clone();
 				let dialog2 = dialog.clone();
-				let gc = gc.clone();
 				let title = title.clone();
+				let i18n = i18n.clone();
 				dict_dialog.open(Some(&dialog), None::<&Cancellable>, move |result| {
 					if let Ok(file) = result {
 						if let Some(path) = file.path() {
@@ -212,7 +253,7 @@ pub(super) fn show(gc: &GuiContext) -> Window
 								AlertDialog::builder()
 									.modal(true)
 									.message(&title)
-									.detail(gc.i18n.args_msg("invalid-path", vec![
+									.detail(i18n.args_msg("invalid-path", vec![
 										("title", title),
 										("path", path_str(&path)),
 									]))
@@ -241,7 +282,8 @@ pub(super) fn show(gc: &GuiContext) -> Window
 			.label(i18n.msg("ok-title"))
 			.build();
 		let locale_dropdown = locale_dropdown.clone();
-		let gc = gc.clone();
+		let i18n = i18n.clone();
+		let cfg = cfg.clone();
 		ok_btn.connect_clicked(move |_| {
 			let default_font_size = if let Ok(default_font_size) = font_size_entry
 				.text()
@@ -249,18 +291,18 @@ pub(super) fn show(gc: &GuiContext) -> Window
 				.trim()
 				.parse() {
 				if default_font_size < MIN_FONT_SIZE || default_font_size > MAX_FONT_SIZE {
-					alert(&gc.i18n.msg("invalid-default-font-size"), &dialog);
+					alert(&i18n.msg("alert-error-title"), &i18n.msg("invalid-default-font-size"), &dialog);
 					return;
 				}
 				default_font_size
 			} else {
-				alert(&gc.i18n.msg("invalid-default-font-size"), &dialog);
+				alert(&i18n.msg("alert-error-title"), &i18n.msg("invalid-default-font-size"), &dialog);
 				return;
 			};
 			let render_han = render_han_cb.is_active();
 			let locale = {
 				let idx = locale_dropdown.selected();
-				let locales = gc.i18n.locales();
+				let locales = i18n.locales();
 				&locales.get(idx as usize)
 					.unwrap_or(locales.get(0).unwrap())
 					.locale
@@ -278,19 +320,38 @@ pub(super) fn show(gc: &GuiContext) -> Window
 				&SIDEBAR_POSITIONS[idx as usize]
 			};
 
-			if let Err((title, message)) = apply_settings(
-				render_han, locale, fonts, dictionaries, cache_dict,
-				ignore_font_weight, strip_empty_lines, scroll_for_page,
-				default_font_size, sidebar_position, &gc, &mut gc.dm_mut()) {
-				AlertDialog::builder()
-					.modal(true)
-					.message(&title)
-					.detail(&message)
-					.build()
-					.show(Some(&dialog));
+			let new_fonts = if paths_modified(&cfg.borrow().gui.fonts, &fonts) {
+				let new_fonts = match font::user_fonts(&fonts) {
+					Ok(fonts) => fonts,
+					Err(err) => {
+						let title = i18n.msg("font-files");
+						let t = title.to_string();
+						let message = i18n.args_msg("invalid-path", vec![
+							("title", title),
+							("path", err.to_string().into()),
+						]);
+						alert(&t, &message, &dialog);
+						return;
+					}
+				};
+				Some(new_fonts)
 			} else {
-				dialog.close();
-			}
+				None
+			};
+			let params = SettingsParam {
+				render_han,
+				locale,
+				fonts,
+				dictionaries,
+				cache_dict,
+				ignore_font_weight,
+				strip_empty_lines,
+				scroll_for_page,
+				default_font_size,
+				sidebar_position,
+			};
+			apply(params, new_fonts);
+			dialog.close();
 		});
 		button_box.append(&ok_btn);
 	}
@@ -376,8 +437,8 @@ fn check_and_add(path: &PathBuf, list: &ListStore)
 	}
 }
 
-fn create_list(title: &str, paths: &Vec<PathConfig>, gc: &GuiContext)
-	-> (gtk4::Box, ScrolledWindow, ListStore, Button)
+fn create_list(title: &str, paths: &Vec<PathConfig>, i18n: &Rc<I18n>,
+	icons: &Rc<IconMap>) -> (gtk4::Box, ScrolledWindow, ListStore, Button)
 {
 	let model = ListStore::new::<PathConfigEntry>();
 	for config in paths {
@@ -388,13 +449,14 @@ fn create_list(title: &str, paths: &Vec<PathConfig>, gc: &GuiContext)
 		.selection_mode(SelectionMode::None)
 		.build();
 	{
-		let gc = gc.clone();
+		let i18n = i18n.clone();
+		let icons = icons.clone();
 		let model_to_remove = model.clone();
 		list.bind_model(Some(&model), move |obj| {
 			gtk4::Widget::from(create_list_row(
 				obj,
-				&gc.i18n,
-				&gc.icons,
+				&i18n,
+				&icons,
 				&model_to_remove,
 			))
 		});
@@ -406,7 +468,7 @@ fn create_list(title: &str, paths: &Vec<PathConfig>, gc: &GuiContext)
 		.min_content_height(120)
 		.build();
 	let list_label = title_label(title);
-	let list_add_btn = create_button("add.svg", Some(&gc.i18n.msg("add-title")), &gc.icons, true);
+	let list_add_btn = create_button("add.svg", Some(&i18n.msg("add-title")), icons, true);
 	let label_box = gtk4::Box::builder()
 		.orientation(Orientation::Horizontal)
 		.spacing(10)
@@ -464,6 +526,104 @@ fn collect_path_list<F>(list: &ListStore, validator: F) -> Vec<PathConfig>
 		}
 	}
 	vec
+}
+
+fn paths_modified(orig: &Vec<PathConfig>, new: &Vec<PathConfig>) -> bool
+{
+	if new.len() != orig.len() {
+		return true;
+	}
+	for i in 0..new.len() {
+		let orig = orig.get(i).unwrap();
+		let new = new.get(i).unwrap();
+		if orig.enabled != new.enabled || orig.path != new.path {
+			return true;
+		}
+	}
+	false
+}
+
+fn apply_settings(gcs: &Rc<RefCell<Vec<GuiContext>>>, params: SettingsParam,
+	new_fonts: Option<Option<UserFonts>>, gc: &GuiContext)
+{
+	let gui_contexts = gcs.borrow();
+	let mut configuration = gc.cfg_mut();
+
+	// need restart
+	configuration.gui.lang = params.locale.to_owned();
+
+	let mut redraw = false;
+	let reload_render = if configuration.render_han != params.render_han {
+		configuration.render_han = params.render_han;
+		redraw = true;
+		true
+	} else {
+		false
+	};
+
+	configuration.gui.scroll_for_page = params.scroll_for_page;
+	configuration.gui.default_font_size = params.default_font_size;
+	if configuration.gui.ignore_font_weight != params.ignore_font_weight {
+		configuration.gui.ignore_font_weight = params.ignore_font_weight;
+		redraw = true;
+	};
+	if configuration.gui.strip_empty_lines != params.strip_empty_lines {
+		configuration.gui.strip_empty_lines = params.strip_empty_lines;
+		redraw = true;
+	};
+	if configuration.gui.sidebar_position != *params.sidebar_position {
+		configuration.gui.sidebar_position = params.sidebar_position.clone();
+		set_sidebar_position(gc, &configuration.gui.sidebar_position);
+		let position = gc.paned.position();
+		if position > 0 {
+			sidebar_updated(&mut configuration, &mut gc.dm_mut(), position);
+			redraw = true;
+		}
+	}
+
+	if new_fonts.is_some() {
+		redraw = true;
+	}
+
+	let lookup_for_reload = if paths_modified(&configuration.gui.dictionaries, &params.dictionaries)
+		|| configuration.gui.cache_dict != params.cache_dict {
+		configuration.gui.dictionaries = params.dictionaries;
+		configuration.gui.cache_dict = params.cache_dict;
+		gc.db.borrow_mut().reload(&configuration.gui.dictionaries, params.cache_dict);
+		true
+	} else {
+		false
+	};
+
+	if lookup_for_reload {
+		for gc in gui_contexts.iter() {
+			gc.dm_mut().lookup_for_reload();
+		}
+	}
+
+	if redraw {
+		let (set_fonts, fonts_data) = if let Some(new_fonts) = new_fonts {
+			let fonts_data = Rc::new(new_fonts);
+			configuration.gui.fonts = params.fonts;
+			(true, fonts_data)
+		} else {
+			(false, Rc::new(None))
+		};
+		for gc in gui_contexts.iter() {
+			let mut render_context = gc.ctx_mut();
+			let mut controller = gc.ctrl_mut();
+			if reload_render {
+				controller.render.reload_render(configuration.render_han, &mut render_context);
+			}
+			if set_fonts {
+				gc.dm_mut().set_fonts(fonts_data.clone());
+				controller.render.set_fonts(controller.book.custom_fonts(), fonts_data.clone(), &mut render_context);
+			}
+			render_context.ignore_font_weight = params.ignore_font_weight;
+			render_context.strip_empty_lines = params.strip_empty_lines;
+			controller.redraw(&mut render_context);
+		}
+	}
 }
 
 glib::wrapper! {

@@ -15,6 +15,7 @@ use gtk4::glib;
 use gtk4::glib::{Bytes, closure_local, ExitCode, format_size, ObjectExt, StaticType, ToVariant, Variant};
 use gtk4::graphene::Point;
 use gtk4::prelude::{ActionExt, ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkApplicationExt, GtkWindowExt, IsA, NativeExt, OrientableExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
+use pangocairo::glib::Propagation;
 use pangocairo::pango::EllipsizeMode;
 use resvg::{tiny_skia, usvg};
 use resvg::usvg::TreeParsing;
@@ -23,13 +24,15 @@ use crate::{Asset, I18n, package_name};
 use crate::book::{Book, Colors, Line};
 use crate::color::Color32;
 use crate::common::{Position, txt_lines};
-use crate::config::{BookLoadingInfo, Configuration, PathConfig, ReadingInfo, SidebarPosition, Themes};
+use crate::config::{BookLoadingInfo, Configuration, ReadingInfo, SidebarPosition, Themes};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::Controller;
 use crate::gui::chapter_list::ChapterList;
-use crate::gui::dict::DictionaryManager;
+use crate::gui::dict::{DictionaryBook, DictionaryManager};
 pub use crate::gui::font::HtmlFonts;
+use crate::gui::font::UserFonts;
 use crate::gui::render::RenderContext;
+use crate::gui::settings::Settings;
 use crate::gui::view::{GuiView, update_mouse_pointer};
 use crate::open::Opener;
 
@@ -196,14 +199,31 @@ fn custom_settings(book: &dyn Book, reading: &ReadingInfo)
 	(custom_color, custom_font, custom_style)
 }
 
-fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Themes>) -> Result<GuiContext>
+fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>,
+	themes: &Rc<Themes>, gcs: &Rc<RefCell<Vec<GuiContext>>>)
+	-> Result<Option<GuiContext>>
 {
 	let configuration = cfg.borrow_mut();
-	let loading = if let Some(current) = &configuration.current {
-		Some(configuration.reading(current)?)
+	let mut gui_contexts = gcs.borrow_mut();
+	let (loading, gc_idx) = if let Some(current) = &configuration.current {
+		let current = configuration.reading(current)?;
+		let filename = current.filename();
+		match get_gc(&gui_contexts, filename) {
+			Ok(idx) => {
+				gui_contexts[idx].window.present();
+				return Ok(None);
+			}
+			Err(idx) => (Some(current), idx)
+		}
 	} else {
-		None
+		// start tbr without filename
+		if gui_contexts.is_empty() {
+			(None, 0)
+		} else {
+			return Ok(None);
+		}
 	};
+
 	let dark_colors = convert_colors(themes.get(true));
 	let bright_colors = convert_colors(themes.get(false));
 	let colors = if configuration.dark_theme {
@@ -211,10 +231,23 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	} else {
 		bright_colors.clone()
 	};
-	let fonts = font::user_fonts(&configuration.gui.fonts)?;
-	let fonts = Rc::new(fonts);
+
+	let (i18n, icons, fonts, db, css_provider) = if let Some(gc) = gui_contexts.get(0) {
+		(gc.i18n.clone(), gc.icons.clone(), gc.fonts.clone(), gc.db.clone(), gc.css_provider.clone())
+	} else {
+		let i18n = I18n::new(&configuration.gui.lang).unwrap();
+		let i18n = Rc::new(i18n);
+		let icons = load_icons();
+		let icons = Rc::new(icons);
+		let fonts = font::user_fonts(&configuration.gui.fonts)?;
+		let fonts = Rc::new(fonts);
+		let db = DictionaryBook::load(&configuration.gui.dictionaries, configuration.gui.cache_dict);
+		let db = Rc::new(RefCell::new(db));
+		let css_provider = view::init_css("main", &colors.background);
+		(i18n, icons, fonts, db, css_provider)
+	};
+
 	let container_manager = Default::default();
-	let i18n = I18n::new(&configuration.gui.lang).unwrap();
 	let (container, book, reading) = if let Some(loading) = loading {
 		let mut container = load_container(&container_manager, loading.filename())?;
 		let (book, reading) = load_book(&container_manager, &mut container, loading)?;
@@ -225,10 +258,6 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		let book: Box<dyn Book> = Box::new(ReadmeBook::new(readme.as_ref()));
 		(container, book, ReadingInfo::fake(README_TEXT_FILENAME))
 	};
-
-	let i18n = Rc::new(i18n);
-	let icons = load_icons();
-	let icons = Rc::new(icons);
 
 	let mut render_context = RenderContext::new(
 		colors,
@@ -244,12 +273,12 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 		book.custom_fonts(),
 		fonts.clone(),
 		&mut render_context);
-	let css_provider = view::init_css("main", &render_context.colors.background);
 	let (dm, dict_view, lookup_entry) = DictionaryManager::new(
+		db.clone(),
 		&configuration.gui.dictionaries,
 		configuration.gui.cache_dict,
 		configuration.gui.dict_font_size,
-		fonts,
+		fonts.clone(),
 		&i18n,
 		&icons,
 	);
@@ -268,7 +297,10 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 
 	let ctx = Rc::new(RefCell::new(render_context));
 	let ctrl = Rc::new(RefCell::new(controller));
-	let (gc, chapter_list_view) = GuiContext::new(app, &cfg, &ctrl, &ctx, dm, icons, i18n.clone(),
+	let settings = Settings::new(gcs.clone());
+	let (gc, chapter_list_view) = GuiContext::new(app, settings,
+		&cfg, &ctrl, &ctx, db, dm,
+		icons, i18n.clone(), fonts,
 		dark_colors, bright_colors, css_provider);
 
 	// now setup ui
@@ -418,7 +450,17 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>, themes: &Rc<Them
 	}
 
 	setup_window(&gc, toolbar, view, search_box);
-	Ok(gc)
+
+	{
+		let gcs = gcs.clone();
+		gc.window.connect_close_request(move |win| {
+			gcs.borrow_mut().retain(|c| c.window != *win);
+			Propagation::Proceed
+		});
+	}
+
+	gui_contexts.insert(gc_idx, gc.clone());
+	Ok(Some(gc))
 }
 
 #[inline]
@@ -942,7 +984,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					glib::Propagation::Stop
 				}
 				(Key::s, ModifierType::CONTROL_MASK) => {
-					settings::show(&gc);
+					gc.show_settings();
 					glib::Propagation::Stop
 				}
 				(Key::w, ModifierType::CONTROL_MASK) => {
@@ -1153,9 +1195,7 @@ fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
 	{
 		let gc = gc.clone();
 		create_action(&section, &action_group, i18n,
-			SETTINGS_KEY, move |_, _| {
-				settings::show(&gc);
-			});
+			SETTINGS_KEY, move |_, _| gc.show_settings());
 	}
 
 	{
@@ -1232,18 +1272,6 @@ fn load_button_image(name: &str, icons: &IconMap, inline: bool) -> Image
 }
 
 #[inline]
-fn update_toggle_action(action: &SimpleAction, active: Option<bool>)
-{
-	if let Some(active) = active {
-		action.set_enabled(true);
-		action.set_state(&active.to_variant());
-	} else {
-		action.set_enabled(false);
-		action.set_state(&false.to_variant());
-	}
-}
-
-#[inline]
 fn create_action(name: &str) -> SimpleAction
 {
 	SimpleAction::new(name, None)
@@ -1294,106 +1322,6 @@ fn update_title(window: &ApplicationWindow, controller: &GuiController)
 	let name = controller.reading_book_name();
 	let title = format!("{} - {}", package_name!(), name);
 	window.set_title(Some(&title));
-}
-
-fn apply_settings(render_han: bool, locale: &str, fonts: Vec<PathConfig>,
-	dictionaries: Vec<PathConfig>, cache_dict: bool, ignore_font_weight: bool,
-	strip_empty_lines: bool, scroll_for_page: bool, default_font_size: u8,
-	sidebar_position: &SidebarPosition,
-	gc: &GuiContext, dictionary_manager: &mut DictionaryManager)
-	-> Result<(), (String, String)>
-{
-	fn paths_modified(orig: &Vec<PathConfig>, new: &Vec<PathConfig>) -> bool
-	{
-		if new.len() != orig.len() {
-			return true;
-		}
-		for i in 0..new.len() {
-			let orig = orig.get(i).unwrap();
-			let new = new.get(i).unwrap();
-			if orig.enabled != new.enabled || orig.path != new.path {
-				return true;
-			}
-		}
-		false
-	}
-	let mut configuration = gc.cfg_mut();
-	let i18n = &gc.i18n;
-	// need restart
-	configuration.gui.lang = locale.to_owned();
-
-	let mut redraw = false;
-	let reload_render = if configuration.render_han != render_han {
-		configuration.render_han = render_han;
-		redraw = true;
-		true
-	} else {
-		false
-	};
-
-	configuration.gui.scroll_for_page = scroll_for_page;
-	configuration.gui.default_font_size = default_font_size;
-	if configuration.gui.ignore_font_weight != ignore_font_weight {
-		configuration.gui.ignore_font_weight = ignore_font_weight;
-		redraw = true;
-	};
-	if configuration.gui.strip_empty_lines != strip_empty_lines {
-		configuration.gui.strip_empty_lines = strip_empty_lines;
-		redraw = true;
-	};
-	if configuration.gui.sidebar_position != *sidebar_position {
-		configuration.gui.sidebar_position = sidebar_position.clone();
-		set_sidebar_position(gc, &configuration.gui.sidebar_position);
-		let position = gc.paned.position();
-		if position > 0 {
-			sidebar_updated(&mut configuration, dictionary_manager, position);
-			redraw = true;
-		}
-	}
-
-	let new_fonts = if paths_modified(&configuration.gui.fonts, &fonts) {
-		let new_fonts = match font::user_fonts(&fonts) {
-			Ok(fonts) => fonts,
-			Err(err) => {
-				let title = i18n.msg("font-files");
-				let t = title.to_string();
-				let message = i18n.args_msg("invalid-path", vec![
-					("title", title),
-					("path", err.to_string().into()),
-				]);
-				return Err((t, message));
-			}
-		};
-		redraw = true;
-		Some(new_fonts)
-	} else {
-		None
-	};
-
-	if paths_modified(&configuration.gui.dictionaries, &dictionaries)
-		|| configuration.gui.cache_dict != cache_dict {
-		dictionary_manager.reload(&dictionaries, cache_dict);
-		configuration.gui.dictionaries = dictionaries;
-		configuration.gui.cache_dict = cache_dict;
-	};
-
-	if redraw {
-		let mut render_context = gc.ctx_mut();
-		let mut controller = gc.ctrl_mut();
-		if reload_render {
-			controller.render.reload_render(configuration.render_han, &mut render_context);
-		}
-		if let Some(new_fonts) = new_fonts {
-			let fonts_data = Rc::new(new_fonts);
-			dictionary_manager.set_fonts(fonts_data.clone());
-			configuration.gui.fonts = fonts;
-			controller.render.set_fonts(controller.book.custom_fonts(), fonts_data, &mut render_context);
-		}
-		render_context.ignore_font_weight = ignore_font_weight;
-		render_context.strip_empty_lines = strip_empty_lines;
-		controller.redraw(&mut render_context);
-	}
-	Ok(())
 }
 
 #[inline]
@@ -1448,10 +1376,13 @@ struct GuiContextInner {
 	chapter_list: ChapterList,
 	icons: Rc<IconMap>,
 	i18n: Rc<I18n>,
+	fonts: Rc<Option<UserFonts>>,
 	dark_colors: Colors,
 	bright_colors: Colors,
 	css_provider: CssProvider,
 	file_dialog: FileDialog,
+	settings: Settings,
+	db: Rc<RefCell<DictionaryBook>>,
 }
 
 enum ChapterListSyncMode {
@@ -1476,10 +1407,11 @@ impl Deref for GuiContext {
 }
 
 impl GuiContext {
-	fn new(app: &Application,
+	fn new(app: &Application, settings: Settings,
 		cfg: &Rc<RefCell<Configuration>>, ctrl: &Rc<RefCell<GuiController>>,
-		ctx: &Rc<RefCell<RenderContext>>, dm: Rc<RefCell<DictionaryManager>>,
-		icons: Rc<IconMap>, i18n: Rc<I18n>,
+		ctx: &Rc<RefCell<RenderContext>>, db: Rc<RefCell<DictionaryBook>>,
+		dm: Rc<RefCell<DictionaryManager>>,
+		icons: Rc<IconMap>, i18n: Rc<I18n>, fonts: Rc<Option<UserFonts>>,
 		dark_colors: Colors, bright_colors: Colors, css_provider: CssProvider)
 		-> (Self, gtk4::Box)
 	{
@@ -1559,10 +1491,13 @@ impl GuiContext {
 			chapter_list,
 			icons,
 			i18n,
+			fonts,
 			dark_colors,
 			bright_colors,
 			css_provider,
 			file_dialog,
+			settings,
+			db,
 		};
 		(GuiContext { inner: Rc::new(inner) }, chapter_list_view)
 	}
@@ -1604,19 +1539,6 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn update_ui(&self, custom_color: Option<bool>, custom_font: Option<bool>,
-		custom_style: Option<Option<String>>)
-	{
-		update_toggle_action(
-			&self.custom_color_action,
-			custom_color);
-		update_toggle_action(
-			&self.custom_font_action,
-			custom_font);
-		self.custom_style_action.set_enabled(custom_style.is_some());
-	}
-
-	#[inline]
 	fn dm_mut(&self) -> RefMut<DictionaryManager>
 	{
 		self.dm.borrow_mut()
@@ -1644,48 +1566,8 @@ impl GuiContext {
 	{
 		if let Ok(absolute_path) = path.canonicalize() {
 			if let Some(filepath) = absolute_path.to_str() {
-				let mut controller = self.ctrl_mut();
-				if filepath != controller.reading.filename {
-					let mut configuration = self.cfg_mut();
-					let mut render_context = self.ctx_mut();
-					let reading = &mut controller.reading;
-					if reading.filename != README_TEXT_FILENAME {
-						if let Err(e) = configuration.save_reading(reading) {
-							self.error(&e.to_string());
-							return;
-						}
-					}
-					match configuration.reading(filepath) {
-						Ok(loading) => {
-							let orig_font_size = reading.font_size;
-							match controller.switch_container(loading, &mut render_context) {
-								Ok(msg) => {
-									let (custom_color, custom_font, custom_style) = custom_settings(
-										controller.book.as_ref(), &controller.reading);
-									self.update_ui(custom_color, custom_font, custom_style);
-									update_title(&self.window, &controller);
-									if orig_font_size != controller.reading.font_size {
-										controller.render.set_font_size(
-											controller.reading.font_size,
-											controller.book.custom_fonts(),
-											&mut render_context);
-									}
-									controller.redraw(&mut render_context);
-									configuration.current = Some(controller.reading.filename.clone());
-									drop(controller);
-									self.update(
-										&msg,
-										ChapterListSyncMode::Reload);
-									drop(configuration);
-									drop(render_context);
-									self.reload_history();
-								}
-								Err(e) =>
-									self.error(&e.to_string()),
-							}
-						}
-						Err(err) => self.error(&err.to_string()),
-					}
+				if let Some(app) = self.window.application() {
+					app_open(&app, filepath);
 				}
 			}
 		}
@@ -1876,6 +1758,12 @@ impl GuiContext {
 	{
 		update_status(true, msg, &self.status_bar);
 	}
+
+	#[inline]
+	fn show_settings(&self)
+	{
+		self.settings.dialog(self);
+	}
 }
 
 fn update_status(error: bool, msg: &str, status_bar: &Label)
@@ -1890,26 +1778,15 @@ fn update_status(error: bool, msg: &str, status_bar: &Label)
 }
 
 fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>,
-	mut gui_context: RefMut<Option<GuiContext>>)
+	gcs: &Rc<RefCell<Vec<GuiContext>>>)
 {
-	let css_provider = CssProvider::new();
-	css_provider.load_from_string(include_str!("../assets/gui/gtk.css"));
-	gtk4::style_context_add_provider_for_display(
-		&Display::default().expect("Could not connect to a display."),
-		&css_provider,
-		gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-	);
-	Window::set_default_icon_name("tbr-icon");
-
-	match build_ui(app, cfg.clone(), themes) {
-		Ok(gc) => {
-			{
-				// clean temp files
-				let gc = gc.clone();
-				app.connect_shutdown(move |_| gc.opener().cleanup());
-			}
-			*gui_context = Some(gc);
+	match build_ui(app, cfg.clone(), &themes, gcs) {
+		Ok(Some(gc)) => {
+			// clean temp files
+			app.connect_shutdown(move |_| gc.opener().cleanup());
 		}
+		// previous opened
+		Ok(None) => {}
 		Err(err) => {
 			eprintln!("Failed start tbr: {}", err.to_string());
 			app.quit();
@@ -1953,19 +1830,64 @@ pub fn start(configuration: Configuration, themes: Themes)
 	};
 
 	let app = Application::builder()
+		.flags(ApplicationFlags::HANDLES_COMMAND_LINE)
+		.flags(ApplicationFlags::HANDLES_OPEN)
 		.application_id(APP_ID)
-		.flags(ApplicationFlags::NON_UNIQUE)
 		.build();
 
-	let gui_context = Rc::new(RefCell::new(None::<GuiContext>));
+	{
+		app.connect_startup(|_| {
+			let css_provider = CssProvider::new();
+			css_provider.load_from_string(include_str!("../assets/gui/gtk.css"));
+			gtk4::style_context_add_provider_for_display(
+				&Display::default().expect("Could not connect to a display."),
+				&css_provider,
+				gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+			);
+			Window::set_default_icon_name("tbr-icon");
+		});
+	}
+
 	let cfg = Rc::new(RefCell::new(configuration));
 	let themes = Rc::new(themes);
+	let gcs = Rc::new(RefCell::new(vec![]));
 	{
-		let gui_context = gui_context.clone();
+		let cfg = cfg.clone();
+		app.connect_handle_local_options(move |app, _| {
+			let filename = cfg.borrow().current.clone();
+			if let Some(filename) = filename {
+				app_open(app, &filename);
+			} else {
+				app.activate();
+			};
+			0
+		});
+	}
+	{
+		let cfg = cfg.clone();
+		let themes = themes.clone();
+		let gcs = gcs.clone();
+		app.connect_open(move |app, files, _| {
+			if !files.is_empty() {
+				if let Some(path) = files[0].path() {
+					if let Some(path) = path.to_str() {
+						cfg.borrow_mut().current = Some(path.to_owned());
+						show(app, &cfg, &themes, &gcs);
+						let mut gui_contexts = gcs.borrow_mut();
+						if let Ok(idx) = get_gc(gui_contexts.as_ref(), README_TEXT_FILENAME) {
+							let gc = gui_contexts.remove(idx);
+							gc.window.close();
+						}
+					}
+				}
+			}
+		});
+	}
+	{
 		let cfg = cfg.clone();
 		let themes = themes.clone();
 		app.connect_activate(move |app| {
-			show(app, &cfg, &themes, gui_context.borrow_mut());
+			show(app, &cfg, &themes, &gcs);
 		});
 	}
 
@@ -1974,6 +1896,7 @@ pub fn start(configuration: Configuration, themes: Themes)
 		handle_signal(2, app.clone());
 		handle_signal(15, app.clone());
 	}
+	app.register(None::<&Cancellable>)?;
 	if app.run_with_args::<String>(&[]) == ExitCode::FAILURE {
 		bail!("Failed start tbr")
 	}
@@ -1992,11 +1915,24 @@ fn handle_signal(signum: i32, app: Application)
 }
 
 #[inline]
-fn alert(msg: &str, parent: &impl IsA<Window>)
+fn alert(title: &str, msg: &str, parent: &impl IsA<Window>)
 {
 	AlertDialog::builder()
-		.message(msg)
+		.message(title)
+		.detail(msg)
 		.modal(true)
 		.build()
 		.show(Some(parent))
+}
+
+#[inline]
+fn app_open(app: &Application, filepath: &str)
+{
+	app.open(&vec![gtk4::gio::File::for_commandline_arg(filepath)], "");
+}
+
+#[inline]
+fn get_gc(gcs: &Vec<GuiContext>, filename: &str) -> core::result::Result<usize, usize>
+{
+	gcs.binary_search_by(|gc| gc.ctrl().reading.filename.as_str().cmp(filename))
 }

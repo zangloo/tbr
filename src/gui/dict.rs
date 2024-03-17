@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::rc::Rc;
 use elsa::FrozenMap;
 use fancy_regex::{Regex, Captures};
@@ -39,7 +40,7 @@ const INJECT_REGEXP: &str = r#"(<[\\s]*img[^>]+src[\\s]*=[\\s]*")([^"]+)("[^>]*>
 
 pub(super) struct DictionaryManager {
 	view: GuiView,
-	book: DictionaryBook,
+	db: Rc<RefCell<DictionaryBook>>,
 	highlight: Option<HighlightInfo>,
 	backward_btn: Button,
 	forward_btn: Button,
@@ -56,7 +57,7 @@ pub(super) struct LookupResult {
 	definitions: Vec<WordDefinition>,
 }
 
-struct DictionaryBook {
+pub(super) struct DictionaryBook {
 	dictionaries: Vec<Box<dyn StarDict>>,
 	cache: HashMap<String, Vec<LookupResult>>,
 	resources: FrozenMap<String, Vec<u8>>,
@@ -103,11 +104,31 @@ impl Book for DictionaryBook
 	}
 }
 
-impl Default for DictionaryBook {
-	fn default() -> Self
+impl DictionaryBook {
+	fn load_dictionaries(dictionaries: &mut Vec<Box<dyn StarDict>>, dictionary_paths: &Vec<PathConfig>, cache_dict: bool)
 	{
+		for config in dictionary_paths {
+			if config.enabled {
+				if cache_dict {
+					if let Ok(dict) = stardict::with_sqlite(
+						&config.path, package_name!()) {
+						dictionaries.push(Box::new(dict));
+						continue;
+					}
+				}
+				if let Ok(dict) = stardict::no_cache(&config.path) {
+					dictionaries.push(Box::new(dict));
+				}
+			}
+		}
+	}
+
+	pub(super) fn load(dictionary_paths: &Vec<PathConfig>, cache_dict: bool) -> Self
+	{
+		let mut dictionaries = vec![];
+		Self::load_dictionaries(&mut dictionaries, dictionary_paths, cache_dict);
 		DictionaryBook {
-			dictionaries: vec![],
+			dictionaries,
 			cache: HashMap::new(),
 			resources: FrozenMap::new(),
 			replacer: Regex::new(INJECT_REGEXP).unwrap(),
@@ -115,27 +136,12 @@ impl Default for DictionaryBook {
 			font_families: Default::default(),
 		}
 	}
-}
 
-impl DictionaryBook {
-	fn reload(&mut self, dictionary_paths: &Vec<PathConfig>, cache_dict: bool)
+	pub(super) fn reload(&mut self, dictionary_paths: &Vec<PathConfig>, cache_dict: bool)
 	{
 		self.dictionaries.clear();
 		self.cache.clear();
-		for config in dictionary_paths {
-			if config.enabled {
-				if cache_dict {
-					if let Ok(dict) = stardict::with_sqlite(
-						&config.path, package_name!()) {
-						self.dictionaries.push(Box::new(dict));
-						continue;
-					}
-				}
-				if let Ok(dict) = stardict::no_cache(&config.path) {
-					self.dictionaries.push(Box::new(dict));
-				}
-			}
-		}
+		Self::load_dictionaries(&mut self.dictionaries, dictionary_paths, cache_dict);
 	}
 
 	fn lookup(&mut self, word: &str, i18n: &I18n)
@@ -182,7 +188,7 @@ impl DictionaryBook {
 }
 
 impl DictionaryManager {
-	pub fn new(dictionary_paths: &Vec<PathConfig>, cache_dict: bool, font_size: u8,
+	pub fn new(db: Rc<RefCell<DictionaryBook>>, dictionary_paths: &Vec<PathConfig>, cache_dict: bool, font_size: u8,
 		fonts: Rc<Option<UserFonts>>, i18n: &Rc<I18n>, icons: &Rc<IconMap>)
 		-> (Rc<RefCell<Self>>, gtk4::Box, SearchEntry)
 	{
@@ -194,7 +200,7 @@ impl DictionaryManager {
 			0,
 			false,
 			false);
-		let book = DictionaryBook::default();
+		let mut book = db.borrow_mut();
 		let view = GuiView::new(
 			"dict",
 			false,
@@ -219,9 +225,12 @@ impl DictionaryManager {
 			.vexpand(true)
 			.build());
 
-		let mut dm = DictionaryManager {
+		book.reload(dictionary_paths, cache_dict);
+		drop(book);
+
+		let dm = DictionaryManager {
 			view,
-			book,
+			db,
 			highlight: None,
 			backward_btn: backward_btn.clone(),
 			forward_btn: forward_btn.clone(),
@@ -232,7 +241,6 @@ impl DictionaryManager {
 			words: vec![],
 			current_index: None,
 		};
-		dm.reload(dictionary_paths, cache_dict);
 		let dm = Rc::new(RefCell::new(dm));
 
 		setup_ui(&dm, &backward_btn, &forward_btn);
@@ -241,9 +249,8 @@ impl DictionaryManager {
 	}
 
 	#[inline]
-	pub fn reload(&mut self, dictionary_paths: &Vec<PathConfig>, cache_dict: bool)
+	pub fn lookup_for_reload(&mut self)
 	{
-		self.book.reload(dictionary_paths, cache_dict);
 		if let Some(current_index) = self.current_index {
 			self.lookup(current_index, false);
 		}
@@ -252,8 +259,9 @@ impl DictionaryManager {
 	#[inline]
 	pub fn redraw(&mut self, redraw_method: ScrollRedrawMethod)
 	{
+		let book = self.db.borrow();
 		self.render_context.scroll_redraw_method = redraw_method;
-		self.view.redraw(&self.book, self.book.lines(), 0, 0, &self.highlight,
+		self.view.redraw(book.deref(), book.lines(), 0, 0, &self.highlight,
 			&mut self.render_context);
 	}
 
@@ -297,7 +305,9 @@ impl DictionaryManager {
 	{
 		let from = Position::new(from_line as usize, from_offset as usize);
 		let to = Position::new(to_line as usize, to_offset as usize);
-		let highlight = self.book.range_highlight(from, to);
+		let book = self.db.borrow();
+		let highlight = book.range_highlight(from, to);
+		drop(book);
 		if done {
 			if let Some(selected) = highlight_selection(&highlight) {
 				self.set_lookup(selected.to_owned());
@@ -320,9 +330,12 @@ impl DictionaryManager {
 	#[inline]
 	fn goto_link(&mut self, line: usize, link_index: usize)
 	{
-		if let Some(line) = self.book.lines().get(line) {
+		let book = self.db.borrow();
+		if let Some(line) = book.lines().get(line) {
 			if let Some(link) = line.link_at(link_index) {
-				self.set_lookup(link.target.trim().to_owned());
+				let target = link.target.trim().to_owned();
+				drop(book);
+				self.set_lookup(target);
 			}
 		}
 	}
@@ -378,7 +391,7 @@ impl DictionaryManager {
 	fn lookup(&mut self, current_index: usize, init: bool)
 	{
 		let (word, pos) = &self.words[current_index];
-		self.book.lookup(word, &self.i18n);
+		self.db.borrow_mut().lookup(word, &self.i18n);
 		let redraw_mode = if init {
 			ScrollRedrawMethod::ResetScroll
 		} else {

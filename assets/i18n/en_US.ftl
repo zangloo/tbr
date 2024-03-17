@@ -46,3 +46,4 @@ failed-load-reading = Failed load reading book info：{ $error }
 
 custom-style-dialog-title = set custom styles
 need-restart = (Need restart)
+alert-error-title = Error

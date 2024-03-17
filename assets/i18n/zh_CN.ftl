@@ -46,3 +46,4 @@ failed-load-reading = 加载文件信息失败：{ $error }
 
 custom-style-dialog-title = 设定自定义样式
 need-restart = (需重启)
+alert-error-title = 错误
