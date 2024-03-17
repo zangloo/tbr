@@ -557,6 +557,8 @@ fn default_font_size() -> u8
 	20
 }
 
+const CURRENT_DB_VERSION: u16 = 2;
+
 #[inline]
 fn load_history_db(path: &PathBuf) -> Result<Connection>
 {
@@ -566,6 +568,7 @@ fn load_history_db(path: &PathBuf) -> Result<Connection>
 		conn.execute("
 create table info ( version integer )
 			", ())?;
+		conn.execute("insert into info (version) values (?)", [CURRENT_DB_VERSION])?;
 		conn.execute("
 create table history
 (
