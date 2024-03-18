@@ -1830,13 +1830,12 @@ pub fn start(configuration: Configuration, themes: Themes)
 	};
 
 	let app = Application::builder()
-		.flags(ApplicationFlags::HANDLES_COMMAND_LINE)
 		.flags(ApplicationFlags::HANDLES_OPEN)
 		.application_id(APP_ID)
 		.build();
 
 	{
-		app.connect_startup(|_| {
+		app.connect_startup(|app| {
 			let css_provider = CssProvider::new();
 			css_provider.load_from_string(include_str!("../assets/gui/gtk.css"));
 			gtk4::style_context_add_provider_for_display(
@@ -1845,24 +1844,19 @@ pub fn start(configuration: Configuration, themes: Themes)
 				gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
 			);
 			Window::set_default_icon_name("tbr-icon");
+
+			#[cfg(unix)]
+			{
+				handle_signal(2, app.clone());
+				handle_signal(15, app.clone());
+			}
 		});
 	}
 
+	let current = configuration.current.clone();
 	let cfg = Rc::new(RefCell::new(configuration));
 	let themes = Rc::new(themes);
 	let gcs = Rc::new(RefCell::new(vec![]));
-	{
-		let cfg = cfg.clone();
-		app.connect_handle_local_options(move |app, _| {
-			let filename = cfg.borrow().current.clone();
-			if let Some(filename) = filename {
-				app_open(app, &filename);
-			} else {
-				app.activate();
-			};
-			0
-		});
-	}
 	{
 		let cfg = cfg.clone();
 		let themes = themes.clone();
@@ -1883,21 +1877,16 @@ pub fn start(configuration: Configuration, themes: Themes)
 			}
 		});
 	}
-	{
-		let cfg = cfg.clone();
-		let themes = themes.clone();
-		app.connect_activate(move |app| {
-			show(app, &cfg, &themes, &gcs);
-		});
-	}
+	app.connect_activate(move |app| {
+		show(app, &cfg, &themes, &gcs);
+	});
 
-	#[cfg(unix)]
-	{
-		handle_signal(2, app.clone());
-		handle_signal(15, app.clone());
+	let mut args = env::args().collect::<Vec<_>>();
+	args.drain(1..);
+	if let Some(filename) = current {
+		args.push(filename);
 	}
-	app.register(None::<&Cancellable>)?;
-	if app.run_with_args::<String>(&[]) == ExitCode::FAILURE {
+	if app.run_with_args::<String>(&args) == ExitCode::FAILURE {
 		bail!("Failed start tbr")
 	}
 
