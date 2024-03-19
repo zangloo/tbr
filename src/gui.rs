@@ -7,14 +7,14 @@ use std::rc::Rc;
 use std::str::FromStr;
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
-use gtk4::{AlertDialog, Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, Popover, PopoverMenu, PositionType, SearchEntry, Separator, Stack, ToggleButton, Widget, Window};
+use gtk4::{AlertDialog, Align, Application, ApplicationWindow, Button, CssProvider, DirectionType, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, Popover, PopoverMenu, PositionType, SearchEntry, Separator, Stack, ToggleButton, Widget, Window};
 use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle, Texture};
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuItem, MenuModel, SimpleAction, SimpleActionGroup};
 use gtk4::glib;
 use gtk4::glib::{Bytes, closure_local, ExitCode, format_size, ObjectExt, StaticType, ToVariant, Variant};
 use gtk4::graphene::Point;
-use gtk4::prelude::{ActionExt, ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, FileExt, GtkApplicationExt, GtkWindowExt, IsA, NativeExt, OrientableExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
+use gtk4::prelude::{ActionExt, ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, EventControllerExt, FileExt, GtkApplicationExt, GtkWindowExt, IsA, NativeExt, OrientableExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
 use pangocairo::glib::Propagation;
 use pangocairo::pango::EllipsizeMode;
 use resvg::{tiny_skia, usvg};
@@ -1415,6 +1415,49 @@ impl GuiContext {
 		dark_colors: Colors, bright_colors: Colors, css_provider: CssProvider)
 		-> (Self, gtk4::Box)
 	{
+		#[inline]
+		fn create_history_menu(view: &GuiView) -> (SimpleActionGroup, Menu, PopoverMenu)
+		{
+			let action_group = SimpleActionGroup::new();
+			let history_menu = Menu::new();
+			let history_popover = PopoverMenu::builder()
+				.menu_model(&history_menu)
+				.has_arrow(false)
+				.build();
+			let view = view.clone();
+			history_popover.connect_visible_notify(move |p| {
+				if !p.get_visible() {
+					view.grab_focus();
+				}
+			});
+			let key_event = EventControllerKey::new();
+			key_event.connect_key_pressed(move |ev, key, _, modifier| {
+				let (key, modifier) = ignore_cap(key, modifier);
+				match (key, modifier) {
+					(Key::j, MODIFIER_NONE) => {
+						ev.widget().emit_move_focus(DirectionType::Down);
+						glib::Propagation::Stop
+					}
+					(Key::k, MODIFIER_NONE) => {
+						ev.widget().emit_move_focus(DirectionType::Up);
+						glib::Propagation::Stop
+					}
+					(Key::h, MODIFIER_NONE) |
+					(Key::q, MODIFIER_NONE) => {
+						ev.widget().set_visible(false);
+						glib::Propagation::Stop
+					}
+					_ => {
+						// println!("view, key: {key}, modifier: {modifier}");
+						glib::Propagation::Proceed
+					}
+				}
+			});
+			history_popover.add_controller(key_event);
+
+			(action_group, history_menu, history_popover)
+		}
+
 		let window = ApplicationWindow::builder()
 			.application(app)
 			.default_width(800)
@@ -1456,17 +1499,7 @@ impl GuiContext {
 		}
 		file_dialog.set_default_filter(Some(&filter));
 
-		let action_group = SimpleActionGroup::new();
-		let history_menu = Menu::new();
-		let history_popover = PopoverMenu::builder()
-			.menu_model(&history_menu)
-			.has_arrow(false)
-			.build();
-		let view = controller.render.as_ref().clone();
-		history_popover.connect_visible_notify(move |_| {
-			view.grab_focus();
-		});
-
+		let (action_group, history_menu, history_popover) = create_history_menu(controller.render.as_ref());
 		let menu_btn = create_button("menu.svg", Some(&i18n.msg("menu")), &icons, false);
 
 		let inner = GuiContextInner {
@@ -1636,6 +1669,23 @@ impl GuiContext {
 			.child(&container)
 			.build();
 		popover.set_parent(&self.menu_btn);
+
+		let key_event = EventControllerKey::new();
+		key_event.connect_key_pressed(move |ev, key, _, modifier| {
+			let (key, modifier) = ignore_cap(key, modifier);
+			match (key, modifier) {
+				(Key::i, MODIFIER_NONE) |
+				(Key::q, MODIFIER_NONE) => {
+					ev.widget().set_visible(false);
+					glib::Propagation::Stop
+				}
+				_ => {
+					// println!("view, key: {key}, modifier: {modifier}");
+					glib::Propagation::Proceed
+				}
+			}
+		});
+		popover.add_controller(key_event);
 		popover.popup();
 		Ok(())
 	}
