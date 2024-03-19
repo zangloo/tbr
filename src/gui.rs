@@ -1927,6 +1927,7 @@ pub fn start(configuration: Configuration, themes: Themes)
 						let mut gui_contexts = gcs.borrow_mut();
 						if let Ok(idx) = get_gc(gui_contexts.as_ref(), README_TEXT_FILENAME) {
 							let gc = gui_contexts.remove(idx);
+							drop(gui_contexts);
 							gc.window.close();
 						}
 					}
