@@ -1639,32 +1639,35 @@ impl GuiContext {
 	fn book_info(&self) -> Result<()>
 	{
 		#[inline]
-		fn label(title: &str) -> Label
+		fn label(title: &str, text: &mut String) -> Label
 		{
+			text.push('\n');
+			text.push_str(title);
 			Label::builder()
 				.halign(Align::Start)
 				.label(title)
 				.build()
 		}
 
+		let mut text = String::new();
 		let controller = self.ctrl_mut();
 		let reading = &controller.reading;
 		let path = PathBuf::from_str(&reading.filename)?;
 		let meta = path.metadata()?;
 		let container = gtk4::Box::new(Orientation::Vertical, 10);
-		container.append(&label(&reading.filename));
-		container.append(&label(&format_size(meta.len())));
+		container.append(&label(&reading.filename, &mut text));
+		container.append(&label(&format_size(meta.len()), &mut text));
 		container.append(&Separator::new(Orientation::Horizontal));
 		if let Some(book_names) = controller.container.inner_book_names() {
 			if let Some(name) = book_names.get(reading.inner_book) {
-				container.append(&label(&name.name()));
+				container.append(&label(&name.name(), &mut text));
 			}
 		}
 		let status = controller.status();
 		if let Some(title) = status.title {
-			container.append(&label(title));
+			container.append(&label(title, &mut text));
 		}
-		container.append(&label(&status.position()));
+		container.append(&label(&status.position(), &mut text));
 		let popover = Popover::builder()
 			.child(&container)
 			.build();
@@ -1677,6 +1680,10 @@ impl GuiContext {
 				(Key::i, MODIFIER_NONE) |
 				(Key::q, MODIFIER_NONE) => {
 					ev.widget().set_visible(false);
+					glib::Propagation::Stop
+				}
+				(Key::c, ModifierType::CONTROL_MASK) => {
+					copy_to_clipboard(&text);
 					glib::Propagation::Stop
 				}
 				_ => {
