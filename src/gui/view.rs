@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use gtk4::{CssProvider, EventControllerMotion, EventControllerScroll, EventControllerScrollFlags, gdk, GestureDrag, glib};
+use gtk4::{CssProvider, EventControllerMotion, EventControllerScroll, EventControllerScrollFlags, gdk, GestureClick, GestureDrag, glib};
 use glib::Object;
 use gtk4::Scrollable;
 use gtk4::gdk::{Display, ModifierType};
@@ -33,6 +33,7 @@ pub enum ClickTarget {
 	Link(usize, usize),
 	ExternalLink(usize, usize),
 	Image(usize, usize),
+	Char(usize, usize),
 	None,
 }
 
@@ -99,6 +100,7 @@ impl GuiView {
 	pub const TEXT_SELECTED_SIGNAL: &'static str = "text-selected";
 	pub const CLEAR_SELECTION_SIGNAL: &'static str = "clear-selection";
 	pub const SCROLL_SIGNAL: &'static str = "scroll";
+	pub const SELECT_WORD_SIGNAL: &'static str = "select-word";
 
 	pub fn new(instance_name: &str, render_han: bool, book_fonts: Option<&HtmlFonts>,
 		user_fonts: Rc<Option<UserFonts>>, render_context: &mut RenderContext) -> Self
@@ -150,27 +152,7 @@ impl GuiView {
 				if let Some(ep) = drag.point(seq) {
 					view.grab_focus();
 					let imp = view.imp();
-					if bp == ep {
-						let mut pos = pos2(bp.0 as f32, bp.1 as f32);
-						imp.translate(&mut pos);
-						let state = drag.current_event_state();
-						match imp.resolve_click(&pos, state) {
-							ClickTarget::Link(line, link_index) => view.emit_by_name::<()>(GuiView::OPEN_LINK_SIGNAL, &[
-								&(line as u64),
-								&(link_index as u64),
-							]),
-							ClickTarget::ExternalLink(line, link_index) => view.emit_by_name::<()>(GuiView::OPEN_LINK_EXTERNAL_SIGNAL, &[
-								&(line as u64),
-								&(link_index as u64),
-							]),
-							ClickTarget::Image(line, offset) => view.emit_by_name::<()>(GuiView::OPEN_IMAGE_EXTERNAL_SIGNAL, &[
-								&(line as u64),
-								&(offset as u64),
-							]),
-							ClickTarget::None =>
-								view.emit_by_name::<()>(GuiView::CLEAR_SELECTION_SIGNAL, &[]),
-						}
-					} else {
+					if bp != ep {
 						let mut from = pos2(bp.0 as f32, bp.1 as f32);
 						let mut to = pos2(ep.0 as f32, ep.1 as f32);
 						imp.translate(&mut from);
@@ -188,6 +170,46 @@ impl GuiView {
 			}
 		});
 		self.add_controller(drag_gesture);
+
+		let gesture = GestureClick::new();
+		let view = self.clone();
+		gesture.connect_pressed(move |gesture, n_press, x, y| {
+			if n_press == 1 {
+				gesture.set_state(gtk4::EventSequenceState::Claimed);
+				let mut pos = pos2(x as f32, y as f32);
+				let imp = view.imp();
+				imp.translate(&mut pos);
+				let state = gesture.current_event_state();
+				match imp.resolve_click(&pos, state) {
+					ClickTarget::Link(line, link_index) => view.emit_by_name::<()>(GuiView::OPEN_LINK_SIGNAL, &[
+						&(line as u64),
+						&(link_index as u64),
+					]),
+					ClickTarget::ExternalLink(line, link_index) => view.emit_by_name::<()>(GuiView::OPEN_LINK_EXTERNAL_SIGNAL, &[
+						&(line as u64),
+						&(link_index as u64),
+					]),
+					ClickTarget::Image(line, offset) => view.emit_by_name::<()>(GuiView::OPEN_IMAGE_EXTERNAL_SIGNAL, &[
+						&(line as u64),
+						&(offset as u64),
+					]),
+					ClickTarget::None | ClickTarget::Char(..) =>
+						view.emit_by_name::<()>(GuiView::CLEAR_SELECTION_SIGNAL, &[]),
+				}
+			} else if n_press == 2 {
+				gesture.set_state(gtk4::EventSequenceState::Claimed);
+				let pos = pos2(x as f32, y as f32);
+				let imp = view.imp();
+				let state = gesture.current_event_state();
+				if let ClickTarget::Char(line, offset) = imp.resolve_click(&pos, state) {
+					view.emit_by_name::<()>(GuiView::SELECT_WORD_SIGNAL, &[
+						&(line as u64),
+						&(offset as u64),
+					]);
+				}
+			}
+		});
+		self.add_controller(gesture);
 
 		let mouse_event = EventControllerMotion::new();
 		let view = self.clone();
@@ -397,6 +419,13 @@ mod imp {
 						.run_last()
 						.build(),
 					Signal::builder(super::GuiView::CLEAR_SELECTION_SIGNAL)
+						.run_last()
+						.build(),
+					Signal::builder(super::GuiView::SELECT_WORD_SIGNAL)
+						.param_types([
+							<u64>::static_type(),
+							<u64>::static_type(),
+						])
 						.run_last()
 						.build(),
 					Signal::builder(super::GuiView::SCROLL_SIGNAL)
@@ -817,7 +846,8 @@ mod imp {
 							if state.eq(&(ModifierType::CONTROL_MASK | ModifierType::BUTTON1_MASK)) {
 								return ClickTarget::Image(line.line(), dc.offset);
 							}
-						RenderCell::Char(_) => break,
+						RenderCell::Char(_) =>
+							return ClickTarget::Char(line.line(), dc.offset),
 					}
 				}
 			}

@@ -592,11 +592,21 @@ fn setup_popup_menu(gc: &GuiContext, view: &GuiView) -> PopoverMenu
 fn setup_view(gc: &GuiContext, view: &GuiView)
 {
 	#[inline]
-	fn select_text(gc: &GuiContext, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64)
+	fn select_text(gc: &GuiContext, from_line: usize, from_offset: usize,
+		to_line: usize, to_offset: usize, done: bool)
 	{
-		let from = Position::new(from_line as usize, from_offset as usize);
-		let to = Position::new(to_line as usize, to_offset as usize);
+		let from = Position::new(from_line, from_offset);
+		let to = Position::new(to_line, to_offset);
 		gc.ctrl_mut().select_text(from, to, &mut gc.ctx_mut());
+		if done {
+			if let Some(selected_text) = gc.ctrl().selected() {
+				if let Some(current_tab) = gc.sidebar_stack.visible_child_name() {
+					if current_tab == SIDEBAR_DICT_NAME {
+						gc.dm_mut().set_lookup(selected_text.to_owned());
+					}
+				}
+			}
+		}
 	}
 
 	#[inline]
@@ -705,7 +715,13 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 			GuiView::SELECTING_TEXT_SIGNAL,
 			false,
 			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
-				select_text(&gc, from_line, from_offset, to_line, to_offset);
+				select_text(
+					&gc,
+					from_line as usize,
+					from_offset as usize,
+					to_line as usize,
+					to_offset as usize,
+					false);
 	        }),
 		);
 	}
@@ -717,14 +733,12 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 			GuiView::TEXT_SELECTED_SIGNAL,
 			false,
 			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
-				select_text(&gc, from_line, from_offset, to_line, to_offset);
-				if let Some(selected_text) = gc.ctrl().selected() {
-					if let Some(current_tab) = gc.sidebar_stack.visible_child_name() {
-						if current_tab == SIDEBAR_DICT_NAME {
-							gc.dm_mut().set_lookup(selected_text.to_owned());
-						}
-					}
-				}
+				select_text(&gc,
+					from_line as usize,
+					from_offset as usize,
+					to_line as usize,
+					to_offset as usize,
+					true);
 			}),
 		);
 	}
@@ -738,6 +752,25 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 			closure_local!(move |_: GuiView| {
 				gc.ctrl_mut().clear_highlight(&mut gc.ctx_mut());
 	        }),
+		);
+	}
+
+	{
+		// select word signal
+		let gc = gc.clone();
+		view.connect_closure(
+			GuiView::SELECT_WORD_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView, line: u64, offset: u64| {
+				let line_no = line as usize;
+				let controller = gc.ctrl();
+				if let Some(line) = controller.book.lines().get(line_no){
+					if let Some((from, to)) = line.word_at_offset(offset as usize) {
+						drop(controller);
+						select_text(&gc, line_no, from, line_no, to, true);
+					}
+				}
+			}),
 		);
 	}
 

@@ -327,6 +327,126 @@ impl Line {
 		}
 		char_style
 	}
+
+	#[allow(unused)]
+	pub fn word_at_offset(&self, offset: usize) -> Option<(usize, usize)>
+	{
+		/// this array is sorted, modify carefully
+		pub const TEXT_SELECTION_SPLITTER: [char; 91] = [
+			' ',
+			'#',
+			'%',
+			'&',
+			'(',
+			')',
+			'+',
+			',',
+			'-',
+			'.',
+			'/',
+			';',
+			'<',
+			'=',
+			'>',
+			'?',
+			'@',
+			'[',
+			'\\',
+			'\t',
+			']',
+			'_',
+			'{',
+			'}',
+			'~',
+			'—',
+			'‘',
+			'’',
+			'“',
+			'”',
+			'…',
+			'─',
+			'ⸯ',
+			'　',
+			'、',
+			'。',
+			'〈',
+			'〉',
+			'《',
+			'》',
+			'「',
+			'」',
+			'『',
+			'』',
+			'【',
+			'】',
+			'〔',
+			'〕',
+			'〖',
+			'〗',
+			'︗',
+			'︘',
+			'︙',
+			'︱',
+			'︵',
+			'︶',
+			'︷',
+			'︸',
+			'︹',
+			'︺',
+			'︻',
+			'︼',
+			'︽',
+			'︾',
+			'︿',
+			'﹀',
+			'﹁',
+			'﹂',
+			'﹃',
+			'﹄',
+			'！',
+			'＃',
+			'％',
+			'＆',
+			'（',
+			'）',
+			'＊',
+			'＋',
+			'，',
+			'－',
+			'／',
+			'：',
+			'；',
+			'＝',
+			'［',
+			'］',
+			'｀',
+			'｛',
+			'｜',
+			'｝',
+			'～',
+		];
+		let pointer_char = self.chars.get(offset)?;
+		if TEXT_SELECTION_SPLITTER.binary_search(pointer_char).is_ok() {
+			return Some((offset, offset));
+		}
+
+		let mut from = offset;
+		for idx in (0..offset).rev() {
+			if TEXT_SELECTION_SPLITTER.binary_search(&self.chars[idx]).is_ok() {
+				break;
+			}
+			from = idx;
+		}
+
+		let mut to = offset;
+		while let Some(ch) = self.chars.get(to + 1) {
+			if TEXT_SELECTION_SPLITTER.binary_search(ch).is_ok() {
+				break;
+			}
+			to += 1;
+		}
+		Some((from, to))
+	}
 }
 
 impl Default for Line {

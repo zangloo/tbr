@@ -300,24 +300,15 @@ impl DictionaryManager {
 		self.push_dict_word(lookup_text);
 	}
 
-	fn select_text(&mut self, from_line: u64, from_offset: u64, to_line: u64,
-		to_offset: u64, done: bool)
+	fn select_text(&mut self, from_line: usize, from_offset: usize,
+		to_line: usize, to_offset: usize)
 	{
-		let from = Position::new(from_line as usize, from_offset as usize);
-		let to = Position::new(to_line as usize, to_offset as usize);
+		let from = Position::new(from_line, from_offset);
+		let to = Position::new(to_line, to_offset);
 		let book = self.db.borrow();
-		let highlight = book.range_highlight(from, to);
+		self.highlight = book.range_highlight(from, to);
 		drop(book);
-		if done {
-			if let Some(selected) = highlight_selection(&highlight) {
-				self.set_lookup(selected.to_owned());
-			} else {
-				self.highlight = None;
-			}
-		} else {
-			self.highlight = highlight;
-			self.redraw(ScrollRedrawMethod::NoResetScroll);
-		}
+		self.redraw(ScrollRedrawMethod::NoResetScroll);
 	}
 
 	#[inline]
@@ -554,11 +545,10 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
 				let mut dictionary_manager = dm.borrow_mut();
 				dictionary_manager.select_text(
-					from_line,
-					from_offset,
-					to_line,
-					to_offset,
-					false);
+					from_line as usize,
+					from_offset as usize,
+					to_line as usize,
+					to_offset as usize);
 	        }),
 		);
 	}
@@ -572,11 +562,10 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 			closure_local!(move |_: GuiView, from_line: u64, from_offset: u64, to_line: u64, to_offset: u64| {
 				let mut dictionary_manager = dm.borrow_mut();
 				dictionary_manager.select_text(
-					from_line,
-					from_offset,
-					to_line,
-					to_offset,
-					true);
+					from_line as usize,
+					from_offset as usize,
+					to_line as usize,
+					to_offset as usize);
 	        }),
 		);
 	}
@@ -593,6 +582,27 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 	        }),
 		);
 	}
+
+	{
+		// select word signal
+		let dm = dm.clone();
+		view.connect_closure(
+			GuiView::SELECT_WORD_SIGNAL,
+			false,
+			closure_local!(move |_: GuiView, line: u64, offset: u64| {
+				let line_no = line as usize;
+				let mut dictionary_manager = dm.borrow_mut();
+				let book = dictionary_manager.db.borrow();
+				if let Some(line) = book.lines().get(line_no){
+					if let Some((from, to)) = line.word_at_offset(offset as usize) {
+						drop(book);
+						dictionary_manager.select_text(line_no, from, line_no, to);
+					}
+				}
+			}),
+		);
+	}
+
 	{
 		let dm = dm.clone();
 		let key_event = EventControllerKey::new();
