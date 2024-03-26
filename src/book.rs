@@ -332,7 +332,7 @@ impl Line {
 	pub fn word_at_offset(&self, offset: usize) -> Option<(usize, usize)>
 	{
 		/// this array is sorted, modify carefully
-		pub const TEXT_SELECTION_SPLITTER: [char; 91] = [
+		pub const TEXT_SELECTION_SPLITTER: [char; 92] = [
 			' ',
 			'#',
 			'%',
@@ -417,6 +417,7 @@ impl Line {
 			'：',
 			'；',
 			'＝',
+			'？',
 			'［',
 			'］',
 			'｀',
