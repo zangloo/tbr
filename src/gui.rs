@@ -1882,8 +1882,13 @@ fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>
 		// previous opened
 		Ok(None) => {}
 		Err(err) => {
-			eprintln!("Failed start tbr: {}", err.to_string());
-			app.quit();
+			if let Some(window) = app.active_window() {
+				alert("Failed start tbr", &err.to_string(), &window);
+			} else if let Some(window) = app.windows().get(0) {
+				alert("Failed start tbr", &err.to_string(), window);
+			} else {
+				eprintln!("Failed start tbr: {}", err.to_string());
+			}
 		}
 	}
 }
