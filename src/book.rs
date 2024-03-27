@@ -448,6 +448,14 @@ impl Line {
 		}
 		Some((from, to))
 	}
+
+	#[allow(unused)]
+	pub fn sub_str(&self, target: &mut String, range: Range<usize>) {
+		target.clear();
+		for idx in range {
+			target.push(self.chars[idx]);
+		}
+	}
 }
 
 impl Default for Line {

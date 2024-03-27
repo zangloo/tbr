@@ -245,6 +245,8 @@ pub struct GuiConfiguration {
 	pub ignore_font_weight: bool,
 	#[serde(default)]
 	pub scroll_for_page: bool,
+	#[serde(default)]
+	pub select_by_dictionary: bool,
 }
 
 #[cfg(feature = "gui")]
@@ -263,6 +265,7 @@ impl Default for GuiConfiguration
 			strip_empty_lines: false,
 			ignore_font_weight: false,
 			scroll_for_page: false,
+			select_by_dictionary: false,
 		}
 	}
 }

@@ -764,12 +764,16 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 			closure_local!(move |_: GuiView, line: u64, offset: u64| {
 				let line_no = line as usize;
 				let controller = gc.ctrl();
-				if let Some(line) = controller.book.lines().get(line_no){
-					if let Some((from, to)) = line.word_at_offset(offset as usize) {
+				if let Some(line) = controller.book.lines().get(line_no) {
+					if let Some((from, to)) = if gc.cfg().gui.select_by_dictionary {
+						gc.db.borrow_mut().lookup_at_offset(line, offset as usize)
+					} else {
+						line.word_at_offset(offset as usize)
+					} {
 						drop(controller);
 						select_text(&gc, line_no, from, line_no, to, true);
 					}
-				}
+				};
 			}),
 		);
 	}

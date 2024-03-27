@@ -31,6 +31,7 @@ invalid-default-font-size = Invalid default font size
 font-files = Font files
 dictionary-file = Dictionary file(ifo)
 cache-dictionary = Cache dictionaries data
+select-by-dictionary = Double click to select by dictionary lookup
 ignore-font-weight = Ignore font weight for rendering
 settings-dialog-title = Settings
 settings-dialog = Show settings dialog

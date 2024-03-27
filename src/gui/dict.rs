@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::cmp::max;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -149,19 +150,9 @@ impl DictionaryBook {
 		let results = self.cache
 			.entry(word.to_owned())
 			.or_insert_with(|| {
-				let mut result = vec![];
-				for dict in &mut self.dictionaries {
-					let dict_name = dict.dict_name().to_owned();
-					if let Ok(Some(definitions)) = dict.lookup(word) {
-						result.push(LookupResult {
-							dict_name,
-							definitions,
-						});
-					}
-				}
-				result
+				lookup_internal(&mut self.dictionaries, word)
 			});
-		let content = if results.len() > 0 {
+		let content = if !results.is_empty() {
 			let mut text = String::from(HTML_DEFINITION_HEAD);
 			for single in &mut *results {
 				render_definition(single, &mut text, &self.replacer);
@@ -185,6 +176,53 @@ impl DictionaryBook {
 		};
 		self.content = content;
 	}
+
+	pub fn lookup_at_offset(&mut self, line: &Line, offset: usize) -> Option<(usize, usize)>
+	{
+		fn exists(dictionaries: &mut Vec<Box<dyn StarDict>>, pattern: &str,
+			cache: &mut HashMap<String, Vec<LookupResult>>) -> bool
+		{
+			if let Some(result) = cache.get(pattern) {
+				return !result.is_empty();
+			}
+			let result = lookup_internal(dictionaries, pattern);
+			let exists = !result.is_empty();
+			cache.insert(pattern.to_owned(), result);
+			exists
+		}
+
+		if self.dictionaries.is_empty() {
+			return line.word_at_offset(offset);
+		}
+		let len = line.len();
+		let min_to = offset + 1;
+		let mut text = String::with_capacity(len);
+		for from in (0..=offset).rev() {
+			for to in max(min_to, from + 2)..len {
+				line.sub_str(&mut text, from..to);
+				if exists(&mut self.dictionaries, &text, &mut self.cache) {
+					return Some((from, to - 1));
+				}
+			}
+		}
+		line.word_at_offset(offset)
+	}
+}
+
+fn lookup_internal(dictionaries: &mut Vec<Box<dyn StarDict>>, word: &str)
+	-> Vec<LookupResult>
+{
+	let mut result = vec![];
+	for dict in dictionaries {
+		let dict_name = dict.dict_name().to_owned();
+		if let Ok(Some(definitions)) = dict.lookup(word) {
+			result.push(LookupResult {
+				dict_name,
+				definitions,
+			});
+		}
+	}
+	result
 }
 
 impl DictionaryManager {

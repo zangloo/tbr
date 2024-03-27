@@ -50,6 +50,7 @@ struct SettingsParam<'a> {
 	scroll_for_page: bool,
 	default_font_size: u8,
 	sidebar_position: &'a SidebarPosition,
+	select_by_dictionary: bool,
 }
 
 #[inline]
@@ -274,6 +275,27 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 		&i18n.msg("cache-dictionary"),
 		configuration.gui.cache_dict,
 		&main);
+
+	let disable_select_by_dictionary = dict_list.n_items() == 0;
+	let select_by_dictionary_cb = append_checkbox(
+		&i18n.msg("select-by-dictionary"),
+		if disable_select_by_dictionary { false } else { configuration.gui.select_by_dictionary },
+		&main);
+	if disable_select_by_dictionary {
+		select_by_dictionary_cb.set_sensitive(false);
+	}
+	{
+		let select_by_dictionary_cb = select_by_dictionary_cb.clone();
+		dict_list.connect_items_changed(move |list, _, _, _| {
+			if list.n_items() == 0 {
+				select_by_dictionary_cb.set_sensitive(false);
+				select_by_dictionary_cb.set_active(false);
+			} else {
+				select_by_dictionary_cb.set_sensitive(true);
+			}
+		});
+	}
+
 	let button_box = gtk4::Box::new(Orientation::Horizontal, 10);
 	button_box.set_halign(Align::End);
 	{
@@ -319,6 +341,7 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 				let idx = sidebar_position_dropdown.selected();
 				&SIDEBAR_POSITIONS[idx as usize]
 			};
+			let select_by_dictionary = select_by_dictionary_cb.is_active();
 
 			let new_fonts = if paths_modified(&cfg.borrow().gui.fonts, &fonts) {
 				let new_fonts = match font::user_fonts(&fonts) {
@@ -349,6 +372,7 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 				scroll_for_page,
 				default_font_size,
 				sidebar_position,
+				select_by_dictionary,
 			};
 			apply(params, new_fonts);
 			dialog.close();
@@ -563,6 +587,8 @@ fn apply_settings(gcs: &Rc<RefCell<Vec<GuiContext>>>, params: SettingsParam,
 
 	configuration.gui.scroll_for_page = params.scroll_for_page;
 	configuration.gui.default_font_size = params.default_font_size;
+	configuration.gui.select_by_dictionary = params.select_by_dictionary;
+
 	if configuration.gui.ignore_font_weight != params.ignore_font_weight {
 		configuration.gui.ignore_font_weight = params.ignore_font_weight;
 		redraw = true;

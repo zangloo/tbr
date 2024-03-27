@@ -31,6 +31,7 @@ invalid-default-font-size = 缺省字体大小设置错误
 font-files = 字体文件
 dictionary-file = 字典文件(ifo)
 cache-dictionary = 缓存字典数据
+select-by-dictionary = 基于字典双击选词
 ignore-font-weight = 渲染时忽略字体粗体设置
 settings-dialog-title = 设置
 settings-dialog = 参数设置
