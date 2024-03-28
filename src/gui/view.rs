@@ -837,13 +837,13 @@ mod imp {
 				if let Some(dc) = line.char_at_pos(mouse_position) {
 					match dc.cell {
 						RenderCell::Link(_, link_index) =>
-							return if state.eq(&(ModifierType::CONTROL_MASK | ModifierType::BUTTON1_MASK)) {
+							return if state.eq(&(ModifierType::CONTROL_MASK)) {
 								ClickTarget::ExternalLink(line.line(), link_index)
 							} else {
 								ClickTarget::Link(line.line(), link_index)
 							},
 						RenderCell::Image(_) =>
-							if state.eq(&(ModifierType::CONTROL_MASK | ModifierType::BUTTON1_MASK)) {
+							if state.eq(&(ModifierType::CONTROL_MASK)) {
 								return ClickTarget::Image(line.line(), dc.offset);
 							}
 						RenderCell::Char(_) =>
