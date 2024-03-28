@@ -440,6 +440,11 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>,
 					copy_selection(&ctrl.borrow());
 					glib::Propagation::Stop
 				}
+				(Key::k, ModifierType::CONTROL_MASK) => {
+					switch_stack(SIDEBAR_DICT_NAME, &gc, false);
+					gc.dm().focus_lookup();
+					glib::Propagation::Stop
+				}
 				_ => {
 					// println!("view, key: {key}, modifier: {modifier}");
 					glib::Propagation::Proceed
@@ -1606,6 +1611,12 @@ impl GuiContext {
 	fn opener(&self) -> RefMut<Opener>
 	{
 		self.opener.borrow_mut()
+	}
+
+	#[inline]
+	fn dm(&self) -> Ref<DictionaryManager>
+	{
+		self.dm.borrow()
 	}
 
 	#[inline]

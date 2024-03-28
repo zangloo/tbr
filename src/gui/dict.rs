@@ -295,6 +295,14 @@ impl DictionaryManager {
 	}
 
 	#[inline]
+	pub fn focus_lookup(&self)
+	{
+		let entry = &self.lookup_input;
+		entry.grab_focus();
+		entry.select_region(0, -1);
+	}
+
+	#[inline]
 	pub fn redraw(&mut self, redraw_method: ScrollRedrawMethod)
 	{
 		let book = self.db.borrow();
@@ -690,6 +698,14 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 					if font_size > MIN_FONT_SIZE {
 						dictionary_manager.set_font_size(font_size - 2);
 					}
+					glib::Propagation::Stop
+				}
+				(Key::k, ModifierType::CONTROL_MASK) => {
+					let dictionary_manager = dm.borrow();
+					if let Some(selected_text) = highlight_selection(&dictionary_manager.highlight) {
+						dictionary_manager.lookup_input.set_text(selected_text);
+					}
+					dictionary_manager.focus_lookup();
 					glib::Propagation::Stop
 				}
 				_ => {
