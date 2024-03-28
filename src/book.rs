@@ -305,6 +305,7 @@ impl Line {
 			link: None,
 			image: None,
 		};
+		let mut new_color = None;
 		for (index, (style, range)) in self.styles.iter().enumerate().rev() {
 			if range.contains(&char_index) {
 				match style {
@@ -316,14 +317,19 @@ impl Line {
 					TextStyle::Image(href) => char_style.image = Some(href.clone()),
 					TextStyle::Link(_) => {
 						char_style.link = Some((index, range.clone()));
-						char_style.color = colors.link.clone();
+						if new_color.is_none() {
+							new_color = Some(colors.link.clone());
+						}
 					}
 					TextStyle::Border => char_style.border = Some(range.clone()),
 					TextStyle::Line(line) => char_style.line = Some((*line, range.clone())),
-					TextStyle::Color(color) => if custom_color { char_style.color = color.clone() },
+					TextStyle::Color(color) => if custom_color { new_color = Some(color.clone()) },
 					TextStyle::BackgroundColor(color) => if custom_color { char_style.background = Some(color.clone()) },
 				}
 			}
+		}
+		if let Some(color) = new_color {
+			char_style.color = color;
 		}
 		char_style
 	}
