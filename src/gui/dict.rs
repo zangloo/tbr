@@ -13,7 +13,7 @@ use gtk4::glib;
 use gtk4::prelude::{BoxExt, ButtonExt, DrawingAreaExt, EditableExt, WidgetExt};
 use indexmap::IndexSet;
 use stardict::{StarDict, WordDefinition};
-use crate::book::{Book, Colors, ImageData, Line};
+use crate::book::{Book, Colors, ImageData, Line, TEXT_SELECTION_SPLITTER};
 use crate::package_name;
 use crate::color::Color32;
 use crate::common::{txt_lines, Position};
@@ -198,11 +198,25 @@ impl DictionaryBook {
 		let min_to = offset + 1;
 		let mut text = String::with_capacity(len);
 		for from in (0..=offset).rev() {
-			for to in max(min_to, from + 2)..len {
-				line.sub_str(&mut text, from..to);
-				if exists(&mut self.dictionaries, &text, &mut self.cache) {
-					return Some((from, to - 1));
+			if let Some(char) = line.char_at(from) {
+				if char != ' ' && TEXT_SELECTION_SPLITTER.binary_search(&char).is_ok() {
+					break;
 				}
+				for to in max(min_to, from + 2)..=len {
+					if let Some(char) = line.char_at(to - 1) {
+						if char != ' ' && TEXT_SELECTION_SPLITTER.binary_search(&char).is_ok() {
+							break;
+						}
+						line.sub_str(&mut text, from..to);
+						if exists(&mut self.dictionaries, &text, &mut self.cache) {
+							return Some((from, to - 1));
+						}
+					} else {
+						break;
+					}
+				}
+			} else {
+				break;
 			}
 		}
 		line.word_at_offset(offset)
