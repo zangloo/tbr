@@ -26,7 +26,7 @@ use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::HtmlFonts;
 #[cfg(feature = "gui")]
 use crate::html_convertor::{FontScale, FontWeight};
-use crate::html_convertor::TextStyle;
+use crate::html_convertor::{BlockStyle, TextStyle};
 use crate::terminal::Listable;
 
 mod epub;
@@ -579,6 +579,9 @@ pub trait Book {
 	#[inline]
 	#[cfg(feature = "gui")]
 	fn style_customizable(&self) -> bool { false }
+	#[inline]
+	#[cfg(feature = "gui")]
+	fn block_styles(&self) -> Option<&Vec<BlockStyle>> { None }
 
 	fn range_highlight(&self, from: Position, to: Position)
 		-> Option<HighlightInfo>

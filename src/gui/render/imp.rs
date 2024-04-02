@@ -17,7 +17,7 @@ use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::load_image;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
 use crate::gui::font::{Fonts, HtmlFonts, UserFonts};
-use crate::html_convertor::{FontScale, FontWeight};
+use crate::html_convertor::{BlockStyle, FontScale, FontWeight};
 
 pub const HAN_CHAR: char = '漢';
 
@@ -46,10 +46,26 @@ impl FontWeight {
 	}
 }
 
+#[derive(Clone, Debug)]
+pub enum BlockStylePart {
+	Begin,
+	End,
+	Middle,
+	Single,
+}
+
 #[derive(Clone)]
 pub enum TextDecoration {
 	// rect, stroke width, is first, is last, color
 	Border {
+		rect: Rect,
+		stroke_width: f32,
+		start: bool,
+		end: bool,
+		color: Color32,
+	},
+	// rect, stroke width, is first, is last, color
+	BlockBorder {
 		rect: Rect,
 		stroke_width: f32,
 		start: bool,
@@ -398,6 +414,28 @@ impl RenderContext {
 			scroll_redraw_method: ScrollRedrawMethod::NoResetScroll,
 		}
 	}
+
+	#[inline]
+	pub fn x_padding(&self) -> f32
+	{
+		self.default_font_measure.x / 2.
+	}
+
+	#[inline]
+	pub fn y_padding(&self) -> f32
+	{
+		self.default_font_measure.y / 2.
+	}
+
+	#[inline]
+	pub fn update_render_rect(&mut self, width: f32, height: f32)
+	{
+		self.render_rect = Rect::new(
+			self.x_padding(),
+			self.y_padding(),
+			width - self.default_font_measure.x,
+			height - self.default_font_measure.y);
+	}
 }
 
 pub struct ImageDrawingData {
@@ -455,6 +493,45 @@ fn cache_key(char: char, font_size: u8, font_weight: u8, font_family_idx: &Optio
 		| font_family_idx.unwrap_or(0xffff) as u64
 }
 
+pub struct RedrawContext<'a> {
+	offset: usize,
+	block_styles: Option<&'a Vec<BlockStyle>>,
+	render_lines: Vec<RenderLine>,
+	block_backgrounds: Vec<BlockBackgroundEntry>,
+	block_borders: Vec<TextDecoration>,
+	current_block_background: Option<(usize, Color32)>,
+	current_block_border: Option<(usize, BlockStylePart)>,
+	render_line_start: usize,
+}
+
+impl<'a> RedrawContext<'a> {
+	fn from(offset: usize, block_styles: Option<&'a Vec<BlockStyle>>) -> Self
+	{
+		RedrawContext {
+			offset,
+			block_styles,
+			render_lines: vec![],
+			block_backgrounds: vec![],
+			block_borders: vec![],
+			current_block_background: None,
+			current_block_border: None,
+			render_line_start: 0,
+		}
+	}
+}
+
+pub struct BlockBackgroundEntry {
+	rect: Rect,
+	color: Color32,
+}
+
+impl BlockBackgroundEntry {
+	fn new(rect: Rect, color: Color32) -> Self
+	{
+		Self { rect, color }
+	}
+}
+
 pub trait GuiRender {
 	fn render_han(&self) -> bool;
 	fn reset_baseline(&mut self, render_context: &RenderContext);
@@ -473,6 +550,9 @@ pub trait GuiRender {
 		rect: &Rect) -> (PointerPosition, PointerPosition);
 	fn cache(&self) -> &HashMap<u64, CharDrawData>;
 	fn cache_mut(&mut self) -> &mut HashMap<u64, CharDrawData>;
+	fn default_line_size(&self, render_context: &RenderContext) -> f32;
+	fn calc_block_rect(&self, render_lines: &Vec<RenderLine>,
+		range: Range<usize>, context: &RenderContext) -> Rect;
 
 	/// for scrolling view
 	/// get redraw lines size for scrollable size measure
@@ -537,41 +617,219 @@ pub trait GuiRender {
 		}
 	}
 
+	#[inline]
+	fn calc_block_border_decoration(&self, render_lines: &Vec<RenderLine>,
+		range: Range<usize>, position: BlockStylePart,
+		context: &RenderContext) -> TextDecoration
+	{
+		let rect = self.calc_block_rect(render_lines, range, context);
+		let color = context.colors.color.clone();
+		let stroke_width = self.default_line_size(context) / 16.;
+		let (start, end) = match position {
+			BlockStylePart::Begin => (true, false),
+			BlockStylePart::End => (false, true),
+			BlockStylePart::Middle => (false, false),
+			BlockStylePart::Single => (true, true),
+		};
+		TextDecoration::BlockBorder {
+			rect,
+			stroke_width,
+			start,
+			end,
+			color,
+		}
+	}
+
+	fn setup_line_blocks(&self, rc: &mut RedrawContext, line_idx: usize,
+		overflow: bool, render_context: &RenderContext)
+	{
+		let render_line_count = rc.render_lines.len();
+		if rc.render_line_start == render_line_count {
+			return;
+		}
+		let block_styles = match rc.block_styles {
+			Some(bs) => bs,
+			None => return,
+		};
+		let mut border_found = false;
+		let mut background_found = false;
+		for bs in block_styles {
+			match bs {
+				BlockStyle::Border(range) => if !border_found && range.contains(&line_idx) {
+					border_found = true;
+					let end_idx = range.end - 1;
+					if line_idx == range.start {
+						if line_idx == end_idx {
+							// single line block
+							let part = if rc.offset == 0 {
+								if overflow {
+									BlockStylePart::Begin
+								} else {
+									BlockStylePart::Single
+								}
+							} else {
+								if overflow {
+									BlockStylePart::Middle
+								} else {
+									BlockStylePart::End
+								}
+							};
+							let border = self.calc_block_border_decoration(
+								&rc.render_lines,
+								rc.render_line_start..render_line_count,
+								part,
+								render_context);
+							rc.block_borders.push(border);
+						} else {
+							rc.current_block_border = Some((
+								rc.render_line_start,
+								if rc.offset == 0 { BlockStylePart::Begin } else { BlockStylePart::Middle }));
+						}
+					} else if line_idx == end_idx {
+						let (start, part) = if let Some((start, part)) = &rc.current_block_border {
+							let target_part = if matches!(part, BlockStylePart::Middle) {
+								if overflow {
+									BlockStylePart::Middle
+								} else {
+									BlockStylePart::End
+								}
+							} else {
+								if overflow {
+									BlockStylePart::Begin
+								} else {
+									BlockStylePart::Single
+								}
+							};
+							(*start, target_part)
+						} else if overflow {
+							(rc.render_line_start, BlockStylePart::Middle)
+						} else {
+							(rc.render_line_start, BlockStylePart::End)
+						};
+						let border = self.calc_block_border_decoration(
+							&rc.render_lines,
+							start..render_line_count,
+							part,
+							render_context);
+						rc.block_borders.push(border);
+						rc.current_block_border = None;
+					} else if rc.current_block_border.is_none() {
+						rc.current_block_border = Some((
+							rc.render_line_start,
+							BlockStylePart::Middle));
+					}
+				}
+				BlockStyle::Background { range, color } => if !background_found && range.contains(&line_idx) {
+					background_found = true;
+					let end_idx = range.end - 1;
+					if line_idx == range.start {
+						if line_idx == end_idx {
+							// single line block
+							let rect = self.calc_block_rect(
+								&rc.render_lines,
+								rc.render_line_start..render_line_count,
+								render_context);
+							rc.block_backgrounds.push(BlockBackgroundEntry::new(rect, color.clone()));
+						} else {
+							rc.current_block_background = Some((
+								rc.render_line_start,
+								color.clone()));
+						}
+					} else if line_idx == end_idx {
+						let start = if let Some((start, _)) = &rc.current_block_background {
+							*start
+						} else {
+							rc.render_line_start
+						};
+						let rect = self.calc_block_rect(
+							&rc.render_lines,
+							start..render_line_count,
+							render_context);
+						rc.block_backgrounds.push(BlockBackgroundEntry::new(rect, color.clone()));
+						rc.current_block_background = None;
+					} else if rc.current_block_background.is_none() {
+						rc.current_block_background = Some((
+							rc.render_line_start,
+							color.clone()));
+					}
+				}
+			}
+		}
+		rc.render_line_start = render_line_count;
+	}
+
+	fn finalize_blocks(&self, rc: &mut RedrawContext, render_context: &RenderContext)
+	{
+		if let Some((start, part)) = &rc.current_block_border {
+			let border = self.calc_block_border_decoration(
+				&rc.render_lines,
+				*start..rc.render_lines.len(),
+				part.clone(),
+				render_context);
+			rc.block_borders.push(border);
+			rc.current_block_border = None;
+		}
+		if let Some((start, color)) = &rc.current_block_background {
+			let rect = self.calc_block_rect(
+				&rc.render_lines,
+				*start..rc.render_lines.len(),
+				render_context);
+			rc.block_backgrounds.push(BlockBackgroundEntry::new(
+				rect, color.clone()));
+		}
+		rc.current_block_background = None;
+	}
+
 	fn gui_redraw(&mut self, book: &dyn Book, lines: &[Line],
 		reading_line: usize, reading_offset: usize,
 		highlight: &Option<HighlightInfo>, pango: &PangoContext,
-		context: &mut RenderContext) -> (Vec<RenderLine>, Option<Position>)
+		context: &mut RenderContext)
+		-> (Vec<RenderLine>, Vec<TextDecoration>, Vec<BlockBackgroundEntry>,
+			Option<Position>)
 	{
-		let mut render_lines = vec![];
+		let mut rc = RedrawContext::from(reading_offset, book.block_styles());
 		self.reset_baseline(context);
 
 		let mut drawn_size = 0.0;
-		let mut offset = reading_offset;
+		let mut next = None;
+		'Done:
 		for index in reading_line..lines.len() {
 			let line = &lines[index];
-			let wrapped_lines = self.try_wrap_line(book, &line, index, offset, line.len(), highlight, pango, context);
-			offset = 0;
+			let wrapped_lines = self.try_wrap_line(book, &line, index, rc.offset, line.len(), highlight, pango, context);
 			for wrapped_line in wrapped_lines {
 				drawn_size += wrapped_line.line_size;
 				if drawn_size > context.max_page_size {
-					let next = if let Some(char) = wrapped_line.chars.first() {
+					next = if let Some(char) = wrapped_line.chars.first() {
 						Some(Position::new(index, char.offset))
 					} else {
 						Some(Position::new(index, 0))
 					};
-					return (render_lines, next);
+					self.setup_line_blocks(&mut rc, index, true, context);
+					break 'Done;
 				}
 				drawn_size += wrapped_line.line_space;
-				render_lines.push(wrapped_line);
+				rc.render_lines.push(wrapped_line);
 			}
+			self.setup_line_blocks(&mut rc, index, false, context);
+			rc.offset = 0;
 		}
-		(render_lines, None)
+		self.finalize_blocks(&mut rc, context);
+		(rc.render_lines, rc.block_borders, rc.block_backgrounds, next)
 	}
 
-	fn draw(&self, render_lines: &[RenderLine], font_family_names: &Option<IndexSet<String>>,
+	fn draw(&self, render_lines: &[RenderLine],
+		block_borders: &[TextDecoration],
+		block_backgrounds: &[BlockBackgroundEntry],
+		font_family_names: &Option<IndexSet<String>>,
 		cairo: &CairoContext, layout: &PangoContext)
 	{
 		cairo.set_line_width(1.0);
+		for border in block_borders {
+			self.draw_decoration(border, cairo);
+		}
+		for bg in block_backgrounds {
+			draw_rect(cairo, &bg.rect, 1.0, &bg.color);
+		}
 		for render_line in render_lines {
 			for dc in &render_line.chars {
 				match &dc.cell {
@@ -972,6 +1230,24 @@ pub fn hline(cairo: &CairoContext, left: f32, right: f32, y: f32, stroke_width: 
 	cairo.line_to(right as f64, y);
 	cairo.set_line_width(stroke_width as f64);
 	handle_cairo(cairo.stroke());
+}
+
+#[inline]
+pub fn draw_border(cairo: &CairoContext, stroke_width: f32, color: &Color32,
+	left: f32, right: f32, top: f32, bottom: f32,
+	draw_left: bool, draw_right: bool, draw_top: bool, draw_bottom: bool) {
+	if draw_left {
+		vline(cairo, left, top, bottom, stroke_width, &color);
+	}
+	if draw_right {
+		vline(cairo, right, top, bottom, stroke_width, &color);
+	}
+	if draw_top {
+		hline(cairo, left, right, top, stroke_width, &color);
+	}
+	if draw_bottom {
+		hline(cairo, left, right, bottom, stroke_width, &color);
+	}
 }
 
 #[inline]

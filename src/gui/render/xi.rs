@@ -6,11 +6,11 @@ use gtk4::cairo::Context as CairoContext;
 use gtk4::pango::Layout as PangoContext;
 
 use crate::book::{Book, CharStyle, Line};
-use crate::color::Color32;
 use crate::common::with_leading;
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2};
-use crate::gui::render::{RenderContext, RenderLine, GuiRender, RenderChar, update_for_highlight, ImageDrawingData, PointerPosition, TextDecoration, RenderCell, CharCell, hline, vline, CharDrawData, ScrollSizing, ScrolledDrawData};
+use crate::gui::render::{RenderContext, RenderLine, GuiRender, RenderChar, update_for_highlight, ImageDrawingData, PointerPosition, TextDecoration, RenderCell, CharCell, hline, CharDrawData, ScrollSizing, ScrolledDrawData};
+use crate::gui::render::imp::draw_border;
 
 pub(super) struct GuiXiRender {
 	images: HashMap<String, ImageDrawingData>,
@@ -246,26 +246,19 @@ impl GuiRender for GuiXiRender
 
 	fn draw_decoration(&self, decoration: &TextDecoration, cairo: &CairoContext)
 	{
-		#[inline]
-		pub(self) fn border(cairo: &CairoContext, left: f32, right: f32, top: f32,
-			bottom: f32, with_start: bool, with_end: bool, stroke_width: f32,
-			color: &Color32)
-		{
-			hline(cairo, left, right, top, stroke_width, color);
-			hline(cairo, left, right, bottom, stroke_width, color);
-			if with_start {
-				vline(cairo, left, top, bottom, stroke_width, color);
-			}
-			if with_end {
-				vline(cairo, right, top, bottom, stroke_width, color);
-			}
-		}
 		match decoration {
 			TextDecoration::Border { rect, stroke_width, start, end, color } => {
-				border(cairo, rect.min.x, rect.max.x, rect.min.y, rect.max.y, *start, *end, *stroke_width, color);
+				draw_border(cairo, *stroke_width, color,
+					rect.min.x, rect.max.x, rect.min.y, rect.max.y,
+					*start, *end, true, true);
 			}
 			TextDecoration::UnderLine { pos2, length, stroke_width, color, .. } => {
 				hline(cairo, pos2.x, pos2.x + length, pos2.y, *stroke_width, color);
+			}
+			TextDecoration::BlockBorder { rect, stroke_width, start, end, color } => {
+				draw_border(cairo, *stroke_width, color,
+					rect.min.x, rect.max.x, rect.min.y, rect.max.y,
+					true, true, *start, *end);
 			}
 		}
 	}
@@ -317,6 +310,40 @@ impl GuiRender for GuiXiRender
 	fn cache_mut(&mut self) -> &mut HashMap<u64, CharDrawData>
 	{
 		&mut self.outline_draw_cache
+	}
+
+	#[inline]
+	fn default_line_size(&self, render_context: &RenderContext) -> f32
+	{
+		render_context.default_font_measure.y
+	}
+
+	fn calc_block_rect(&self, render_lines: &Vec<RenderLine>, range: Range<usize>, context: &RenderContext) -> Rect
+	{
+		let Pos2 { x: left, y: mut top } = context.render_rect.min;
+		let right = context.render_rect.max.x;
+		let mut top_padding = self.default_line_size(context) / 8.;
+		let mut bottom_padding = top_padding;
+		for idx in 0..range.start {
+			let line = &render_lines[idx];
+			let line_space = line.line_space();
+			top += line.line_size() + line_space;
+			top_padding = line_space / 2.;
+		}
+		let mut bottom = top;
+		for idx in range {
+			let line = &render_lines[idx];
+			let line_space = line.line_space();
+			bottom += line.line_size() + line_space;
+			bottom_padding = line_space / 2.;
+		}
+		top -= top_padding;
+		bottom -= bottom_padding;
+		let x_padding = context.x_padding();
+		Rect::new(left - x_padding / 2.,
+			top,
+			right - left + x_padding,
+			bottom - top)
 	}
 
 	fn scroll_size(&self, context: &mut RenderContext) -> ScrollSizing

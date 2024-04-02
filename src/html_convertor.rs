@@ -1,14 +1,14 @@
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 use std::path::PathBuf;
+
 use anyhow::{anyhow, Result};
-use ego_tree::iter::Children;
 use ego_tree::{NodeId, NodeRef};
+use ego_tree::iter::Children;
 use indexmap::IndexSet;
 use lightningcss::declaration::DeclarationBlock;
-use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use lightningcss::properties::{border, font, Property};
 use lightningcss::properties::border::{Border, BorderSideWidth};
 use lightningcss::properties::font::{AbsoluteFontWeight, FontFamily, FontSize, FontWeight as CssFontWeight};
@@ -21,6 +21,7 @@ use lightningcss::values;
 use lightningcss::values::color::CssColor;
 use lightningcss::values::length::{Length, LengthPercentage, LengthValue};
 use lightningcss::values::percentage;
+use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use scraper::{Html, Node, Selector};
 use scraper::node::Element;
 
@@ -61,6 +62,11 @@ impl From<&CssFontWeight> for FontWeightValue {
 			CssFontWeight::Lighter => FontWeightValue::Lighter,
 		}
 	}
+}
+
+pub enum BlockStyle {
+	Border(Range<usize>),
+	Background { range: Range<usize>, color: Color32 },
 }
 
 #[derive(Clone, Debug)]
@@ -210,6 +216,7 @@ impl FontWeight {
 pub struct HtmlContent {
 	pub title: Option<String>,
 	pub lines: Vec<Line>,
+	pub block_styles: Vec<BlockStyle>,
 	pub id_map: HashMap<String, Position>,
 }
 
@@ -217,26 +224,28 @@ impl Default for HtmlContent {
 	#[inline]
 	fn default() -> Self
 	{
-		HtmlContent {
-			title: None,
-			lines: vec![Line::default()],
-			id_map: HashMap::new(),
-		}
+		HtmlContent::with_lines(vec![Line::default()])
 	}
 }
 
 impl HtmlContent
 {
 	#[inline]
-	#[allow(unused)]
 	pub fn with_lines(lines: Vec<Line>) -> Self
 	{
 		HtmlContent {
 			title: None,
 			lines,
+			block_styles: vec![],
 			id_map: HashMap::new(),
 		}
 	}
+}
+
+struct StyleDescription {
+	start: Position,
+	end: Position,
+	style: TextStyle,
 }
 
 struct ParseContext<'a> {
@@ -244,6 +253,7 @@ struct ParseContext<'a> {
 	content: HtmlContent,
 	element_styles: HashMap<NodeId, LeveledTextStyleSet>,
 	font_family: &'a mut IndexSet<String>,
+	styles: Vec<StyleDescription>,
 }
 
 pub trait HtmlResolver {
@@ -260,6 +270,44 @@ pub(crate) fn html_content(text: &str, font_family: &mut IndexSet<String>) -> Re
 	Ok(content)
 }
 
+/// return end line and offset for non-block-styles
+/// if the style is a block style then create block style
+fn setup_block_style(start: &Position, end: &Position, style: &TextStyle,
+	lines: &mut Vec<Line>, block_styles: &mut Vec<BlockStyle>) -> Option<(usize, usize)>
+{
+	let last_line_idx = lines.len() - 1;
+	let (end_line, end_offset) = if end.line > last_line_idx {
+		// line not exists
+		if start.line > last_line_idx {
+			return None;
+		}
+		(last_line_idx, lines[last_line_idx].len())
+	} else {
+		let end_line = end.line;
+		if end.offset != lines[end_line].len() {
+			return Some((end_line, end.offset));
+		}
+		(end_line, end.offset)
+	};
+	if start.offset != 0 {
+		return Some((end_line, end_offset));
+	}
+	match style {
+		TextStyle::Border => {
+			block_styles.push(BlockStyle::Border(start.line..end_line + 1));
+			None
+		}
+		TextStyle::BackgroundColor(color) => {
+			block_styles.push(BlockStyle::Background {
+				range: start.line..end_line + 1,
+				color: color.clone(),
+			});
+			None
+		}
+		_ => Some((end_line, end_offset))
+	}
+}
+
 pub(crate) fn html_str_content(str: &str, font_family: &mut IndexSet<String>,
 	resolver: Option<&dyn HtmlResolver>) -> Result<(HtmlContent, Vec<HtmlFontFaceDesc>)>
 {
@@ -270,6 +318,7 @@ pub(crate) fn html_str_content(str: &str, font_family: &mut IndexSet<String>,
 		content: HtmlContent::default(),
 		element_styles,
 		font_family,
+		styles: vec![],
 	};
 
 	let body_selector = match Selector::parse("body") {
@@ -281,15 +330,39 @@ pub(crate) fn html_str_content(str: &str, font_family: &mut IndexSet<String>,
 		context.content.id_map.insert(id.to_string(), Position::new(0, 0));
 	}
 	convert_dom_to_lines(body.children(), &mut context);
-	while let Some(last_line) = context.content.lines.last() {
+	let lines = &mut context.content.lines;
+	while let Some(last_line) = lines.last() {
 		if last_line.len() == 0 {
-			context.content.lines.pop();
+			lines.pop();
 		} else {
 			break;
 		}
 	}
-	if context.content.lines.len() == 0 {
-		context.content.lines.push(Line::new(EMPTY_CHAPTER_CONTENT));
+	if lines.is_empty() {
+		lines.push(Line::new(EMPTY_CHAPTER_CONTENT));
+	} else {
+		// setup styles
+		for StyleDescription { start, end, style } in context.styles {
+			if let Some((end_line, end_offset)) = setup_block_style(&start, &end, &style, lines, &mut context.content.block_styles) {
+				if start.line == end_line {
+					if let Some(line) = lines.get_mut(start.line) {
+						line.push_style(style, start.offset..end_offset)
+					}
+				} else {
+					if let Some(line) = lines.get_mut(start.line) {
+						line.push_style(style.clone(), start.offset..line.len());
+					}
+					for line_idx in start.line + 1..end.line {
+						if let Some(line) = lines.get_mut(line_idx) {
+							line.push_style(style.clone(), 0..line.len());
+						}
+					}
+					if let Some(line) = lines.get_mut(end.line) {
+						line.push_style(style, 0..end_offset);
+					}
+				}
+			}
+		}
 	}
 	Ok((context.content, font_faces))
 }
@@ -351,8 +424,6 @@ const DIV_PUSH_CLASSES: [&str; 3] = ["contents", "toc", "mulu"];
 
 fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 {
-	const LINE_TO_REMOVE: TextStyle = TextStyle::Line(TextDecorationLine::Underline);
-
 	for child in children {
 		match child.value() {
 			Node::Text(contents) => {
@@ -380,13 +451,6 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 					child.id(),
 					context);
 				match element.name.local {
-					local_name!("table") => {
-						// will not render table
-						// remove line and border styles
-						remove_style(&mut element_styles, &TextStyle::Border);
-						remove_style(&mut element_styles, &LINE_TO_REMOVE);
-						convert_dom_to_lines(child.children(), context);
-					}
 					local_name!("title") => {
 						// title is in head, no other text should parsed
 						reset_lines(context);
@@ -489,18 +553,24 @@ fn convert_dom_to_lines(children: Children<Node>, context: &mut ParseContext)
 					}
 					_ => convert_dom_to_lines(child.children(), context),
 				}
-				if element_styles.len() > 0 {
-					let mut offset = position.offset;
-					for i in position.line..context.content.lines.len() {
-						let line = &mut context.content.lines[i];
-						let len = line.len();
-						if len > offset {
-							let range = offset..len;
-							for style in &element_styles {
-								line.push_style(style.0.clone(), range.clone());
-							}
+				if !element_styles.is_empty() {
+					let lines = &context.content.lines;
+					// only for new lines
+					for last_line in (position.line..lines.len()).rev() {
+						let line = &lines[last_line];
+						// ignore empty lines
+						if line.is_empty() {
+							continue;
 						}
-						offset = 0;
+						let end = Position::new(last_line, line.len());
+						for style in &element_styles {
+							context.styles.push(StyleDescription {
+								start: position.clone(),
+								end: end.clone(),
+								style: style.0.clone(),
+							});
+						}
+						break;
 					}
 				}
 			}
@@ -570,14 +640,6 @@ fn unique_and_insert_style(styles: &mut LeveledTextStyleSet, style: TextStyle)
 {
 	if let Err(idx) = styles.binary_search_by(|s| s.0.cmp(&style)) {
 		styles.insert(idx, LeveledTextStyle(style, false));
-	}
-}
-
-#[inline]
-fn remove_style(styles: &mut LeveledTextStyleSet, style: &TextStyle)
-{
-	if let Ok(idx) = styles.binary_search_by(|s| s.0.cmp(&style)) {
-		styles.remove(idx);
 	}
 }
 

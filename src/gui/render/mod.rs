@@ -2,6 +2,7 @@ mod imp;
 mod han;
 mod xi;
 
+pub use imp::BlockBackgroundEntry;
 pub use imp::GuiRender;
 pub use imp::PointerPosition;
 pub use imp::RenderContext;
@@ -10,6 +11,7 @@ pub use imp::RenderCell;
 pub use imp::RenderChar;
 pub use imp::ScrollRedrawMethod;
 pub use imp::ScrolledDrawData;
+pub use imp::TextDecoration;
 
 use imp::{*};
 

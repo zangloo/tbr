@@ -6,11 +6,11 @@ use gtk4::cairo::Context as CairoContext;
 use gtk4::pango::Layout as PangoContext;
 
 use crate::book::{Book, CharStyle, Line};
-use crate::color::Color32;
 use crate::common::{HAN_COMPACT_CHARS, HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, vec2};
-use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, hline, CharDrawData, ScrollSizing, ScrolledDrawData};
+use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, CharDrawData, ScrollSizing, ScrolledDrawData};
+use crate::gui::render::imp::draw_border;
 
 pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
@@ -206,23 +206,19 @@ impl GuiRender for GuiHanRender
 	}
 
 	fn draw_decoration(&self, decoration: &TextDecoration, cairo: &CairoContext) {
-		#[inline]
-		fn border(cairo: &CairoContext, left: f32, right: f32, top: f32, bottom: f32, start: bool, end: bool, stroke_width: f32, color: Color32) {
-			vline(cairo, left, top, bottom, stroke_width, &color);
-			vline(cairo, right, top, bottom, stroke_width, &color);
-			if start {
-				hline(cairo, left, right, top, stroke_width, &color);
-			}
-			if end {
-				hline(cairo, left, right, bottom, stroke_width, &color);
-			}
-		}
 		match decoration {
 			TextDecoration::Border { rect, stroke_width, start, end, color } => {
-				border(cairo, rect.min.x, rect.max.x, rect.min.y, rect.max.y, *start, *end, *stroke_width, color.clone());
+				draw_border(cairo, *stroke_width, color,
+					rect.min.x, rect.max.x, rect.min.y, rect.max.y,
+					true, true, *start, *end);
 			}
 			TextDecoration::UnderLine { pos2, length, stroke_width, color, .. } => {
 				vline(cairo, pos2.x, pos2.y, pos2.y + length, *stroke_width, color);
+			}
+			TextDecoration::BlockBorder { rect, stroke_width, start, end, color } => {
+				draw_border(cairo, *stroke_width, color,
+					rect.min.x, rect.max.x, rect.min.y, rect.max.y,
+					*end, *start, true, true);
 			}
 		}
 	}
@@ -274,6 +270,41 @@ impl GuiRender for GuiHanRender
 	fn cache_mut(&mut self) -> &mut HashMap<u64, CharDrawData>
 	{
 		&mut self.outline_draw_cache
+	}
+
+	#[inline]
+	fn default_line_size(&self, render_context: &RenderContext) -> f32
+	{
+		render_context.default_font_measure.x
+	}
+
+	fn calc_block_rect(&self, render_lines: &Vec<RenderLine>, range: Range<usize>, context: &RenderContext) -> Rect
+	{
+		let Pos2 { x: mut right, y: bottom } = context.render_rect.max;
+		let top = context.render_rect.min.y;
+		let mut right_padding = self.default_line_size(context) / 8.;
+		let mut left_padding = right_padding;
+		for idx in 0..range.start {
+			let line = &render_lines[idx];
+			let line_space = line.line_space();
+			right -= line.line_size() + line_space;
+			right_padding = line_space / 2.;
+		}
+		let mut left = right;
+		for idx in range {
+			let line = &render_lines[idx];
+			let line_space = line.line_space();
+			left -= line.line_size() + line_space;
+			left_padding = line_space / 2.;
+		}
+		right += right_padding;
+		left += left_padding;
+		let y_padding = context.y_padding();
+		Rect::new(
+			left,
+			top - y_padding / 2.,
+			right - left,
+			bottom - top + y_padding)
 	}
 
 	#[inline]

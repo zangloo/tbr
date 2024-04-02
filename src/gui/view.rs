@@ -313,7 +313,7 @@ mod imp {
 	use crate::controller::HighlightInfo;
 	use crate::gui::font::{HtmlFonts, UserFonts};
 	use crate::gui::math::{Pos2, Rect};
-	use crate::gui::render::{create_render, GuiRender, PointerPosition, RenderCell, RenderContext, RenderLine, ScrolledDrawData, ScrollRedrawMethod};
+	use crate::gui::render::{BlockBackgroundEntry, create_render, GuiRender, PointerPosition, RenderCell, RenderContext, RenderLine, ScrolledDrawData, ScrollRedrawMethod, TextDecoration};
 	use crate::gui::view::{ClickTarget, MIN_TEXT_SELECT_DISTANCE, ScrollPosition};
 
 	#[derive(Properties)]
@@ -346,6 +346,8 @@ mod imp {
 				data: RefCell::new(GuiViewData {
 					render_rect: Rect::NOTHING,
 					render_lines: vec![],
+					block_backgrounds: vec![],
+					block_borders: vec![],
 					draw_data: None,
 					font_family_names: None,
 				}),
@@ -357,6 +359,8 @@ mod imp {
 	struct GuiViewData {
 		render_rect: Rect,
 		render_lines: Vec<RenderLine>,
+		block_backgrounds: Vec<BlockBackgroundEntry>,
+		block_borders: Vec<TextDecoration>,
 		draw_data: Option<ScrolledDrawData>,
 		font_family_names: Option<IndexSet<String>>,
 	}
@@ -450,15 +454,21 @@ mod imp {
 			let rect = graphene::Rect::new(0.0, 0.0, width, height);
 			let cairo = snapshot.append_cairo(&rect);
 			let render = self.render.borrow();
-			let render_lines = if let Some(draw_data) = &data.draw_data {
+			let (render_lines, block_borders, block_backgrounds) = if let Some(draw_data) = &data.draw_data {
 				let offset = &draw_data.offset;
 				cairo.translate(offset.x as f64, offset.y as f64);
-				&data.render_lines[draw_data.range.clone()]
+				(&data.render_lines[draw_data.range.clone()],
+					&data.block_borders,
+					&data.block_backgrounds)
 			} else {
-				&data.render_lines
+				(data.render_lines.as_slice(),
+					&data.block_borders,
+					&data.block_backgrounds)
 			};
 			render.draw(
 				render_lines,
+				block_borders,
+				block_backgrounds,
 				&data.font_family_names,
 				&cairo,
 				&self.obj().get_pango());
@@ -564,9 +574,11 @@ mod imp {
 					book.font_family_names(),
 					&mut render,
 				);
-				let (render_lines, next) = render.gui_redraw(book, lines, line, offset, highlight,
+				let (render_lines, block_borders, block_backgrounds, next) = render.gui_redraw(book, lines, line, offset, highlight,
 					pango, context);
 				data.render_lines = render_lines;
+				data.block_borders = block_borders;
+				data.block_backgrounds = block_backgrounds;
 				next
 			}
 		}
@@ -610,7 +622,7 @@ mod imp {
 			let view_size = render_context.max_page_size;
 			render_context.max_page_size = f32::INFINITY;
 			let mut render = self.render.borrow_mut();
-			let (lines, _) = render.gui_redraw(
+			let (lines, block_borders, block_backgrounds, _) = render.gui_redraw(
 				book, lines, 0, 0,
 				highlight, pango, render_context);
 			let sizing = render.scroll_size(render_context);
@@ -629,6 +641,8 @@ mod imp {
 				};
 				let mut data = self.data.borrow_mut();
 				data.render_lines = lines;
+				data.block_borders = block_borders;
+				data.block_backgrounds = block_backgrounds;
 				let draw_data = render.visible_scrolling(
 					value as f32, sizing.full_size,
 					&render_context.render_rect, &data.render_lines);
@@ -714,13 +728,7 @@ mod imp {
 
 		pub fn resized(&self, width: i32, height: i32, render_context: &mut RenderContext)
 		{
-			let width = width as f32;
-			let height = height as f32;
-			let measure_x = render_context.default_font_measure.x;
-			let measure_y = render_context.default_font_measure.y;
-			let x_margin = measure_x / 2.0;
-			let y_margin = measure_y / 2.0;
-			render_context.render_rect = Rect::new(x_margin, y_margin, width - measure_x, height - measure_y);
+			render_context.update_render_rect(width as f32, height as f32);
 
 			let mut render = self.render.borrow_mut();
 			render.reset_baseline(render_context);

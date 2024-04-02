@@ -7,7 +7,7 @@ use elsa::FrozenMap;
 use indexmap::IndexSet;
 
 use crate::book::{Book, LoadingChapter, Line, Loader, ImageData};
-use crate::html_convertor::{html_content, html_str_content, HtmlContent, HtmlResolver};
+use crate::html_convertor::{BlockStyle, html_content, html_str_content, HtmlContent, HtmlResolver};
 use crate::common::{plain_text, TraceInfo};
 use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::frozen_map_get;
@@ -223,6 +223,17 @@ impl Book for HtmlBook {
 	fn style_customizable(&self) -> bool
 	{
 		true
+	}
+
+	#[cfg(feature = "gui")]
+	#[inline]
+	fn block_styles(&self) -> Option<&Vec<BlockStyle>>
+	{
+		if self.content.block_styles.is_empty() {
+			None
+		} else {
+			Some(&self.content.block_styles)
+		}
 	}
 }
 
