@@ -675,8 +675,10 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 	#[inline]
 	pub fn clear_highlight(&mut self, context: &mut C)
 	{
-		self.highlight = None;
-		self.redraw(context);
+		if self.highlight.is_some() {
+			self.highlight = None;
+			self.redraw(context);
+		}
 	}
 
 	#[inline]
