@@ -253,6 +253,7 @@ struct ParseContext<'a> {
 	content: HtmlContent,
 	element_styles: HashMap<NodeId, LeveledTextStyleSet>,
 	font_family: &'a mut IndexSet<String>,
+	font_face_map: HashMap<&'a str, Option<String>>,
 	styles: Vec<StyleDescription>,
 }
 
@@ -312,12 +313,14 @@ pub(crate) fn html_str_content(str: &str, font_family: &mut IndexSet<String>,
 	resolver: Option<&dyn HtmlResolver>) -> Result<(HtmlContent, Vec<HtmlFontFaceDesc>)>
 {
 	let document = Html::parse_document(str);
-	let (element_styles, font_faces) = load_styles(&document, font_family, resolver);
+	let stylesheets = load_stylesheets(&document, resolver);
+	let (element_styles, font_faces, font_face_map) = load_styles(&document, &stylesheets, font_family, resolver);
 	let mut context = ParseContext {
 		title: None,
 		content: HtmlContent::default(),
 		element_styles,
 		font_family,
+		font_face_map,
 		styles: vec![],
 	};
 
@@ -587,7 +590,7 @@ fn load_element_styles(element: &Element, node_id: NodeId, context: &mut ParseCo
 	if let Some(style) = element.attr("style") {
 		if let Ok(declaration) = DeclarationBlock::parse_string(style, style_parse_options()) {
 			for property in &declaration.declarations {
-				if let Some(style) = convert_style(property, context.font_family) {
+				if let Some(style) = convert_style(property, context.font_family, &context.font_face_map) {
 					insert_or_replace_style(&mut element_styles, style, false);
 				}
 			}
@@ -643,12 +646,9 @@ fn unique_and_insert_style(styles: &mut LeveledTextStyleSet, style: TextStyle)
 	}
 }
 
-fn load_styles(document: &Html, font_families: &mut IndexSet<String>,
-	resolver: Option<&dyn HtmlResolver>) -> (HashMap<NodeId, LeveledTextStyleSet>, Vec<HtmlFontFaceDesc>)
+fn load_stylesheets<'a>(document: &'a Html, resolver: Option<&'a dyn HtmlResolver>)
+	-> Vec<(Option<PathBuf>, StyleSheet<'a, 'a>)>
 {
-	let mut element_styles = HashMap::new();
-	let mut font_faces = vec![];
-
 	let mut stylesheets = vec![];
 
 	if let Some(resolver) = resolver {
@@ -692,22 +692,91 @@ fn load_styles(document: &Html, font_families: &mut IndexSet<String>,
 		}
 	}
 
+	stylesheets
+}
+
+fn load_styles<'a, 'b>(document: &'b Html,
+	stylesheets: &'a Vec<(Option<PathBuf>, StyleSheet<'b, 'b>)>,
+	font_families: &mut IndexSet<String>,
+	resolver: Option<&dyn HtmlResolver>)
+	-> (HashMap<NodeId, LeveledTextStyleSet>, Vec<HtmlFontFaceDesc>, HashMap<&'a str, Option<String>>)
+{
+	let mut element_styles = HashMap::new();
+	let mut font_faces = vec![];
+	let mut font_face_map = HashMap::new();
+
 	if stylesheets.is_empty() {
-		return (element_styles, font_faces);
+		return (element_styles, font_faces, font_face_map);
 	}
 
+	// generate font faces first,
+	// will hack families depend on it
 	for (path, style_sheet) in stylesheets {
+		for rule in &style_sheet.rules.0 {
+			match rule {
+				CssRule::FontFace(face) => if let (Some(path), Some(resolver)) = (&path, resolver) {
+					let mut src = None;
+					let mut family = None;
+					for prop in &face.properties {
+						match prop {
+							FontFaceProperty::Source(source) => src = Some(source),
+							FontFaceProperty::FontFamily(ff) => match ff {
+								FontFamily::Generic(gff) => family = Some(gff.as_str()),
+								FontFamily::FamilyName(name) => family = Some(name.as_ref()),
+							}
+							FontFaceProperty::FontStyle(_) => {}
+							FontFaceProperty::FontWeight(_) => {}
+							FontFaceProperty::FontStretch(_) => {}
+							FontFaceProperty::UnicodeRange(_) => {}
+							FontFaceProperty::Custom(_) => {}
+						}
+					}
+
+					fn append_local(locals: &mut Option<String>, local: &str) {
+						let locals = if let Some(locals) = locals {
+							locals.push(',');
+							locals
+						} else {
+							locals.insert(String::new())
+						};
+						locals.push_str(local);
+					}
+					if let (Some(source), Some(family)) = (src, family) {
+						let mut sources = vec![];
+						let mut locals = None;
+						for src in source {
+							match src {
+								font_face::Source::Url(font_face::UrlSource { url: values::url::Url { url, .. }, .. }) =>
+									sources.push(resolver.resolve(path, url)),
+								font_face::Source::Local(FontFamily::FamilyName(name)) =>
+									append_local(&mut locals, &name),
+								font_face::Source::Local(FontFamily::Generic(name)) =>
+									append_local(&mut locals, name.as_str()),
+							}
+						}
+						font_faces.push(HtmlFontFaceDesc {
+							sources,
+							family: family.to_owned(),
+						});
+						font_face_map.insert(family, locals);
+					}
+				}
+				_ => {}
+			}
+		}
+	}
+	for (_, style_sheet) in stylesheets {
 		for rule in &style_sheet.rules.0 {
 			match rule {
 				CssRule::Style(style_rule) => {
 					let mut styles = vec![];
 					for property in &style_rule.declarations.important_declarations {
-						if let Some(style) = convert_style(property, font_families) {
+						if let Some(style) = convert_style(property, font_families, &font_face_map) {
 							insert_or_replace_style(&mut styles, style, true)
 						}
 					}
 					for property in &style_rule.declarations.declarations {
-						if let Some(style) = convert_style(property, font_families) {
+						if let Some(style) = convert_style(property, font_families, &font_face_map) {
 							insert_or_replace_style(&mut styles, style, false)
 						}
 					}
@@ -730,47 +799,18 @@ fn load_styles(document: &Html, font_families: &mut IndexSet<String>,
 						}
 					};
 				}
-				CssRule::FontFace(face) => if let (Some(path), Some(resolver)) = (&path, resolver) {
-					let mut src = None;
-					let mut family = None;
-					for prop in &face.properties {
-						match prop {
-							FontFaceProperty::Source(source) => src = Some(source),
-							FontFaceProperty::FontFamily(ff) => match ff {
-								FontFamily::Generic(gff) => family = Some(gff.as_str()),
-								FontFamily::FamilyName(name) => family = Some(name.as_ref()),
-							}
-							FontFaceProperty::FontStyle(_) => {}
-							FontFaceProperty::FontWeight(_) => {}
-							FontFaceProperty::FontStretch(_) => {}
-							FontFaceProperty::UnicodeRange(_) => {}
-							FontFaceProperty::Custom(_) => {}
-						}
-					}
-					if let (Some(source), Some(family)) = (src, family) {
-						let mut sources = vec![];
-						for src in source {
-							if let font_face::Source::Url(font_face::UrlSource { url: values::url::Url { url, .. }, .. }) = src {
-								sources.push(resolver.resolve(path, url));
-							}
-						}
-						font_faces.push(HtmlFontFaceDesc {
-							sources,
-							family: family.to_owned(),
-						})
-					}
-				}
 				_ => {}
 			}
 		}
 	}
-	(element_styles, font_faces)
+	(element_styles, font_faces, font_face_map)
 }
 
 const HTML_DEFAULT_FONT_SIZE: f32 = 16.0;
 
 #[inline]
-fn convert_style(property: &Property, font_families: &mut IndexSet<String>) -> Option<TextStyle>
+fn convert_style(property: &Property, font_families: &mut IndexSet<String>,
+	font_face_map: &HashMap<&str, Option<String>>) -> Option<TextStyle>
 {
 	match property {
 		Property::Border(border) => border_style(border),
@@ -792,7 +832,7 @@ fn convert_style(property: &Property, font_families: &mut IndexSet<String>) -> O
 		}
 		Property::FontSize(size) => Some(font_size(size)),
 		Property::FontWeight(weight) => Some(TextStyle::FontWeight(FontWeightValue::from(weight))),
-		Property::FontFamily(families) => font_family(families, font_families),
+		Property::FontFamily(families) => font_family(families, font_families, &font_face_map),
 		Property::TextDecorationLine(line, _) => Some(TextStyle::Line(*line)),
 		Property::Color(color) => Some(TextStyle::Color(css_color(color)?)),
 		Property::BackgroundColor(color) => Some(TextStyle::BackgroundColor(css_color(color)?)),
@@ -802,8 +842,8 @@ fn convert_style(property: &Property, font_families: &mut IndexSet<String>) -> O
 }
 
 #[inline]
-fn font_family(families: &Vec<FontFamily>, names: &mut IndexSet<String>)
-	-> Option<TextStyle>
+fn font_family(families: &Vec<FontFamily>, names: &mut IndexSet<String>,
+	font_face_map: &HashMap<&str, Option<String>>) -> Option<TextStyle>
 {
 	let mut string = String::new();
 	for family in families {
@@ -815,6 +855,11 @@ fn font_family(families: &Vec<FontFamily>, names: &mut IndexSet<String>)
 			string.push(',');
 		}
 		string.push_str(name);
+		if let Some(Some(locals)) = font_face_map.get(name) {
+			string.push(',');
+			string.push_str(locals);
+			break;
+		}
 	}
 	let is_empty = string.is_empty();
 	let (idx, _) = names.insert_full(string);
