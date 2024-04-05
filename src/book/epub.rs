@@ -15,7 +15,9 @@ use roxmltree::{Children, Document, ExpandedName, Node};
 use zip::ZipArchive;
 
 use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader, TocInfo, ImageData};
-use crate::html_parser::{BlockStyle, HtmlParser, HtmlResolver};
+#[cfg(feature = "gui")]
+use crate::html_parser::BlockStyle;
+use crate::html_parser::{HtmlParser, HtmlResolver};
 use crate::list::ListIterator;
 use crate::common::{Position, TraceInfo};
 use crate::config::{BookLoadingInfo, ReadingInfo};
@@ -60,6 +62,7 @@ struct NavPoint {
 
 struct Chapter {
 	lines: Vec<Line>,
+	#[cfg(feature = "gui")]
 	block_styles: Vec<BlockStyle>,
 	id_map: HashMap<String, Position>,
 }
@@ -621,6 +624,7 @@ impl EpubBook {
 				}
 				let chapter = Chapter {
 					lines: html_content.lines,
+					#[cfg(feature = "gui")]
 					block_styles: html_content.block_styles,
 					id_map: html_content.id_map,
 				};

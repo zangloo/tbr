@@ -7,7 +7,9 @@ use elsa::FrozenMap;
 use indexmap::IndexSet;
 
 use crate::book::{Book, LoadingChapter, Line, Loader, ImageData};
-use crate::html_parser::{BlockStyle, HtmlContent, HtmlParser, HtmlResolver};
+#[cfg(feature = "gui")]
+use crate::html_parser::BlockStyle;
+use crate::html_parser::{HtmlContent, HtmlParser, HtmlResolver};
 use crate::common::{plain_text, TraceInfo};
 use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::frozen_map_get;

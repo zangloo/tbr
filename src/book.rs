@@ -26,7 +26,9 @@ use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::HtmlFonts;
 #[cfg(feature = "gui")]
 use crate::html_parser::{FontScale, FontWeight};
-use crate::html_parser::{BlockStyle, TextStyle};
+#[cfg(feature = "gui")]
+use crate::html_parser::BlockStyle;
+use crate::html_parser::TextStyle;
 use crate::terminal::Listable;
 
 mod epub;
