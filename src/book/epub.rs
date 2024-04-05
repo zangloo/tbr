@@ -79,6 +79,7 @@ trait EpubArchive {
 }
 
 struct EpubZipArchive<R: Read + Seek> {
+	names: Vec<String>,
 	zip: RefCell<ZipArchive<R>>,
 }
 
@@ -87,7 +88,12 @@ impl<R: Read + Seek> EpubZipArchive<R> {
 	fn new(reader: R) -> Result<Self>
 	{
 		let zip = ZipArchive::new(reader)?;
-		Ok(EpubZipArchive { zip: RefCell::new(zip) })
+		let mut names = vec![];
+		for name in zip.file_names() {
+			names.push(name.to_owned());
+		}
+		names.sort();
+		Ok(EpubZipArchive { names, zip: RefCell::new(zip) })
 	}
 }
 
@@ -112,12 +118,8 @@ impl<R: Read + Seek> EpubArchive for EpubZipArchive<R> {
 
 	fn exists(&self, path: &str) -> bool
 	{
-		for name in self.zip.borrow().file_names() {
-			if name == path {
-				return true;
-			}
-		}
-		false
+		// TODO replaced when zip-rs support check existence directly
+		self.names.binary_search_by(|p| p.as_str().cmp(path)).is_ok()
 	}
 }
 
