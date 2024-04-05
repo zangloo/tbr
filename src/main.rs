@@ -21,7 +21,7 @@ mod terminal;
 mod common;
 mod list;
 mod book;
-mod html_convertor;
+mod html_parser;
 mod container;
 mod controller;
 #[cfg(feature = "gui")]

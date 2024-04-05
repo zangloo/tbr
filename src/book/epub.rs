@@ -15,7 +15,7 @@ use roxmltree::{Children, Document, ExpandedName, Node};
 use zip::ZipArchive;
 
 use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader, TocInfo, ImageData};
-use crate::html_convertor::{BlockStyle, html_str_content, HtmlResolver};
+use crate::html_parser::{BlockStyle, HtmlParser, HtmlResolver};
 use crate::list::ListIterator;
 use crate::common::{Position, TraceInfo};
 use crate::config::{BookLoadingInfo, ReadingInfo};
@@ -606,8 +606,11 @@ impl EpubBook {
 					custom_style: self.custom_style.as_ref().map(|s| s.as_ref()),
 				};
 				#[allow(unused)]
-					let (html_content, mut font_faces) = html_str_content(
-					&html_str, &mut self.font_families, Some(&mut resolve))?;
+					let (html_content, mut font_faces) = HtmlParser::builder(&html_str)
+					.with_font_family(&mut self.font_families)
+					.with_resolver(&mut resolve)
+					.build()
+					.parse()?;
 				#[cfg(feature = "gui")]
 				{
 					self.fonts.reload(font_faces, |path| {

@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use lightningcss::properties::font::GenericFontFamily;
 use ouroboros::self_referencing;
 use crate::config::PathConfig;
-use crate::html_convertor::{FontWeight, HtmlFontFaceDesc};
+use crate::html_parser::{FontWeight, HtmlFontFaceDesc};
 
 pub trait Fonts {
 	fn query(&self, char: char, font_size: f32, font_weight: &FontWeight,

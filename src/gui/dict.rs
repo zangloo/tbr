@@ -23,7 +23,7 @@ use crate::gui::{copy_to_clipboard, create_button, IconMap, ignore_cap, MAX_FONT
 use crate::gui::font::UserFonts;
 use crate::gui::render::{RenderContext, ScrollRedrawMethod};
 use crate::gui::view::{GuiView, ScrollPosition};
-use crate::html_convertor::{html_content, HtmlContent};
+use crate::html_parser::{HtmlContent, HtmlParser};
 use crate::i18n::I18n;
 
 const HTML_DEFINITION_HEAD: &str = "
@@ -158,7 +158,10 @@ impl DictionaryBook {
 				render_definition(single, &mut text, &self.replacer);
 			}
 			text.push_str(HTML_DEFINITION_TAIL);
-			if let Ok(mut content) = html_content(&text, &mut self.font_families) {
+			if let Ok((mut content, _)) = HtmlParser::builder(&text)
+				.with_font_family(&mut self.font_families)
+				.build()
+				.parse() {
 				content.title = Some(String::from(word));
 				content
 			} else {
@@ -505,7 +508,13 @@ fn render_definition_text(result: &LookupResult, font_families: &mut IndexSet<St
 		}
 	}
 	html.push_str("</body></html>");
-	html_content(&html, font_families).unwrap().lines
+	HtmlParser::builder(&html)
+		.with_font_family(font_families)
+		.build()
+		.parse()
+		.unwrap()
+		.0
+		.lines
 }
 
 #[inline]

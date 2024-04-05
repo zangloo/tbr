@@ -17,7 +17,7 @@ use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::load_image;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
 use crate::gui::font::{Fonts, HtmlFonts, UserFonts};
-use crate::html_convertor::{BlockStyle, FontScale, FontWeight};
+use crate::html_parser::{BlockStyle, FontScale, FontWeight};
 
 pub const HAN_CHAR: char = '漢';
 

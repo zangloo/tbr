@@ -7,7 +7,7 @@ use elsa::FrozenMap;
 use indexmap::IndexSet;
 
 use crate::book::{Book, LoadingChapter, Line, Loader, ImageData};
-use crate::html_convertor::{BlockStyle, html_content, html_str_content, HtmlContent, HtmlResolver};
+use crate::html_parser::{BlockStyle, HtmlContent, HtmlParser, HtmlResolver};
 use crate::common::{plain_text, TraceInfo};
 use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::frozen_map_get;
@@ -94,15 +94,15 @@ impl Loader for HtmlLoader {
 		}
 		let reading = get_reading(loading);
 		#[allow(unused)]
-			let (content, mut font_faces) = html_str_content(
-			&text,
-			&mut font_families,
-			Some(&HtmlContentResolver {
+			let (content, mut font_faces) = HtmlParser::builder(&text)
+			.with_font_family(&mut font_families)
+			.with_resolver(&HtmlContentResolver {
 				cwd: cwd.clone(),
 				css_cache: FrozenMap::new(),
 				custom_style: reading.custom_style.clone(),
-			}),
-		)?;
+			})
+			.build()
+			.parse()?;
 		#[cfg(feature = "gui")]
 			let book = {
 			let mut fonts = HtmlFonts::new();
@@ -135,7 +135,10 @@ impl Loader for HtmlLoader {
 	{
 		let mut font_families = IndexSet::new();
 		let text = plain_text(content, false)?;
-		let content = html_content(&text, &mut font_families)?;
+		let (content, _) = HtmlParser::builder(&text)
+			.with_font_family(&mut font_families)
+			.build()
+			.parse()?;
 		let book = HtmlBook {
 			path: None,
 			content,
