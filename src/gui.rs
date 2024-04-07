@@ -1,7 +1,7 @@
 use std::env;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
-use std::ops::{Deref, Index};
+use std::ops::{Deref, DerefMut, Index};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::str::FromStr;
@@ -43,7 +43,7 @@ mod math;
 mod settings;
 mod chapter_list;
 mod font;
-mod custom_style;
+mod dialogs;
 
 const MODIFIER_NONE: ModifierType = ModifierType::empty();
 
@@ -985,6 +985,10 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					search_box.select_region(0, -1);
 					glib::Propagation::Stop
 				}
+				(Key::g, ModifierType::CONTROL_MASK) => {
+					gc.goto();
+					glib::Propagation::Stop
+				}
 				(Key::Escape, MODIFIER_NONE) => {
 					if gc.paned.position() != 0 {
 						gc.toggle_sidebar();
@@ -1824,7 +1828,7 @@ impl GuiContext {
 		let controller = self.ctrl();
 		let reading = &controller.reading;
 		let gc = self.clone();
-		custom_style::dialog(&reading.custom_style, &self.i18n, &self.window, move |new_style| {
+		dialogs::custom_styles(&reading.custom_style, self, &self.window, move |new_style| {
 			let mut controller = gc.ctrl_mut();
 			let custom_style = if let Some(custom_style) = &controller.reading.custom_style {
 				if new_style == *custom_style {
@@ -1842,6 +1846,18 @@ impl GuiContext {
 			controller.reading.custom_style = custom_style;
 			drop(controller);
 			gc.reload_book();
+		});
+	}
+
+	fn goto(&self)
+	{
+		let gc = self.clone();
+		dialogs::goto(self, &self.window, move |line_no| {
+			let mut controller = gc.ctrl_mut();
+			controller.goto_line(line_no, gc.ctx_mut().deref_mut())?;
+			let msg = controller.status().to_string();
+			gc.message(&msg);
+			Ok(())
 		});
 	}
 

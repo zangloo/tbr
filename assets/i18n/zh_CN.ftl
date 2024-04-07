@@ -46,5 +46,9 @@ dictionary-no-definition = 无字典解释
 failed-load-reading = 加载文件信息失败：{ $error }
 
 custom-style-dialog-title = 设定自定义样式
+goto-dialog-title = 跳转到
+goto-placeholder = 行号
+invalid-input-title = 输入错误
+invalid-format = 格式错误
 need-restart = (需重启)
 alert-error-title = 错误

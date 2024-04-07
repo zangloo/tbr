@@ -45,6 +45,10 @@ filter-chapter = Filter chapters
 dictionary-no-definition = No definition in dictionary
 failed-load-reading = Failed load reading book info：{ $error }
 
-custom-style-dialog-title = set custom styles
+custom-style-dialog-title = Set custom styles
+goto-dialog-title = Goto line
+goto-placeholder = Line number
+invalid-input-title = Invalid input
+invalid-format = Invalid format
 need-restart = (Need restart)
 alert-error-title = Error
