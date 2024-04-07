@@ -182,7 +182,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		ReadingStatus {
 			title,
 			total_line: self.book.lines().len(),
-			current_line: self.reading.line,
+			current_line: self.reading.line + 1,
 		}
 	}
 
