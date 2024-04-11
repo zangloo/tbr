@@ -32,13 +32,19 @@ use crate::common::Position;
 const DEFAULT_FONT_WEIGHT: u16 = 400;
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 
-pub struct HtmlParserBuilder<'a> {
-	content: &'a str,
+pub struct HtmlParseOptions<'a> {
+	html: String,
 	font_family: Option<&'a mut IndexSet<String>>,
 	resolver: Option<&'a dyn HtmlResolver>,
 }
 
-impl<'a> HtmlParserBuilder<'a> {
+impl<'a> HtmlParseOptions<'a> {
+	#[inline]
+	pub fn new(html: String) -> HtmlParseOptions<'a>
+	{
+		HtmlParseOptions { html, font_family: None, resolver: None }
+	}
+
 	pub fn with_font_family(mut self, font_family: &'a mut IndexSet<String>) -> Self
 	{
 		self.font_family = Some(font_family);
@@ -49,21 +55,6 @@ impl<'a> HtmlParserBuilder<'a> {
 	{
 		self.resolver = Some(resolver);
 		self
-	}
-
-	pub fn build(self) -> HtmlParser<'a>
-	{
-		HtmlParser {
-			html: self.content,
-			title: None,
-			resolver: self.resolver,
-			content: Default::default(),
-			element_styles: Default::default(),
-			font_families: self.font_family,
-			font_faces: vec![],
-			font_face_map: Default::default(),
-			styles: vec![],
-		}
 	}
 }
 
@@ -292,31 +283,20 @@ pub trait HtmlResolver {
 }
 
 pub struct HtmlParser<'a> {
-	html: &'a str,
-	title: Option<String>,
-	content: HtmlContent,
 	resolver: Option<&'a dyn HtmlResolver>,
 	element_styles: HashMap<NodeId, LeveledTextStyleSet>,
 	font_families: Option<&'a mut IndexSet<String>>,
 	font_faces: Vec<HtmlFontFaceDesc>,
 	font_face_map: HashMap<&'a str, Option<String>>,
 	styles: Vec<StyleDescription>,
+
+	title: Option<String>,
+	lines: Vec<Line>,
+	block_styles: Vec<BlockStyle>,
+	id_map: HashMap<String, Position>,
 }
 
 impl<'a> HtmlParser<'a> {
-	#[inline]
-	pub fn builder(content: &str) -> HtmlParserBuilder
-	{
-		HtmlParserBuilder { content, font_family: None, resolver: None }
-	}
-
-	pub fn parse(self) -> Result<(HtmlContent, Vec<HtmlFontFaceDesc>)>
-	{
-		let document = Html::parse_document(self.html);
-		let stylesheets = load_stylesheets(&document, self.resolver);
-		parse(self, &document, &stylesheets)
-	}
-
 	fn load_styles(&mut self, document: &'a Html,
 		stylesheets: &'a Vec<(Option<PathBuf>, StyleSheet)>)
 	{
@@ -419,7 +399,7 @@ impl<'a> HtmlParser<'a> {
 
 	fn finalize(mut self) -> Result<(HtmlContent, Vec<HtmlFontFaceDesc>)>
 	{
-		let lines = &mut self.content.lines;
+		let lines = &mut self.lines;
 		while let Some(last_line) = lines.last() {
 			if last_line.len() == 0 {
 				lines.pop();
@@ -433,7 +413,7 @@ impl<'a> HtmlParser<'a> {
 			// apply styles
 			let styles = self.styles;
 			for StyleDescription { start, end, style } in styles {
-				if let Some((end_line, end_offset)) = setup_block_style(&start, &end, &style, lines, &mut self.content.block_styles) {
+				if let Some((end_line, end_offset)) = setup_block_style(&start, &end, &style, lines, &mut self.block_styles) {
 					if start.line == end_line {
 						if let Some(line) = lines.get_mut(start.line) {
 							line.push_style(style, start.offset..end_offset)
@@ -454,7 +434,12 @@ impl<'a> HtmlParser<'a> {
 				}
 			}
 		}
-		Ok((self.content, self.font_faces))
+		Ok((HtmlContent {
+			title: self.title,
+			lines: self.lines,
+			block_styles: self.block_styles,
+			id_map: self.id_map,
+		}, self.font_faces))
 	}
 
 	fn convert_dom_to_lines(&mut self, children: Children<Node>)
@@ -464,7 +449,7 @@ impl<'a> HtmlParser<'a> {
 				Node::Text(contents) => {
 					let string = contents.text.to_string();
 					let text = string.trim_matches(|c: char| c.is_ascii_whitespace());
-					let line = self.content.lines.last_mut().unwrap();
+					let line = self.lines.last_mut().unwrap();
 					if text.len() > 0 {
 						if line.len() > 0
 							&& line.char_at(line.len() - 1).unwrap().is_ascii_alphanumeric()
@@ -476,10 +461,10 @@ impl<'a> HtmlParser<'a> {
 				}
 				Node::Element(element) => {
 					let position = Position::new(
-						self.content.lines.len() - 1,
-						self.content.lines.last().unwrap().len());
+						self.lines.len() - 1,
+						self.lines.last().unwrap().len());
 					if let Some(id) = element.id() {
-						self.content.id_map.insert(id.to_string(), position.clone());
+						self.id_map.insert(id.to_string(), position.clone());
 					}
 					let mut element_styles = self.load_element_styles(
 						element,
@@ -490,7 +475,7 @@ impl<'a> HtmlParser<'a> {
 							self.reset_lines();
 							self.convert_dom_to_lines(child.children());
 							let mut title = String::new();
-							for line in &mut self.content.lines {
+							for line in &mut self.lines {
 								if !line.is_empty() {
 									title.push_str(&line.to_string());
 								}
@@ -500,7 +485,7 @@ impl<'a> HtmlParser<'a> {
 							}
 							// ensure no lines parsed
 							self.reset_lines();
-							self.content.id_map.clear()
+							self.id_map.clear()
 						}
 						local_name!("script") => {}
 						local_name!("div") => {
@@ -588,7 +573,7 @@ impl<'a> HtmlParser<'a> {
 						_ => self.convert_dom_to_lines(child.children()),
 					}
 					if !element_styles.is_empty() {
-						let lines = &self.content.lines;
+						let lines = &self.lines;
 						// only for new lines
 						for last_line in (position.line..lines.len()).rev() {
 							let line = &lines[last_line];
@@ -637,7 +622,7 @@ impl<'a> HtmlParser<'a> {
 
 	fn add_image(&mut self, href: &str)
 	{
-		let line = self.content.lines.last_mut().unwrap();
+		let line = self.lines.last_mut().unwrap();
 		let start = line.len();
 		line.push(IMAGE_CHAR);
 		line.push_style(TextStyle::Image(href.to_string()), start..start + 1);
@@ -646,13 +631,13 @@ impl<'a> HtmlParser<'a> {
 	#[inline]
 	fn reset_lines(&mut self)
 	{
-		self.content.lines.clear();
-		self.content.lines.push(Line::default());
+		self.lines.clear();
+		self.lines.push(Line::default());
 	}
 
 	fn newline_for_class(&mut self, element: &Element)
 	{
-		if !self.content.lines.last().unwrap().is_empty() {
+		if !self.lines.last().unwrap().is_empty() {
 			if let Some(class) = element.attr("class") {
 				for class_name in DIV_PUSH_CLASSES {
 					if class.contains(class_name) {
@@ -668,7 +653,7 @@ impl<'a> HtmlParser<'a> {
 	{
 		let mut empty_count = 0;
 		// no more then 2 empty lines
-		for line in self.content.lines.iter().rev() {
+		for line in self.lines.iter().rev() {
 			if line.is_empty() {
 				empty_count += 1;
 				if empty_count == 2 {
@@ -679,7 +664,7 @@ impl<'a> HtmlParser<'a> {
 			}
 		}
 		if empty_count == 0 || !ignore_empty_buf {
-			self.content.lines.push(Line::default())
+			self.lines.push(Line::default())
 		}
 	}
 
@@ -1042,15 +1027,27 @@ fn load_stylesheets<'d>(document: &'d Html, resolver: Option<&'d dyn HtmlResolve
 	stylesheets
 }
 
-/// to make compiler happy
-/// HtmlParser::font_face_map reference to the document and stylesheets
-/// if put below code into HtmlParser::parse(), the compile will failed
 #[inline]
-fn parse<'a>(mut parser: HtmlParser<'a>, document: &'a Html,
-	stylesheets: &'a Vec<(Option<PathBuf>, StyleSheet)>)
-	-> Result<(HtmlContent, Vec<HtmlFontFaceDesc>)>
+pub fn parse(options: HtmlParseOptions) -> Result<(HtmlContent, Vec<HtmlFontFaceDesc>)>
 {
-	parser.load_styles(document, stylesheets);
+	let document = Html::parse_document(&options.html);
+	let stylesheets = load_stylesheets(&document, options.resolver);
+
+	let mut parser = HtmlParser {
+		resolver: options.resolver,
+		element_styles: Default::default(),
+		font_families: options.font_family,
+		font_faces: vec![],
+		font_face_map: Default::default(),
+		styles: vec![],
+
+		title: None,
+		lines: vec![],
+		block_styles: vec![],
+		id_map: Default::default(),
+	};
+
+	parser.load_styles(&document, &stylesheets);
 
 	let body_selector = match Selector::parse("body") {
 		Ok(s) => s,
@@ -1061,7 +1058,7 @@ fn parse<'a>(mut parser: HtmlParser<'a>, document: &'a Html,
 		.next()
 		.ok_or(anyhow!("No body in the document"))?;
 	if let Some(id) = body.value().id() {
-		parser.content.id_map.insert(id.to_string(), Position::new(0, 0));
+		parser.id_map.insert(id.to_string(), Position::new(0, 0));
 	}
 
 	parser.convert_dom_to_lines(body.children());

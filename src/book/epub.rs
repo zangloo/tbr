@@ -17,11 +17,11 @@ use zip::ZipArchive;
 use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader, TocInfo, ImageData};
 #[cfg(feature = "gui")]
 use crate::html_parser::BlockStyle;
-use crate::html_parser::{HtmlParser, HtmlResolver};
+use crate::html_parser::{HtmlContent, HtmlParseOptions, HtmlResolver};
 use crate::list::ListIterator;
-use crate::common::{Position, TraceInfo};
+use crate::common::TraceInfo;
 use crate::config::{BookLoadingInfo, ReadingInfo};
-use crate::frozen_map_get;
+use crate::{frozen_map_get, html_parser};
 #[cfg(feature = "gui")]
 use crate::gui::HtmlFonts;
 use crate::xhtml::xhtml_to_html;
@@ -60,12 +60,7 @@ struct NavPoint {
 	first_chapter_index: usize,
 }
 
-struct Chapter {
-	lines: Vec<Line>,
-	#[cfg(feature = "gui")]
-	block_styles: Vec<BlockStyle>,
-	id_map: HashMap<String, Position>,
-}
+type Chapter = HtmlContent;
 
 trait EpubArchive {
 	fn is_encrypted(&self) -> bool;
@@ -611,11 +606,9 @@ impl EpubBook {
 					custom_style: self.custom_style.as_ref().map(|s| s.as_ref()),
 				};
 				#[allow(unused)]
-					let (html_content, mut font_faces) = HtmlParser::builder(&html_str)
+					let (html_content, mut font_faces) = html_parser::parse(HtmlParseOptions::new(html_str)
 					.with_font_family(&mut self.font_families)
-					.with_resolver(&mut resolve)
-					.build()
-					.parse()?;
+					.with_resolver(&mut resolve))?;
 				#[cfg(feature = "gui")]
 				{
 					self.fonts.reload(font_faces, |path| {
@@ -624,13 +617,7 @@ impl EpubBook {
 						Some(content)
 					});
 				}
-				let chapter = Chapter {
-					lines: html_content.lines,
-					#[cfg(feature = "gui")]
-					block_styles: html_content.block_styles,
-					id_map: html_content.id_map,
-				};
-				v.insert(chapter)
+				v.insert(html_content)
 			}
 		};
 		Ok(chapter)

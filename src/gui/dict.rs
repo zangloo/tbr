@@ -14,7 +14,7 @@ use gtk4::prelude::{BoxExt, ButtonExt, DrawingAreaExt, EditableExt, WidgetExt};
 use indexmap::IndexSet;
 use stardict::{StarDict, WordDefinition};
 use crate::book::{Book, Colors, ImageData, Line, TEXT_SELECTION_SPLITTER};
-use crate::package_name;
+use crate::{html_parser, package_name};
 use crate::color::Color32;
 use crate::common::{txt_lines, Position};
 use crate::config::PathConfig;
@@ -23,7 +23,7 @@ use crate::gui::{copy_to_clipboard, create_button, IconMap, ignore_cap, MAX_FONT
 use crate::gui::font::UserFonts;
 use crate::gui::render::{RenderContext, ScrollRedrawMethod};
 use crate::gui::view::{GuiView, ScrollPosition};
-use crate::html_parser::{HtmlContent, HtmlParser};
+use crate::html_parser::{HtmlContent, HtmlParseOptions};
 use crate::i18n::I18n;
 
 const HTML_DEFINITION_HEAD: &str = "
@@ -158,10 +158,8 @@ impl DictionaryBook {
 				render_definition(single, &mut text, &self.replacer);
 			}
 			text.push_str(HTML_DEFINITION_TAIL);
-			if let Ok((mut content, _)) = HtmlParser::builder(&text)
-				.with_font_family(&mut self.font_families)
-				.build()
-				.parse() {
+			if let Ok((mut content, _)) = html_parser::parse(HtmlParseOptions::new(text)
+				.with_font_family(&mut self.font_families)) {
 				content.title = Some(String::from(word));
 				content
 			} else {
@@ -508,10 +506,8 @@ fn render_definition_text(result: &LookupResult, font_families: &mut IndexSet<St
 		}
 	}
 	html.push_str("</body></html>");
-	HtmlParser::builder(&html)
-		.with_font_family(font_families)
-		.build()
-		.parse()
+	html_parser::parse(HtmlParseOptions::new(html)
+		.with_font_family(font_families))
 		.unwrap()
 		.0
 		.lines
