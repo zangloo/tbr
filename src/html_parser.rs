@@ -442,160 +442,166 @@ impl<'a> HtmlParser<'a> {
 		}, self.font_faces))
 	}
 
-	fn convert_dom_to_lines(&mut self, children: Children<Node>)
+	#[inline]
+	fn convert_node_children(&mut self, children: Children<Node>)
 	{
 		for child in children {
-			match child.value() {
-				Node::Text(contents) => {
-					let string = contents.text.to_string();
-					let text = string.trim_matches(|c: char| c.is_ascii_whitespace());
-					let line = self.lines.last_mut().unwrap();
-					if text.len() > 0 {
-						if line.len() > 0
-							&& line.char_at(line.len() - 1).unwrap().is_ascii_alphanumeric()
-							&& text.chars().next().unwrap().is_ascii_alphanumeric() {
-							line.push(' ');
-						}
-						line.concat(text);
+			self.convert_node_to_lines(child);
+		}
+	}
+
+	fn convert_node_to_lines(&mut self, node: NodeRef<Node>)
+	{
+		match node.value() {
+			Node::Text(contents) => {
+				let string = contents.text.to_string();
+				let text = string.trim_matches(|c: char| c.is_ascii_whitespace());
+				let line = self.lines.last_mut().unwrap();
+				if text.len() > 0 {
+					if line.len() > 0
+						&& line.char_at(line.len() - 1).unwrap().is_ascii_alphanumeric()
+						&& text.chars().next().unwrap().is_ascii_alphanumeric() {
+						line.push(' ');
 					}
+					line.concat(text);
 				}
-				Node::Element(element) => {
-					let position = Position::new(
-						self.lines.len() - 1,
-						self.lines.last().unwrap().len());
-					if let Some(id) = element.id() {
-						self.id_map.insert(id.to_string(), position.clone());
-					}
-					let mut element_styles = self.load_element_styles(
-						element,
-						child.id());
-					match element.name.local {
-						local_name!("title") => {
-							// title is in head, no other text should parsed
-							self.reset_lines();
-							self.convert_dom_to_lines(child.children());
-							let mut title = String::new();
-							for line in &mut self.lines {
-								if !line.is_empty() {
-									title.push_str(&line.to_string());
-								}
-							}
-							if !title.is_empty() {
-								self.title = Some(title);
-							}
-							// ensure no lines parsed
-							self.reset_lines();
-							self.id_map.clear()
-						}
-						local_name!("script") => {}
-						local_name!("div") => {
-							self.newline_for_class(element);
-							self.convert_dom_to_lines(child.children());
-							self.newline_for_class(element);
-						}
-						local_name!("h1") => {
-							unique_and_insert_font_size(&mut element_styles, 6, false);
-							self.new_paragraph(child);
-						}
-						| local_name!("h2") => {
-							unique_and_insert_font_size(&mut element_styles, 5, false);
-							self.new_paragraph(child);
-						}
-						| local_name!("h3") => {
-							unique_and_insert_font_size(&mut element_styles, 4, false);
-							self.new_paragraph(child);
-						}
-						| local_name!("h4") => {
-							unique_and_insert_font_size(&mut element_styles, 3, false);
-							self.new_paragraph(child);
-						}
-						| local_name!("h5") => {
-							unique_and_insert_font_size(&mut element_styles, 2, false);
-							self.new_paragraph(child);
-						}
-						| local_name!("h6") => {
-							unique_and_insert_font_size(&mut element_styles, 1, false);
-							self.new_paragraph(child);
-						}
-						local_name!("small") => {
-							unique_and_insert_font_size(&mut element_styles, 2, true);
-							self.convert_dom_to_lines(child.children());
-						}
-						local_name!("big") => {
-							unique_and_insert_font_size(&mut element_styles, 4, true);
-							self.convert_dom_to_lines(child.children());
-						}
-						local_name!("p")
-						| local_name!("blockquote")
-						| local_name!("tr")
-						| local_name!("dt")
-						| local_name!("li") => self.new_paragraph(child),
-						local_name!("br") => {
-							self.new_line(true);
-							self.convert_dom_to_lines(child.children());
-						}
-						local_name!("font") => {
-							if let Some(level_text) = element.attr("size") {
-								if let Ok(level) = level_text.parse::<u8>() {
-									replace_font_size(&mut element_styles, level, true);
-								}
-							}
-							if let Some(color_text) = element.attr("color") {
-								if let Ok(color) = CssColor::parse_string(color_text) {
-									if let Some(color) = css_color(&color) {
-										insert_or_replace_style(&mut element_styles, TextStyle::Color(color), false);
-									}
-								}
-							}
-							self.convert_dom_to_lines(child.children());
-						}
-						local_name!("a") => {
-							if let Some(href) = element.attr("href") {
-								insert_or_replace_style(&mut element_styles, TextStyle::Link(href.to_string()), false);
-							}
-							self.convert_dom_to_lines(child.children());
-						}
-						local_name!("img") => {
-							if let Some(href) = element.attr("src") {
-								self.add_image(href);
-							}
-						}
-						local_name!("image") => {
-							let name = QualName::new(
-								Some(Prefix::from("xlink")),
-								Namespace::from("http://www.w3.org/1999/xlink"),
-								LocalName::from("href"));
-							let href = element.attrs.get(&name).map(Deref::deref);
-							if let Some(href) = href {
-								self.add_image(href);
-							}
-						}
-						_ => self.convert_dom_to_lines(child.children()),
-					}
-					if !element_styles.is_empty() {
-						let lines = &self.lines;
-						// only for new lines
-						for last_line in (position.line..lines.len()).rev() {
-							let line = &lines[last_line];
-							// ignore empty lines
-							if line.is_empty() {
-								continue;
-							}
-							let end = Position::new(last_line, line.len());
-							for style in &element_styles {
-								self.styles.push(StyleDescription {
-									start: position.clone(),
-									end: end.clone(),
-									style: style.0.clone(),
-								});
-							}
-							break;
-						}
-					}
-				}
-				Node::Document {} => self.convert_dom_to_lines(child.children()),
-				_ => {}
 			}
+			Node::Element(element) => {
+				let position = Position::new(
+					self.lines.len() - 1,
+					self.lines.last().unwrap().len());
+				if let Some(id) = element.id() {
+					self.id_map.insert(id.to_string(), position.clone());
+				}
+				let mut element_styles = self.load_element_styles(
+					element,
+					node.id());
+				match element.name.local {
+					local_name!("title") => {
+						// title is in head, no other text should parsed
+						self.reset_lines();
+						self.convert_node_children(node.children());
+						let mut title = String::new();
+						for line in &mut self.lines {
+							if !line.is_empty() {
+								title.push_str(&line.to_string());
+							}
+						}
+						if !title.is_empty() {
+							self.title = Some(title);
+						}
+						// ensure no lines parsed
+						self.reset_lines();
+						self.id_map.clear()
+					}
+					local_name!("script") => {}
+					local_name!("div") => {
+						self.newline_for_class(element);
+						self.convert_node_children(node.children());
+						self.newline_for_class(element);
+					}
+					local_name!("h1") => {
+						unique_and_insert_font_size(&mut element_styles, 6, false);
+						self.new_paragraph(node);
+					}
+					| local_name!("h2") => {
+						unique_and_insert_font_size(&mut element_styles, 5, false);
+						self.new_paragraph(node);
+					}
+					| local_name!("h3") => {
+						unique_and_insert_font_size(&mut element_styles, 4, false);
+						self.new_paragraph(node);
+					}
+					| local_name!("h4") => {
+						unique_and_insert_font_size(&mut element_styles, 3, false);
+						self.new_paragraph(node);
+					}
+					| local_name!("h5") => {
+						unique_and_insert_font_size(&mut element_styles, 2, false);
+						self.new_paragraph(node);
+					}
+					| local_name!("h6") => {
+						unique_and_insert_font_size(&mut element_styles, 1, false);
+						self.new_paragraph(node);
+					}
+					local_name!("small") => {
+						unique_and_insert_font_size(&mut element_styles, 2, true);
+						self.convert_node_children(node.children());
+					}
+					local_name!("big") => {
+						unique_and_insert_font_size(&mut element_styles, 4, true);
+						self.convert_node_children(node.children());
+					}
+					local_name!("p")
+					| local_name!("blockquote")
+					| local_name!("tr")
+					| local_name!("dt")
+					| local_name!("li") => self.new_paragraph(node),
+					local_name!("br") => {
+						self.new_line(true);
+						self.convert_node_children(node.children());
+					}
+					local_name!("font") => {
+						if let Some(level_text) = element.attr("size") {
+							if let Ok(level) = level_text.parse::<u8>() {
+								replace_font_size(&mut element_styles, level, true);
+							}
+						}
+						if let Some(color_text) = element.attr("color") {
+							if let Ok(color) = CssColor::parse_string(color_text) {
+								if let Some(color) = css_color(&color) {
+									insert_or_replace_style(&mut element_styles, TextStyle::Color(color), false);
+								}
+							}
+						}
+						self.convert_node_children(node.children());
+					}
+					local_name!("a") => {
+						if let Some(href) = element.attr("href") {
+							insert_or_replace_style(&mut element_styles, TextStyle::Link(href.to_string()), false);
+						}
+						self.convert_node_children(node.children());
+					}
+					local_name!("img") => {
+						if let Some(href) = element.attr("src") {
+							self.add_image(href);
+						}
+					}
+					local_name!("image") => {
+						let name = QualName::new(
+							Some(Prefix::from("xlink")),
+							Namespace::from("http://www.w3.org/1999/xlink"),
+							LocalName::from("href"));
+						let href = element.attrs.get(&name).map(Deref::deref);
+						if let Some(href) = href {
+							self.add_image(href);
+						}
+					}
+					_ => self.convert_node_children(node.children()),
+				}
+				if !element_styles.is_empty() {
+					let lines = &self.lines;
+					// only for new lines
+					for last_line in (position.line..lines.len()).rev() {
+						let line = &lines[last_line];
+						// ignore empty lines
+						if line.is_empty() {
+							continue;
+						}
+						let end = Position::new(last_line, line.len());
+						for style in &element_styles {
+							self.styles.push(StyleDescription {
+								start: position.clone(),
+								end: end.clone(),
+								style: style.0.clone(),
+							});
+						}
+						break;
+					}
+				}
+			}
+			Node::Document {} => self.convert_node_children(node.children()),
+			_ => {}
 		}
 	}
 
@@ -672,7 +678,7 @@ impl<'a> HtmlParser<'a> {
 	fn new_paragraph(&mut self, child: NodeRef<Node>)
 	{
 		self.new_line(true);
-		self.convert_dom_to_lines(child.children());
+		self.convert_node_children(child.children());
 		self.new_line(false);
 	}
 
@@ -1057,11 +1063,8 @@ pub fn parse(options: HtmlParseOptions) -> Result<(HtmlContent, Vec<HtmlFontFace
 		.select(&body_selector)
 		.next()
 		.ok_or(anyhow!("No body in the document"))?;
-	if let Some(id) = body.value().id() {
-		parser.id_map.insert(id.to_string(), Position::new(0, 0));
-	}
 
-	parser.convert_dom_to_lines(body.children());
+	parser.convert_node_to_lines(*body.deref());
 
 	parser.finalize()
 }
