@@ -268,15 +268,6 @@ impl Line {
 		self.chars.push(ch);
 	}
 
-	pub fn to_string(&self) -> String
-	{
-		let mut string = String::new();
-		for char in &self.chars {
-			string.push(*char)
-		}
-		string
-	}
-
 	#[inline]
 	pub fn len(&self) -> usize
 	{

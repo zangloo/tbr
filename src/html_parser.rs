@@ -442,6 +442,15 @@ impl<'a> HtmlParser<'a> {
 		}, self.font_faces))
 	}
 
+	fn load_title(&mut self, title_node: NodeRef<Node>)
+	{
+		if let Some(child) = title_node.children().next() {
+			if let Node::Text(text) = child.value() {
+				self.title = Some(text.to_string());
+			}
+		}
+	}
+
 	#[inline]
 	fn convert_node_children(&mut self, children: Children<Node>)
 	{
@@ -477,23 +486,7 @@ impl<'a> HtmlParser<'a> {
 					element,
 					node.id());
 				match element.name.local {
-					local_name!("title") => {
-						// title is in head, no other text should parsed
-						self.reset_lines();
-						self.convert_node_children(node.children());
-						let mut title = String::new();
-						for line in &mut self.lines {
-							if !line.is_empty() {
-								title.push_str(&line.to_string());
-							}
-						}
-						if !title.is_empty() {
-							self.title = Some(title);
-						}
-						// ensure no lines parsed
-						self.reset_lines();
-						self.id_map.clear()
-					}
+					local_name!("title") => self.load_title(node),
 					local_name!("script") => {}
 					local_name!("div") => {
 						self.newline_for_class(element);
@@ -632,13 +625,6 @@ impl<'a> HtmlParser<'a> {
 		let start = line.len();
 		line.push(IMAGE_CHAR);
 		line.push_style(TextStyle::Image(href.to_string()), start..start + 1);
-	}
-
-	#[inline]
-	fn reset_lines(&mut self)
-	{
-		self.lines.clear();
-		self.lines.push(Line::default());
 	}
 
 	fn newline_for_class(&mut self, element: &Element)
@@ -1055,6 +1041,29 @@ pub fn parse(options: HtmlParseOptions) -> Result<(HtmlContent, Vec<HtmlFontFace
 
 	parser.load_styles(&document, &stylesheets);
 
+	// load head infos
+	let head_selector = match Selector::parse("head") {
+		Ok(s) => s,
+		Err(_) => return Err(anyhow!("Failed parse html"))
+	};
+	if let Some(head) = document
+		.select(&head_selector)
+		.next() {
+		for child in head.children() {
+			match child.value() {
+				Node::Element(element) => {
+					match element.name.local {
+						local_name!("title") => {
+							parser.load_title(child);
+							break;
+						}
+						_ => {}
+					}
+				}
+				_ => {}
+			}
+		}
+	}
 	let body_selector = match Selector::parse("body") {
 		Ok(s) => s,
 		Err(_) => return Err(anyhow!("Failed parse html"))
