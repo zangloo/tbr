@@ -16,7 +16,7 @@ use stardict::{StarDict, WordDefinition};
 use crate::book::{Book, Colors, ImageData, Line, TEXT_SELECTION_SPLITTER};
 use crate::{html_parser, package_name};
 use crate::color::Color32;
-use crate::common::{txt_lines, Position};
+use crate::common::Position;
 use crate::config::PathConfig;
 use crate::controller::{highlight_selection, HighlightInfo, Render};
 use crate::gui::{copy_to_clipboard, create_button, IconMap, ignore_cap, MAX_FONT_SIZE, MIN_FONT_SIZE, MODIFIER_NONE};
@@ -133,7 +133,7 @@ impl DictionaryBook {
 			cache: HashMap::new(),
 			resources: FrozenMap::new(),
 			replacer: Regex::new(INJECT_REGEXP).unwrap(),
-			content: Default::default(),
+			content: HtmlContent::empty(),
 			font_families: Default::default(),
 		}
 	}
@@ -163,17 +163,25 @@ impl DictionaryBook {
 				content.title = Some(String::from(word));
 				content
 			} else {
-				let mut lines = vec![];
+				let mut text = "<html><body>".to_string();
 				for single in &mut *results {
-					let mut new_lines = render_definition_text(single, &mut self.font_families);
-					lines.append(&mut new_lines);
+					render_definition_text(single, &mut text);
 				}
-				HtmlContent::with_lines(lines)
+				text.push_str("</body></html>");
+				html_parser::parse(HtmlParseOptions::new(text)
+					.with_font_family(&mut self.font_families))
+					.unwrap()
+					.0
 			}
 		} else {
+			let mut text = "<html><body>".to_string();
 			let msg = i18n.msg("dictionary-no-definition");
-			let lines = txt_lines(&msg);
-			HtmlContent::with_lines(lines)
+			text.push_str(&msg);
+			text.push_str("</body></html>");
+			html_parser::parse(HtmlParseOptions::new(text)
+				.with_font_family(&mut self.font_families))
+				.unwrap()
+				.0
 		};
 		self.content = content;
 	}
@@ -488,10 +496,8 @@ fn inject_definition<'a>(html: &'a str, dict_name: &str, replacer: &Regex) -> Co
 }
 
 #[inline]
-fn render_definition_text(result: &LookupResult, font_families: &mut IndexSet<String>) -> Vec<Line>
+fn render_definition_text(result: &LookupResult, html: &mut String)
 {
-	let mut html = "<html><body>".to_string();
-
 	html.push_str("<h style='color: blue;'><b>");
 	html.push_str(&result.dict_name);
 	html.push_str("</b></h><br/>");
@@ -505,12 +511,6 @@ fn render_definition_text(result: &LookupResult, font_families: &mut IndexSet<St
 			html.push_str("</p>");
 		}
 	}
-	html.push_str("</body></html>");
-	html_parser::parse(HtmlParseOptions::new(html)
-		.with_font_family(font_families))
-		.unwrap()
-		.0
-		.lines
 }
 
 #[inline]

@@ -221,13 +221,19 @@ pub struct Link<'a> {
 }
 
 impl Line {
+	#[inline]
+	fn with_chars(chars: Vec<char>) -> Self
+	{
+		Line { chars, styles: vec![] }
+	}
+
 	pub fn new(str: &str) -> Self
 	{
 		let mut chars = vec![];
 		for ch in str.chars() {
 			chars.push(ch);
 		}
-		Line { chars, styles: vec![] }
+		Self::with_chars(chars)
 	}
 
 	pub fn concat(&mut self, str: &str)
@@ -459,8 +465,9 @@ impl Line {
 }
 
 impl Default for Line {
-	fn default() -> Self {
-		Line { chars: vec![], styles: vec![] }
+	fn default() -> Self
+	{
+		Self::with_chars(vec![])
 	}
 }
 

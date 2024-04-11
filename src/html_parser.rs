@@ -247,22 +247,14 @@ pub struct HtmlContent {
 	pub id_map: HashMap<String, Position>,
 }
 
-impl Default for HtmlContent {
-	#[inline]
-	fn default() -> Self
-	{
-		HtmlContent::with_lines(vec![Line::default()])
-	}
-}
-
 impl HtmlContent
 {
 	#[inline]
-	pub fn with_lines(lines: Vec<Line>) -> Self
+	pub fn empty() -> Self
 	{
 		HtmlContent {
 			title: None,
-			lines,
+			lines: vec![],
 			block_styles: vec![],
 			id_map: HashMap::new(),
 		}
@@ -397,7 +389,12 @@ impl<'a> HtmlParser<'a> {
 		}
 	}
 
-	fn finalize(mut self) -> Result<(HtmlContent, Vec<HtmlFontFaceDesc>)>
+	fn finalize(mut self) -> (
+		Option<String>,
+		Vec<Line>,
+		Vec<BlockStyle>,
+		HashMap<String, Position>,
+		Vec<HtmlFontFaceDesc>)
 	{
 		let lines = &mut self.lines;
 		while let Some(last_line) = lines.last() {
@@ -434,12 +431,12 @@ impl<'a> HtmlParser<'a> {
 				}
 			}
 		}
-		Ok((HtmlContent {
-			title: self.title,
-			lines: self.lines,
-			block_styles: self.block_styles,
-			id_map: self.id_map,
-		}, self.font_faces))
+		(
+			self.title,
+			self.lines,
+			self.block_styles,
+			self.id_map,
+			self.font_faces)
 	}
 
 	fn load_title(&mut self, title_node: NodeRef<Node>)
@@ -1022,8 +1019,8 @@ fn load_stylesheets<'d>(document: &'d Html, resolver: Option<&'d dyn HtmlResolve
 #[inline]
 pub fn parse(options: HtmlParseOptions) -> Result<(HtmlContent, Vec<HtmlFontFaceDesc>)>
 {
-	let document = Html::parse_document(&options.html);
-	let stylesheets = load_stylesheets(&document, options.resolver);
+	let html = Html::parse_document(&options.html);
+	let stylesheets = load_stylesheets(&html, options.resolver);
 
 	let mut parser = HtmlParser {
 		resolver: options.resolver,
@@ -1039,14 +1036,14 @@ pub fn parse(options: HtmlParseOptions) -> Result<(HtmlContent, Vec<HtmlFontFace
 		id_map: Default::default(),
 	};
 
-	parser.load_styles(&document, &stylesheets);
+	parser.load_styles(&html, &stylesheets);
 
 	// load head infos
 	let head_selector = match Selector::parse("head") {
 		Ok(s) => s,
 		Err(_) => return Err(anyhow!("Failed parse html"))
 	};
-	if let Some(head) = document
+	if let Some(head) = html
 		.select(&head_selector)
 		.next() {
 		for child in head.children() {
@@ -1068,12 +1065,19 @@ pub fn parse(options: HtmlParseOptions) -> Result<(HtmlContent, Vec<HtmlFontFace
 		Ok(s) => s,
 		Err(_) => return Err(anyhow!("Failed parse html"))
 	};
-	let body = document
+	let body = html
 		.select(&body_selector)
 		.next()
 		.ok_or(anyhow!("No body in the document"))?;
 
 	parser.convert_node_to_lines(*body.deref());
 
-	parser.finalize()
+	let (title, lines, block_styles, id_map, font_faces) = parser.finalize();
+	drop(stylesheets);
+	Ok((HtmlContent {
+		title,
+		lines,
+		block_styles,
+		id_map,
+	}, font_faces))
 }

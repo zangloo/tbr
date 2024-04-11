@@ -176,11 +176,10 @@ impl GuiView {
 		gesture.connect_pressed(move |gesture, n_press, x, y| {
 			if n_press == 1 {
 				gesture.set_state(gtk4::EventSequenceState::Claimed);
-				let mut pos = pos2(x as f32, y as f32);
+				let pos = pos2(x as f32, y as f32);
 				let imp = view.imp();
-				imp.translate(&mut pos);
 				let state = gesture.current_event_state();
-				match imp.resolve_click(&pos, state) {
+				match imp.resolve_click(pos, state) {
 					ClickTarget::Link(line, link_index) => view.emit_by_name::<()>(GuiView::OPEN_LINK_SIGNAL, &[
 						&(line as u64),
 						&(link_index as u64),
@@ -201,7 +200,7 @@ impl GuiView {
 				let pos = pos2(x as f32, y as f32);
 				let imp = view.imp();
 				let state = gesture.current_event_state();
-				if let ClickTarget::Char(line, offset) = imp.resolve_click(&pos, state) {
+				if let ClickTarget::Char(line, offset) = imp.resolve_click(pos, state) {
 					view.emit_by_name::<()>(GuiView::SELECT_WORD_SIGNAL, &[
 						&(line as u64),
 						&(offset as u64),
@@ -313,7 +312,7 @@ mod imp {
 	use crate::controller::HighlightInfo;
 	use crate::gui::font::{HtmlFonts, UserFonts};
 	use crate::gui::math::{Pos2, Rect};
-	use crate::gui::render::{BlockBackgroundEntry, create_render, GuiRender, PointerPosition, RenderCell, RenderContext, RenderLine, ScrolledDrawData, ScrollRedrawMethod, TextDecoration};
+	use crate::gui::render::{BlockBackgroundEntry, create_render, GuiRender, PointerPosition, RenderCell, RenderChar, RenderContext, RenderLine, ScrolledDrawData, ScrollRedrawMethod, TextDecoration};
 	use crate::gui::view::{ClickTarget, MIN_TEXT_SELECT_DISTANCE, ScrollPosition};
 
 	#[derive(Properties)]
@@ -838,72 +837,79 @@ mod imp {
 		}
 
 		#[inline]
-		pub fn resolve_click(&self, mouse_position: &Pos2, state: ModifierType) -> ClickTarget
+		fn pointer_info<F, T>(&self, mut pointer_position: Pos2, f: F) -> Option<T>
+			where F: FnOnce(&RenderLine, &RenderChar) -> Option<T>
 		{
 			let data = self.data.borrow();
+			self.translate(&mut pointer_position);
 			for line in &data.render_lines {
-				if let Some(dc) = line.char_at_pos(mouse_position) {
-					match dc.cell {
-						RenderCell::Link(_, link_index) =>
-							return if state.eq(&(ModifierType::CONTROL_MASK)) {
-								ClickTarget::ExternalLink(line.line(), link_index)
-							} else {
-								ClickTarget::Link(line.line(), link_index)
-							},
-						RenderCell::Image(_) =>
-							if state.eq(&(ModifierType::CONTROL_MASK)) {
-								return ClickTarget::Image(line.line(), dc.offset);
-							}
-						RenderCell::Char(_) =>
-							return ClickTarget::Char(line.line(), dc.offset),
-					}
+				if let Some(dc) = line.char_at_pos(&pointer_position) {
+					return f(line, dc);
 				}
 			}
-			ClickTarget::None
+			None
+		}
+
+		#[inline]
+		pub fn resolve_click(&self, mouse_position: Pos2, state: ModifierType) -> ClickTarget
+		{
+			self.pointer_info(mouse_position, |line, dc| {
+				let target = match dc.cell {
+					RenderCell::Link(_, link_index) =>
+						if state.eq(&(ModifierType::CONTROL_MASK)) {
+							ClickTarget::ExternalLink(line.line(), link_index)
+						} else {
+							ClickTarget::Link(line.line(), link_index)
+						},
+					RenderCell::Image(_) =>
+						if state.eq(&(ModifierType::CONTROL_MASK)) {
+							ClickTarget::Image(line.line(), dc.offset)
+						} else {
+							return None;
+						}
+					RenderCell::Char(_) =>
+						ClickTarget::Char(line.line(), dc.offset),
+				};
+				Some(target)
+			}).unwrap_or(ClickTarget::None)
 		}
 
 		#[cfg(not(windows))]
-		pub fn pointer_cursor(&self, mouse_position: &Pos2, state: ModifierType) -> &str
+		pub fn pointer_cursor(&self, mouse_position: Pos2, state: ModifierType) -> &str
 		{
-			let data = self.data.borrow();
-			for line in &data.render_lines {
-				if let Some(dc) = line.char_at_pos(mouse_position) {
-					match dc.cell {
-						RenderCell::Char(_) => break,
-						RenderCell::Image(_) => if state.eq(&ModifierType::CONTROL_MASK) {
-							return "zoom-in";
-						} else {
-							break;
-						}
-						RenderCell::Link(_, _) => return "pointer",
+			self.pointer_info(mouse_position, |_, dc| {
+				match dc.cell {
+					RenderCell::Char(_) => None,
+					RenderCell::Image(_) => if state.eq(&ModifierType::CONTROL_MASK) {
+						Some("zoom-in")
+					} else {
+						None
 					}
+					RenderCell::Link(_, _) => Some("pointer"),
 				}
-			}
-			if self.render_han.get() {
-				"vertical-text"
-			} else {
-				"text"
-			}
+			}).unwrap_or_else(|| {
+				if self.render_han.get() {
+					"vertical-text"
+				} else {
+					"text"
+				}
+			})
 		}
 
 		#[cfg(windows)]
 		pub fn pointer_cursor(&self, mouse_position: &Pos2, state: ModifierType) -> &str
 		{
-			let data = self.data.borrow();
-			for line in &data.render_lines {
-				if let Some(dc) = line.char_at_pos(mouse_position) {
-					match dc.cell {
-						RenderCell::Char(_) => break,
-						RenderCell::Image(_) => if state.eq(&ModifierType::CONTROL_MASK) {
-							return "pointer";
-						} else {
-							break;
-						}
-						RenderCell::Link(_, _) => return "pointer",
+			self.pointer_info(mouse_position, |_, dc| {
+				match dc.cell {
+					RenderCell::Char(_) => None,
+					RenderCell::Image(_) => if state.eq(&ModifierType::CONTROL_MASK) {
+						Some("pointer")
+					} else {
+						None
 					}
+					RenderCell::Link(_, _) => Some("pointer"),
 				}
-			}
-			"default"
+			}).unwrap_or("default")
 		}
 	}
 
@@ -956,9 +962,8 @@ pub fn update_css(css_provider: &CssProvider, name: &str, background: &Color32)
 
 pub fn update_mouse_pointer(view: &GuiView, x: f32, y: f32, state: ModifierType)
 {
-	let mut pos = pos2(x, y);
+	let pos = pos2(x, y);
 	let imp = view.imp();
-	imp.translate(&mut pos);
-	let cursor_name = imp.pointer_cursor(&pos, state);
+	let cursor_name = imp.pointer_cursor(pos, state);
 	view.set_cursor_from_name(Some(cursor_name))
 }
