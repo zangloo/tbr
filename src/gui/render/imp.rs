@@ -131,16 +131,6 @@ impl RenderLine
 		}
 	}
 
-	pub fn char_at_pos(&self, pos: &Pos2) -> Option<&RenderChar>
-	{
-		for dc in &self.chars {
-			if dc.rect.contains(pos) {
-				return Some(dc);
-			}
-		}
-		None
-	}
-
 	#[inline]
 	pub fn add_decoration(&mut self, decoration: TextDecoration)
 	{
@@ -178,9 +168,9 @@ impl RenderLine
 	}
 
 	#[inline]
-	pub fn char_offset(&self, index: usize) -> usize
+	pub fn char_at_index(&self, index: usize) -> &RenderChar
 	{
-		self.chars[index].offset
+		&self.chars[index]
 	}
 
 	#[inline]

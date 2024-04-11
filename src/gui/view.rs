@@ -128,11 +128,8 @@ impl GuiView {
 		drag_gesture.connect_update(move |drag, seq| {
 			if let Some(bp) = drag.start_point() {
 				if let Some(ep) = drag.point(seq) {
-					let imp = view.imp();
-					let mut from = pos2(bp.0 as f32, bp.1 as f32);
-					let mut to = pos2(ep.0 as f32, ep.1 as f32);
-					imp.translate(&mut from);
-					imp.translate(&mut to);
+					let from = pos2(bp.0 as f32, bp.1 as f32);
+					let to = pos2(ep.0 as f32, ep.1 as f32);
 					if let Some((from, to)) = view.calc_selection(from, to) {
 						view.emit_by_name::<()>(GuiView::SELECTING_TEXT_SIGNAL, &[
 							&(from.line as u64),
@@ -151,12 +148,9 @@ impl GuiView {
 			if let Some(bp) = drag.start_point() {
 				if let Some(ep) = drag.point(seq) {
 					view.grab_focus();
-					let imp = view.imp();
 					if bp != ep {
-						let mut from = pos2(bp.0 as f32, bp.1 as f32);
-						let mut to = pos2(ep.0 as f32, ep.1 as f32);
-						imp.translate(&mut from);
-						imp.translate(&mut to);
+						let from = pos2(bp.0 as f32, bp.1 as f32);
+						let to = pos2(ep.0 as f32, ep.1 as f32);
 						if let Some((from, to)) = view.calc_selection(from, to) {
 							view.emit_by_name::<()>(GuiView::TEXT_SELECTED_SIGNAL, &[
 								&(from.line as u64),
@@ -527,20 +521,21 @@ mod imp {
 		}
 
 		#[inline]
-		pub(super) fn translate(&self, mouse_pos: &mut Pos2)
+		pub(super) fn translate(&self, mouse_pos: &mut Pos2,
+			render: &dyn GuiRender, render_rect: &Rect)
 		{
 			if self.render_han.get() {
 				if let Some(adjustment) = &self.hadjustment.borrow().as_ref() {
-					self.render.borrow().translate_mouse_pos(
+					render.translate_mouse_pos(
 						mouse_pos,
-						&self.data.borrow().render_rect,
+						render_rect,
 						adjustment.value() as f32,
 						adjustment.upper() as f32);
 				}
 			} else if let Some(adjustment) = &self.vadjustment.borrow().as_ref() {
-				self.render.borrow().translate_mouse_pos(
+				render.translate_mouse_pos(
 					mouse_pos,
-					&self.data.borrow().render_rect,
+					render_rect,
 					adjustment.value() as f32,
 					adjustment.upper() as f32);
 			};
@@ -736,14 +731,14 @@ mod imp {
 			data.render_rect = render_context.render_rect.clone();
 		}
 
-		pub fn calc_selection(&self, original_pos: Pos2, current_pos: Pos2)
+		pub fn calc_selection(&self, mut original_pos: Pos2, mut current_pos: Pos2)
 			-> Option<(Position, Position)>
 		{
 			#[inline]
 			fn offset_index(line: &RenderLine, offset: &PointerPosition) -> usize {
 				match offset {
 					PointerPosition::Head => line.first_offset(),
-					PointerPosition::Exact(offset) => line.char_offset(*offset),
+					PointerPosition::Exact(offset) => line.char_at_index(*offset).offset,
 					PointerPosition::Tail => line.last_offset(),
 				}
 			}
@@ -790,13 +785,16 @@ mod imp {
 			}
 
 			let data = self.data.borrow_mut();
-			let render = self.render.borrow_mut();
-			let render_rect = &data.render_rect;
 			let lines = &data.render_lines;
 			let line_count = lines.len();
 			if line_count == 0 {
 				return None;
 			}
+			let render = self.render.borrow_mut();
+			let render_rect = &data.render_rect;
+			self.translate(&mut original_pos, render.as_ref(), render_rect);
+			self.translate(&mut current_pos, render.as_ref(), render_rect);
+
 			if (original_pos.x - current_pos.x).abs() < MIN_TEXT_SELECT_DISTANCE
 				&& (original_pos.y - current_pos.y).abs() < MIN_TEXT_SELECT_DISTANCE {
 				return None;
@@ -841,13 +839,18 @@ mod imp {
 			where F: FnOnce(&RenderLine, &RenderChar) -> Option<T>
 		{
 			let data = self.data.borrow();
-			self.translate(&mut pointer_position);
-			for line in &data.render_lines {
-				if let Some(dc) = line.char_at_pos(&pointer_position) {
-					return f(line, dc);
-				}
+			let render_lines = &data.render_lines;
+			let render = self.render.borrow();
+			let render_rect = &data.render_rect;
+			self.translate(&mut pointer_position, render.as_ref(), render_rect);
+			if let (PointerPosition::Exact(line), PointerPosition::Exact(offset)) = render
+				.pointer_pos(&pointer_position, render_lines, render_rect) {
+				let render_line = render_lines.get(line)?;
+				let dc = render_line.char_at_index(offset);
+				f(render_line, dc)
+			} else {
+				None
 			}
-			None
 		}
 
 		#[inline]
