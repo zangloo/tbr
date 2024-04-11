@@ -1042,7 +1042,7 @@ pub fn parse(options: HtmlParseOptions) -> Result<(HtmlContent, Vec<HtmlFontFace
 		styles: vec![],
 
 		title: None,
-		lines: vec![],
+		lines: vec![Line::default()],
 		block_styles: vec![],
 		id_map: Default::default(),
 	};
