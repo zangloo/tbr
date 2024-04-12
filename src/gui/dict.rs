@@ -186,50 +186,66 @@ impl DictionaryBook {
 		self.content = content;
 	}
 
+	#[inline]
+	fn lookup_at_pos(&mut self, line_no: usize, offset: usize) -> Option<(usize, usize)>
+	{
+		let line = self.content.lines.get(line_no)?;
+		word_at_offset(line, offset, &mut self.dictionaries, &mut self.cache)
+	}
+
+	#[inline]
 	pub fn lookup_at_offset(&mut self, line: &Line, offset: usize) -> Option<(usize, usize)>
 	{
-		fn exists(dictionaries: &mut Vec<Box<dyn StarDict>>, pattern: &str,
-			cache: &mut HashMap<String, Vec<LookupResult>>) -> bool
-		{
-			if let Some(result) = cache.get(pattern) {
-				return !result.is_empty();
-			}
-			let result = lookup_internal(dictionaries, pattern);
-			let exists = !result.is_empty();
-			cache.insert(pattern.to_owned(), result);
-			exists
-		}
+		word_at_offset(line, offset, &mut self.dictionaries, &mut self.cache)
+	}
+}
 
-		if self.dictionaries.is_empty() {
-			return line.word_at_offset(offset);
+pub fn word_at_offset(line: &Line, offset: usize,
+	dictionaries: &mut Vec<Box<dyn StarDict>>,
+	cache: &mut HashMap<String, Vec<LookupResult>>)
+	-> Option<(usize, usize)>
+{
+	fn exists(dictionaries: &mut Vec<Box<dyn StarDict>>, pattern: &str,
+		cache: &mut HashMap<String, Vec<LookupResult>>) -> bool
+	{
+		if let Some(result) = cache.get(pattern) {
+			return !result.is_empty();
 		}
-		let len = line.len();
-		let min_to = offset + 1;
-		let mut text = String::with_capacity(len);
-		for from in (0..=offset).rev() {
-			if let Some(char) = line.char_at(from) {
-				if char != ' ' && TEXT_SELECTION_SPLITTER.binary_search(&char).is_ok() {
-					break;
-				}
-				for to in max(min_to, from + 2)..=len {
-					if let Some(char) = line.char_at(to - 1) {
-						if char != ' ' && TEXT_SELECTION_SPLITTER.binary_search(&char).is_ok() {
-							break;
-						}
-						line.sub_str(&mut text, from..to);
-						if exists(&mut self.dictionaries, &text, &mut self.cache) {
-							return Some((from, to - 1));
-						}
-					} else {
-						break;
-					}
-				}
-			} else {
+		let result = lookup_internal(dictionaries, pattern);
+		let exists = !result.is_empty();
+		cache.insert(pattern.to_owned(), result);
+		exists
+	}
+
+	if dictionaries.is_empty() {
+		return line.word_at_offset(offset);
+	}
+	let len = line.len();
+	let min_to = offset + 1;
+	let mut text = String::with_capacity(len);
+	for from in (0..=offset).rev() {
+		if let Some(char) = line.char_at(from) {
+			if char != ' ' && TEXT_SELECTION_SPLITTER.binary_search(&char).is_ok() {
 				break;
 			}
+			for to in max(min_to, from + 2)..=len {
+				if let Some(char) = line.char_at(to - 1) {
+					if char != ' ' && TEXT_SELECTION_SPLITTER.binary_search(&char).is_ok() {
+						break;
+					}
+					line.sub_str(&mut text, from..to);
+					if exists(dictionaries, &text, cache) {
+						return Some((from, to - 1));
+					}
+				} else {
+					break;
+				}
+			}
+		} else {
+			break;
 		}
-		line.word_at_offset(offset)
 	}
+	line.word_at_offset(offset)
 }
 
 fn lookup_internal(dictionaries: &mut Vec<Box<dyn StarDict>>, word: &str)
@@ -657,12 +673,10 @@ fn setup_ui(dm: &Rc<RefCell<DictionaryManager>>, backward_btn: &Button, forward_
 			closure_local!(move |_: GuiView, line: u64, offset: u64| {
 				let line_no = line as usize;
 				let mut dictionary_manager = dm.borrow_mut();
-				let book = dictionary_manager.db.borrow();
-				if let Some(line) = book.lines().get(line_no){
-					if let Some((from, to)) = line.word_at_offset(offset as usize) {
-						drop(book);
-						dictionary_manager.select_text(line_no, from, line_no, to);
-					}
+				let mut book = dictionary_manager.db.borrow_mut();
+				if let Some((from, to)) = book.lookup_at_pos(line_no, offset as usize) {
+					drop(book);
+					dictionary_manager.select_text(line_no, from, line_no, to);
 				}
 			}),
 		);
