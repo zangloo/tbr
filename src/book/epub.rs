@@ -273,7 +273,7 @@ impl Book for EpubBook {
 			} else {
 				current -= 1;
 				let chapter = self.load_chapter(current)?;
-				let lines_count = chapter.lines.len();
+				let lines_count = chapter.lines().len();
 				if lines_count > 0 {
 					self.chapter_index = current;
 					return Ok(Some(current));
@@ -291,7 +291,7 @@ impl Book for EpubBook {
 				return Ok(None);
 			} else {
 				let chapter = self.load_chapter(current)?;
-				let lines_count = chapter.lines.len();
+				let lines_count = chapter.lines().len();
 				if lines_count > 0 {
 					self.chapter_index = current;
 					return Ok(Some(current));
@@ -332,7 +332,7 @@ impl Book for EpubBook {
 					match &np.src_file {
 						Some(src_file) if chapter_href == src_file => {
 							if let Some(anchor) = &np.src_anchor {
-								if let Some(position) = c.id_map.get(anchor) {
+								if let Some(position) = c.id_position(anchor) {
 									if position.line > line || (position.line == line && position.offset > offset) {
 										break;
 									}
@@ -372,7 +372,7 @@ impl Book for EpubBook {
 	#[inline]
 	fn lines(&self) -> &Vec<Line>
 	{
-		&self.chapter_cache.get(&self.chapter_index).unwrap().lines
+		&self.chapter_cache.get(&self.chapter_index).unwrap().lines()
 	}
 
 	fn link_position(&mut self, line: usize, link_index: usize) -> Option<TraceInfo>
@@ -380,7 +380,7 @@ impl Book for EpubBook {
 		let full_path = chapter_path(self.chapter_index, &self.content_opf).ok()?;
 		let cwd = path_cwd(full_path);
 		let chapter = self.chapter_cache.get(&self.chapter_index)?;
-		let text = &chapter.lines.get(line)?;
+		let text = &chapter.lines().get(line)?;
 		let link = text.link_at(link_index)?;
 		let link_target = link.target;
 
@@ -450,12 +450,9 @@ impl Book for EpubBook {
 	#[inline]
 	fn block_styles(&self) -> Option<&Vec<BlockStyle>>
 	{
-		let chapter = self.chapter_cache.get(&self.current_chapter())?;
-		if chapter.block_styles.is_empty() {
-			None
-		} else {
-			Some(&chapter.block_styles)
-		}
+		self.chapter_cache
+			.get(&self.current_chapter())?
+			.block_styles()
 	}
 }
 
@@ -627,7 +624,7 @@ impl EpubBook {
 	{
 		fn target_position_in_chapter(chapter_index: usize, chapter: &Chapter, target_anchor: &Option<String>) -> Option<TraceInfo> {
 			if let Some(anchor) = target_anchor {
-				if let Some(position) = chapter.id_map.get(anchor) {
+				if let Some(position) = chapter.id_position(anchor) {
 					return Some(TraceInfo {
 						chapter: chapter_index,
 						line: position.line,

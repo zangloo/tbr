@@ -36,24 +36,33 @@ pub struct HtmlParseOptions<'a> {
 	html: String,
 	font_family: Option<&'a mut IndexSet<String>>,
 	resolver: Option<&'a dyn HtmlResolver>,
+	custom_title: Option<String>,
 }
 
 impl<'a> HtmlParseOptions<'a> {
 	#[inline]
 	pub fn new(html: String) -> HtmlParseOptions<'a>
 	{
-		HtmlParseOptions { html, font_family: None, resolver: None }
+		HtmlParseOptions {
+			html,
+			font_family: None,
+			resolver: None,
+			custom_title: None,
+		}
 	}
-
 	pub fn with_font_family(mut self, font_family: &'a mut IndexSet<String>) -> Self
 	{
 		self.font_family = Some(font_family);
 		self
 	}
-
 	pub fn with_resolver(mut self, resolver: &'a dyn HtmlResolver) -> Self
 	{
 		self.resolver = Some(resolver);
+		self
+	}
+	pub fn with_custom_title(mut self, custom_title: String) -> Self
+	{
+		self.custom_title = Some(custom_title);
 		self
 	}
 }
@@ -241,10 +250,10 @@ impl FontWeight {
 }
 
 pub struct HtmlContent {
-	pub title: Option<String>,
-	pub lines: Vec<Line>,
-	pub block_styles: Vec<BlockStyle>,
-	pub id_map: HashMap<String, Position>,
+	title: Option<String>,
+	lines: Vec<Line>,
+	block_styles: Option<Vec<BlockStyle>>,
+	id_map: HashMap<String, Position>,
 }
 
 impl HtmlContent
@@ -255,9 +264,29 @@ impl HtmlContent
 		HtmlContent {
 			title: None,
 			lines: vec![],
-			block_styles: vec![],
+			block_styles: None,
 			id_map: HashMap::new(),
 		}
+	}
+	#[inline]
+	pub fn title(&self) -> Option<&str>
+	{
+		self.title.as_ref().map(|s| s.as_str())
+	}
+	#[inline]
+	pub fn lines(&self) -> &Vec<Line>
+	{
+		&self.lines
+	}
+	#[inline]
+	pub fn block_styles(&self) -> Option<&Vec<BlockStyle>>
+	{
+		self.block_styles.as_ref()
+	}
+	#[inline]
+	pub fn id_position(&self, id: &str) -> Option<&Position>
+	{
+		self.id_map.get(id)
 	}
 }
 
@@ -392,7 +421,7 @@ impl<'a> HtmlParser<'a> {
 	fn finalize(mut self) -> (
 		Option<String>,
 		Vec<Line>,
-		Vec<BlockStyle>,
+		Option<Vec<BlockStyle>>,
 		HashMap<String, Position>,
 		Vec<HtmlFontFaceDesc>)
 	{
@@ -431,10 +460,16 @@ impl<'a> HtmlParser<'a> {
 				}
 			}
 		}
+
+		let block_styles = if self.block_styles.is_empty() {
+			None
+		} else {
+			Some(self.block_styles)
+		};
 		(
 			self.title,
 			self.lines,
-			self.block_styles,
+			block_styles,
 			self.id_map,
 			self.font_faces)
 	}
@@ -1073,6 +1108,11 @@ pub fn parse(options: HtmlParseOptions) -> Result<(HtmlContent, Vec<HtmlFontFace
 	parser.convert_node_to_lines(*body.deref());
 
 	let (title, lines, block_styles, id_map, font_faces) = parser.finalize();
+	let title = if options.custom_title.is_some() {
+		options.custom_title
+	} else {
+		title
+	};
 	Ok((HtmlContent {
 		title,
 		lines,

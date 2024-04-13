@@ -73,7 +73,7 @@ impl Book for DictionaryBook
 	#[inline]
 	fn lines(&self) -> &Vec<Line>
 	{
-		&self.content.lines
+		&self.content.lines()
 	}
 
 	#[inline]
@@ -158,9 +158,9 @@ impl DictionaryBook {
 				render_definition(single, &mut text, &self.replacer);
 			}
 			text.push_str(HTML_DEFINITION_TAIL);
-			if let Ok((mut content, _)) = html_parser::parse(HtmlParseOptions::new(text)
-				.with_font_family(&mut self.font_families)) {
-				content.title = Some(String::from(word));
+			if let Ok((content, _)) = html_parser::parse(HtmlParseOptions::new(text)
+				.with_font_family(&mut self.font_families)
+				.with_custom_title(String::from(word))) {
 				content
 			} else {
 				let mut text = "<html><body>".to_string();
@@ -189,7 +189,7 @@ impl DictionaryBook {
 	#[inline]
 	fn lookup_at_pos(&mut self, line_no: usize, offset: usize) -> Option<(usize, usize)>
 	{
-		let line = self.content.lines.get(line_no)?;
+		let line = self.content.lines().get(line_no)?;
 		word_at_offset(line, offset, &mut self.dictionaries, &mut self.cache)
 	}
 

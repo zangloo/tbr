@@ -156,24 +156,24 @@ impl Book for HtmlBook {
 	#[inline]
 	fn name(&self) -> Option<&str>
 	{
-		self.content.title.as_ref().map(|n| n.as_ref())
+		self.content.title()
 	}
 
 	#[inline]
 	fn lines(&self) -> &Vec<Line>
 	{
-		&self.content.lines
+		&self.content.lines()
 	}
 
 	fn link_position(&mut self, line: usize, link_index: usize) -> Option<TraceInfo>
 	{
-		let text = &self.content.lines.get(line)?;
+		let text = &self.content.lines().get(line)?;
 		let link = text.link_at(link_index)?;
 		let link_target = link.target;
 		let mut split = link_target.split('#');
 		split.next()?;
 		let anchor = split.next()?;
-		let position = self.content.id_map.get(anchor)?;
+		let position = self.content.id_position(anchor)?;
 		Some(TraceInfo { chapter: 0, line: position.line, offset: position.offset })
 	}
 
@@ -230,11 +230,7 @@ impl Book for HtmlBook {
 	#[inline]
 	fn block_styles(&self) -> Option<&Vec<BlockStyle>>
 	{
-		if self.content.block_styles.is_empty() {
-			None
-		} else {
-			Some(&self.content.block_styles)
-		}
+		self.content.block_styles()
 	}
 }
 
