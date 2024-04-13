@@ -11,13 +11,13 @@ use std::str::FromStr;
 use anyhow::{anyhow, bail, Result};
 use elsa::FrozenMap;
 use indexmap::IndexSet;
-use roxmltree::{Children, Document, ExpandedName, Node};
+use roxmltree::{Children, ExpandedName, Node};
 use zip::ZipArchive;
 
 use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader, TocInfo, ImageData};
 #[cfg(feature = "gui")]
 use crate::html_parser::BlockStyle;
-use crate::html_parser::{HtmlContent, HtmlParseOptions, HtmlResolver};
+use crate::html_parser::{HtmlContent, HtmlParseOptions, HtmlResolver, parse_xml};
 use crate::list::ListIterator;
 use crate::common::TraceInfo;
 use crate::config::{BookLoadingInfo, ReadingInfo};
@@ -503,7 +503,7 @@ impl EpubBook {
 			return Err(anyhow!("Encrypted epub."));
 		}
 		let container_text = archive.string("META-INF/container.xml")?;
-		let doc = Document::parse(&container_text)?;
+		let doc = parse_xml(&container_text)?;
 		let root = doc.root_element();
 		let rootfiles = get_child(root, "rootfiles").ok_or(anyhow!("invalid container.xml: no rootfiles"))?;
 		let rootfile = get_child(rootfiles, "rootfile").ok_or(anyhow!("invalid container.xml: no rootfile"))?;
@@ -703,8 +703,8 @@ fn parse_nav_points(nav_points_element: Node, level: usize, nav_points: &mut Vec
 
 fn parse_ncx(text: &str, cwd: &PathBuf) -> Result<Vec<NavPoint>>
 {
-	let doc = Document::parse(text)
-		.map_err(|_e| anyhow!("Failed parse ncx"))?;
+	let doc = parse_xml(text)
+		.map_err(|e| anyhow!("Failed parse ncx: {}", e.to_string()))?;
 	let ncx = doc.root_element();
 	let nav_map = get_child(ncx, "navMap")
 		.ok_or_else(|| anyhow!("Missing navMap"))?;
@@ -788,7 +788,7 @@ fn parse_nav_doc(text: &str, cwd: &PathBuf) -> Result<Vec<NavPoint>>
 		}
 		Ok(())
 	}
-	let doc = Document::parse(text)
+	let doc = parse_xml(text)
 		.map_err(|_e| anyhow!("Failed parse Navigation document"))?;
 	let root = doc.root_element();
 	let body = get_child(root, "body").ok_or(anyhow!("Navigation document without body"))?;
@@ -855,7 +855,7 @@ fn parse_spine(spine: Node, manifest: &Manifest, archive: &dyn EpubArchive) -> O
 
 fn parse_content_opf(text: &str, content_opf_dir: &PathBuf, archive: &dyn EpubArchive) -> Option<ContentOPF>
 {
-	let doc = Document::parse(text).ok()?;
+	let doc = parse_xml(text).ok()?;
 	let package = doc.root_element();
 	let metadata = get_child(package, "metadata")?;
 	let manifest = get_child(package, "manifest")?;
