@@ -1073,7 +1073,6 @@ pub fn parse(options: HtmlParseOptions) -> Result<(HtmlContent, Vec<HtmlFontFace
 	parser.convert_node_to_lines(*body.deref());
 
 	let (title, lines, block_styles, id_map, font_faces) = parser.finalize();
-	drop(stylesheets);
 	Ok((HtmlContent {
 		title,
 		lines,
