@@ -37,6 +37,7 @@ pub struct HtmlParseOptions<'a> {
 	font_family: Option<&'a mut IndexSet<String>>,
 	resolver: Option<&'a dyn HtmlResolver>,
 	custom_title: Option<String>,
+	dark_mode: bool,
 }
 
 impl<'a> HtmlParseOptions<'a> {
@@ -48,6 +49,7 @@ impl<'a> HtmlParseOptions<'a> {
 			font_family: None,
 			resolver: None,
 			custom_title: None,
+			dark_mode: false,
 		}
 	}
 	pub fn with_font_family(mut self, font_family: &'a mut IndexSet<String>) -> Self
@@ -310,6 +312,7 @@ pub struct HtmlParser<'a> {
 	font_faces: Vec<HtmlFontFaceDesc>,
 	font_face_map: HashMap<&'a str, Option<String>>,
 	styles: Vec<StyleDescription>,
+	dark_mode: bool,
 
 	title: Option<String>,
 	lines: Vec<Line>,
@@ -574,7 +577,7 @@ impl<'a> HtmlParser<'a> {
 						}
 						if let Some(color_text) = element.attr("color") {
 							if let Ok(color) = CssColor::parse_string(color_text) {
-								if let Some(color) = css_color(&color) {
+								if let Some(color) = self.css_color(&color) {
 									insert_or_replace_style(&mut element_styles, TextStyle::Color(color), false);
 								}
 							}
@@ -725,9 +728,9 @@ impl<'a> HtmlParser<'a> {
 			Property::FontWeight(weight) => Some(TextStyle::FontWeight(FontWeightValue::from(weight))),
 			Property::FontFamily(families) => self.font_family(families),
 			Property::TextDecorationLine(line, _) => Some(TextStyle::Line(*line)),
-			Property::Color(color) => Some(TextStyle::Color(css_color(color)?)),
-			Property::BackgroundColor(color) => Some(TextStyle::BackgroundColor(css_color(color)?)),
-			Property::Background(bg) => Some(TextStyle::BackgroundColor(css_color(&bg[0].color)?)),
+			Property::Color(color) => Some(TextStyle::Color(self.css_color(color)?)),
+			Property::BackgroundColor(color) => Some(TextStyle::BackgroundColor(self.css_color(color)?)),
+			Property::Background(bg) => Some(TextStyle::BackgroundColor(self.css_color(&bg[0].color)?)),
 			_ => None,
 		}
 	}
@@ -761,6 +764,28 @@ impl<'a> HtmlParser<'a> {
 			}
 		} else {
 			None
+		}
+	}
+
+	fn css_color(&self, color: &CssColor) -> Option<Color32>
+	{
+		match color {
+			CssColor::CurrentColor => None,
+			CssColor::RGBA(rgba) => Some(Color32::from_rgba_unmultiplied(
+				rgba.red, rgba.green, rgba.blue, rgba.alpha)),
+			CssColor::LAB(_)
+			| CssColor::Predefined(_)
+			| CssColor::Float(_) => match &color.to_rgb() {
+				Ok(CssColor::RGBA(rgba)) => Some(Color32::from_rgba_unmultiplied(
+					rgba.red, rgba.green, rgba.blue, rgba.alpha)),
+				_ => panic!("should not happen")
+			},
+			CssColor::LightDark(light_color, dark_color) => if self.dark_mode {
+				self.css_color(dark_color)
+			} else {
+				self.css_color(light_color)
+			},
+			CssColor::System(_) => None,
 		}
 	}
 }
@@ -986,22 +1011,6 @@ fn length_value(value: &LengthValue, default_size: f32) -> (f32, bool)
 	}
 }
 
-fn css_color(color: &CssColor) -> Option<Color32>
-{
-	match color {
-		CssColor::CurrentColor => None,
-		CssColor::RGBA(rgba) => Some(Color32::from_rgba_unmultiplied(
-			rgba.red, rgba.green, rgba.blue, rgba.alpha)),
-		CssColor::LAB(_)
-		| CssColor::Predefined(_)
-		| CssColor::Float(_) => match &color.to_rgb() {
-			Ok(CssColor::RGBA(rgba)) => Some(Color32::from_rgba_unmultiplied(
-				rgba.red, rgba.green, rgba.blue, rgba.alpha)),
-			_ => panic!("should not happen")
-		}
-	}
-}
-
 fn load_stylesheets<'d>(document: &'d Html, resolver: Option<&'d dyn HtmlResolver>)
 	-> Vec<(Option<PathBuf>, StyleSheet<'d, 'd>)>
 {
@@ -1064,6 +1073,7 @@ pub fn parse(options: HtmlParseOptions) -> Result<(HtmlContent, Vec<HtmlFontFace
 		font_faces: vec![],
 		font_face_map: Default::default(),
 		styles: vec![],
+		dark_mode: options.dark_mode,
 
 		title: None,
 		lines: vec![Line::default()],

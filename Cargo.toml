@@ -30,11 +30,11 @@ open = ["dep:rand", "dep:open"]
 
 [target.'cfg(windows)'.dependencies]
 cursive = { version = "0.20", default-features = false, features = ["crossterm-backend", "toml"] }
-rusqlite = { version = "0.29", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 [target.'cfg(unix)'.dependencies]
 cursive = { version = "0.20", features = ["toml"] }
-rusqlite = { version = "0.29" }
+rusqlite = { version = "0.31" }
 
 [build-dependencies]
 winres = "0.1"
@@ -47,18 +47,19 @@ serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
 toml = "0.8"
 rust-embed = { version = "8.0", features = ["include-exclude"] }
-roxmltree = "0.18"
+roxmltree = "0.19"
 unicode-width = "0.1"
-fancy-regex = "0.11"
+fancy-regex = "0.13"
 chardetng = "0.1"
 encoding_rs = "0.8"
 zip = "0.6"
 lexical-sort = "0.3"
 elsa = "1.8"
 
+# scraper need v0.11
 markup5ever = "0.11"
-scraper = "0.17"
-lightningcss = "=1.0.0-alpha.49"
+scraper = "0.19"
+lightningcss = "=1.0.0-alpha.55"
 ego-tree = "0.6"
 indexmap = "2.0"
 
@@ -66,11 +67,11 @@ fluent = { version = "0.16", optional = true }
 unic-langid = { version = "0.9", optional = true }
 sys-locale = { version = "0.3", optional = true }
 
-gtk4 = { version = "0.7", features = ["v4_12"], optional = true }
-pangocairo = { version = "0.18", optional = true }
+gtk4 = { version = "0.8", features = ["v4_12"], optional = true }
+pangocairo = { version = "0.19", optional = true }
 ab_glyph = { version = "0.2", optional = true }
-resvg = { version = "0.36", optional = true }
-fontdb = { version = "0.15", optional = true }
+resvg = { version = "0.41", optional = true }
+fontdb = { version = "0.16", optional = true }
 ouroboros = { version = "0.18", optional = true }
 
 stardict = { version = "0.2", optional = true }

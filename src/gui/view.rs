@@ -3,9 +3,8 @@ use gtk4::{CssProvider, EventControllerMotion, EventControllerScroll, EventContr
 use glib::Object;
 use gtk4::Scrollable;
 use gtk4::gdk::{Display, ModifierType};
-use gtk4::glib::ObjectExt;
 use gtk4::pango::Layout as PangoContext;
-use gtk4::prelude::{EventControllerExt, GestureDragExt, GestureExt, WidgetExt};
+use gtk4::prelude::{EventControllerExt, GestureDragExt, GestureExt, ObjectExt, WidgetExt};
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
 use crate::book::{Book, Line};
 use crate::color::Color32;
@@ -289,12 +288,12 @@ mod imp {
 	use std::cell::{Cell, RefCell};
 	use std::cmp::min;
 	use std::rc::Rc;
+	use std::sync::OnceLock;
 	use glib::Properties;
 	use gtk4::prelude::*;
 	use gtk4::{Adjustment, glib, graphene, Scrollable, ScrollablePolicy, Snapshot};
 	use gtk4::gdk::ModifierType;
-	use gtk4::glib::once_cell::sync::Lazy;
-	use gtk4::glib::StaticType;
+	use gtk4::glib::prelude::StaticType;
 	use gtk4::glib::subclass::Signal;
 	use gtk4::pango::Layout as PangoContext;
 	use gtk4::subclass::drawing_area::DrawingAreaImpl;
@@ -374,7 +373,8 @@ mod imp {
 	impl ObjectImpl for GuiView {
 		fn signals() -> &'static [Signal]
 		{
-			static SIGNALS: Lazy<Vec<Signal>> = Lazy::new(|| {
+			static SIGNALS: OnceLock<Vec<Signal>> = OnceLock::new();
+			SIGNALS.get_or_init(|| {
 				vec![
 					Signal::builder(super::GuiView::OPEN_LINK_SIGNAL)
 						.param_types([
@@ -432,8 +432,7 @@ mod imp {
 						.run_last()
 						.build(),
 				]
-			});
-			SIGNALS.as_ref()
+			})
 		}
 	}
 

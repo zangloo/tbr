@@ -2,8 +2,7 @@ use anyhow::Result;
 use std::borrow::Cow;
 use gtk4::{Align, Button, Entry, EventControllerKey, glib, Orientation, Separator, TextBuffer, TextView, Widget, Window};
 use gtk4::gdk::Key;
-use gtk4::glib::IsA;
-use gtk4::prelude::{BoxExt, ButtonExt, EditableExt, EntryExt, GtkWindowExt, TextBufferExt, WidgetExt};
+use gtk4::prelude::{BoxExt, ButtonExt, EditableExt, EntryExt, GtkWindowExt, IsA, TextBufferExt, WidgetExt};
 use crate::gui::{alert, GuiContext, MODIFIER_NONE};
 
 pub(crate) fn custom_styles<F>(style: &Option<String>, gc: &GuiContext,

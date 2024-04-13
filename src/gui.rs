@@ -12,13 +12,13 @@ use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle, Texture};
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuItem, MenuModel, SimpleAction, SimpleActionGroup};
 use gtk4::glib;
-use gtk4::glib::{Bytes, closure_local, ExitCode, format_size, ObjectExt, StaticType, ToVariant, Variant};
+use gtk4::glib::{Bytes, closure_local, ExitCode, format_size, Variant};
+use gtk4::glib::prelude::{ObjectExt, StaticType, ToVariant};
 use gtk4::graphene::Point;
 use gtk4::prelude::{ActionExt, ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, EventControllerExt, FileExt, GtkApplicationExt, GtkWindowExt, IsA, NativeExt, OrientableExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
 use pangocairo::glib::Propagation;
 use pangocairo::pango::EllipsizeMode;
 use resvg::{tiny_skia, usvg};
-use resvg::usvg::TreeParsing;
 
 use crate::{Asset, I18n, package_name};
 use crate::book::{Book, Colors, Line};
@@ -529,17 +529,15 @@ fn load_icons() -> IconMap
 {
 	const ICONS_PREFIX: &str = "gui/image/";
 	let mut map = HashMap::new();
+	let opt = usvg::Options::default();
+	let font_db = fontdb::Database::new();
 	for file in Asset::iter() {
 		if file.starts_with(ICONS_PREFIX) && file.ends_with(".svg") {
 			let content = Asset::get(file.as_ref()).unwrap().data;
-			let rtree = {
-				let opt = usvg::Options::default();
-				let tree = usvg::Tree::from_data(&content, &opt).unwrap();
-				resvg::Tree::from_usvg(&tree)
-			};
-			let pixmap_size = rtree.size.to_int_size();
+			let tree = usvg::Tree::from_data(&content, &opt, &font_db).unwrap();
+			let pixmap_size = tree.size().to_int_size();
 			let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
-			rtree.render(tiny_skia::Transform::default(), &mut pixmap.as_mut());
+			resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
 			let png = pixmap.encode_png().unwrap();
 			let bytes = Bytes::from(&png);
 			let mis = MemoryInputStream::from_bytes(&bytes);
@@ -1924,7 +1922,7 @@ fn mouse_pointer(view: &impl IsA<Widget>) -> Option<(f32, f32)>
 {
 	let pointer = view.display().default_seat()?.pointer()?;
 	let root = view.root()?;
-	let (x, y, _) = root.surface().device_position(&pointer)?;
+	let (x, y, _) = root.surface()?.device_position(&pointer)?;
 	let point = root.compute_point(view, &Point::new(x as f32, y as f32))?;
 	let x = point.x();
 	let y = point.y();

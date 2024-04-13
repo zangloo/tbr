@@ -291,7 +291,7 @@ impl PangoDrawData {
 		let y_offset = offset_y as f64;
 		color.apply(cairo);
 		cairo.move_to(x_offset, y_offset);
-		pangocairo::show_layout(cairo, &layout);
+		pangocairo::functions::show_layout(cairo, &layout);
 	}
 }
 
