@@ -96,7 +96,7 @@ impl Loader for HtmlLoader {
 		}
 		let reading = get_reading(loading);
 		#[allow(unused)]
-			let (content, mut font_faces) = html_parser::parse(HtmlParseOptions::new(text)
+			let (content, mut font_faces) = html_parser::parse(HtmlParseOptions::new(&text)
 			.with_font_family(&mut font_families)
 			.with_resolver(&HtmlContentResolver {
 				cwd: cwd.clone(),
@@ -135,7 +135,7 @@ impl Loader for HtmlLoader {
 	{
 		let mut font_families = IndexSet::new();
 		let text = plain_text(content, false)?;
-		let (content, _) = html_parser::parse(HtmlParseOptions::new(text)
+		let (content, _) = html_parser::parse(HtmlParseOptions::new(&text)
 			.with_font_family(&mut font_families))?;
 		let book = HtmlBook {
 			path: None,

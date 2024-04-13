@@ -603,7 +603,7 @@ impl EpubBook {
 					custom_style: self.custom_style.as_ref().map(|s| s.as_ref()),
 				};
 				#[allow(unused)]
-					let (html_content, mut font_faces) = html_parser::parse(HtmlParseOptions::new(html_str)
+					let (html_content, mut font_faces) = html_parser::parse(HtmlParseOptions::new(&html_str)
 					.with_font_family(&mut self.font_families)
 					.with_resolver(&mut resolve))?;
 				#[cfg(feature = "gui")]

@@ -33,7 +33,7 @@ const DEFAULT_FONT_WEIGHT: u16 = 400;
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 
 pub struct HtmlParseOptions<'a> {
-	html: String,
+	html: &'a str,
 	font_family: Option<&'a mut IndexSet<String>>,
 	resolver: Option<&'a dyn HtmlResolver>,
 	custom_title: Option<String>,
@@ -41,7 +41,7 @@ pub struct HtmlParseOptions<'a> {
 
 impl<'a> HtmlParseOptions<'a> {
 	#[inline]
-	pub fn new(html: String) -> HtmlParseOptions<'a>
+	pub fn new(html: &'a str) -> HtmlParseOptions
 	{
 		HtmlParseOptions {
 			html,

@@ -158,7 +158,7 @@ impl DictionaryBook {
 				render_definition(single, &mut text, &self.replacer);
 			}
 			text.push_str(HTML_DEFINITION_TAIL);
-			if let Ok((content, _)) = html_parser::parse(HtmlParseOptions::new(text)
+			if let Ok((content, _)) = html_parser::parse(HtmlParseOptions::new(&text)
 				.with_font_family(&mut self.font_families)
 				.with_custom_title(String::from(word))) {
 				content
@@ -168,7 +168,7 @@ impl DictionaryBook {
 					render_definition_text(single, &mut text);
 				}
 				text.push_str("</body></html>");
-				html_parser::parse(HtmlParseOptions::new(text)
+				html_parser::parse(HtmlParseOptions::new(&text)
 					.with_font_family(&mut self.font_families))
 					.unwrap()
 					.0
@@ -178,7 +178,7 @@ impl DictionaryBook {
 			let msg = i18n.msg("dictionary-no-definition");
 			text.push_str(&msg);
 			text.push_str("</body></html>");
-			html_parser::parse(HtmlParseOptions::new(text)
+			html_parser::parse(HtmlParseOptions::new(&text)
 				.with_font_family(&mut self.font_families))
 				.unwrap()
 				.0
