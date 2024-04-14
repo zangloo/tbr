@@ -781,6 +781,7 @@ impl<'a> HtmlParser<'a> {
 					rgba.red, rgba.green, rgba.blue, rgba.alpha)),
 				_ => panic!("should not happen")
 			},
+			// todo should return a dynamic color, and get real color by dark_mode when render
 			CssColor::LightDark(light_color, dark_color) => if self.dark_mode {
 				self.css_color(dark_color)
 			} else {
