@@ -1681,7 +1681,11 @@ impl GuiContext {
 		let mut controller = self.ctrl_mut();
 		let loading = BookLoadingInfo::Reload(controller.reading.clone());
 		match controller.switch_container(loading, &mut self.ctx_mut()) {
-			Ok(msg) => update_status(false, &msg, &self.status_bar),
+			Ok(msg) => {
+				drop(controller);
+				self.chapter_list.sync_chapter_list(ChapterListSyncMode::Reload);
+				update_status(false, &msg, &self.status_bar)
+			},
 			Err(err) => self.error(&err.to_string()),
 		}
 	}
