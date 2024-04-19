@@ -103,15 +103,23 @@ impl From<&CssFontWeight> for FontWeightValue {
 	}
 }
 
+#[derive(Clone, Debug)]
+pub struct BorderLines {
+	pub top: bool,
+	pub right: bool,
+	pub bottom: bool,
+	pub left: bool,
+}
+
 pub enum BlockStyle {
-	Border(Range<usize>),
+	Border { range: Range<usize>, lines: BorderLines },
 	Background { range: Range<usize>, color: Color32 },
 }
 
 #[derive(Clone, Debug)]
 pub enum TextStyle {
 	Line(TextDecorationLine),
-	Border,
+	Border(BorderLines),
 	FontSize { scale: FontScale, relative: bool },
 	FontWeight(FontWeightValue),
 	FontFamily(u16),
@@ -127,7 +135,7 @@ impl TextStyle {
 	{
 		match self {
 			TextStyle::Line(_) => 1,
-			TextStyle::Border => 2,
+			TextStyle::Border { .. } => 2,
 			TextStyle::FontSize { .. } => 3,
 			TextStyle::FontWeight(_) => 4,
 			TextStyle::FontFamily(_) => 5,
@@ -713,16 +721,12 @@ impl<'a> HtmlParser<'a> {
 			if border_width(&line.width) => Some(TextStyle::Line(TextDecorationLine::Underline)),
 			Property::BorderWidth(width) => {
 				let top = border_width(&width.top);
-				let left = border_width(&width.left);
 				let right = border_width(&width.right);
 				let bottom = border_width(&width.bottom);
+				let left = border_width(&width.left);
 				match (top, left, right, bottom) {
-					(false, false, false, true) => Some(TextStyle::Line(TextDecorationLine::Underline)),
-					(true, true, true, true) => Some(TextStyle::Border),
-					(true, _, _, _) => Some(TextStyle::Border),
-					(_, true, _, _) => Some(TextStyle::Border),
-					(_, _, true, _) => Some(TextStyle::Border),
-					_ => None,
+					(false, false, false, false) => None,
+					(_, _, _, _) => Some(TextStyle::Border(BorderLines { top, right, bottom, left })),
 				}
 			}
 			Property::FontSize(size) => Some(font_size(size)),
@@ -815,8 +819,11 @@ fn setup_block_style(start: &Position, end: &Position, style: &TextStyle,
 		return Some((end_line, end_offset));
 	}
 	match style {
-		TextStyle::Border => {
-			block_styles.push(BlockStyle::Border(start.line..end_line + 1));
+		TextStyle::Border(border_lines) => {
+			block_styles.push(BlockStyle::Border {
+				range: start.line..end_line + 1,
+				lines: border_lines.clone(),
+			});
 			None
 		}
 		TextStyle::BackgroundColor(color) => {
@@ -930,7 +937,12 @@ fn border_style(border: &Border) -> Option<TextStyle>
 		| border::LineStyle::Dashed
 		| border::LineStyle::Solid
 		| border::LineStyle::Double
-		if border_width(&border.width) => Some(TextStyle::Border),
+		if border_width(&border.width) => Some(TextStyle::Border(BorderLines {
+			top: true,
+			right: true,
+			bottom: true,
+			left: true,
+		})),
 		_ => None
 	}
 }

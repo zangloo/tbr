@@ -17,7 +17,7 @@ use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::load_image;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
 use crate::gui::font::{Fonts, HtmlFonts, UserFonts};
-use crate::html_parser::{BlockStyle, FontScale, FontWeight};
+use crate::html_parser::{BlockStyle, BorderLines, FontScale, FontWeight};
 
 pub const HAN_CHAR: char = '漢';
 
@@ -63,6 +63,7 @@ pub enum TextDecoration {
 		start: bool,
 		end: bool,
 		color: Color32,
+		lines: BorderLines,
 	},
 	// rect, stroke width, is first, is last, color
 	BlockBorder {
@@ -71,6 +72,7 @@ pub enum TextDecoration {
 		start: bool,
 		end: bool,
 		color: Color32,
+		lines: BorderLines,
 	},
 	// start(x,y), length,stroke width, is first, color
 	UnderLine {
@@ -196,6 +198,18 @@ impl RenderLine
 			}
 		}
 		None
+	}
+
+	#[inline]
+	pub fn first_render_char(&self) -> Option<&RenderChar>
+	{
+		self.chars.first()
+	}
+
+	#[inline]
+	pub fn last_render_char(&self) -> Option<&RenderChar>
+	{
+		self.chars.last()
 	}
 }
 
@@ -490,8 +504,9 @@ pub struct RedrawContext<'a> {
 	block_backgrounds: Vec<BlockBackgroundEntry>,
 	block_borders: Vec<TextDecoration>,
 	current_block_background: Option<(usize, Color32)>,
-	current_block_border: Option<(usize, BlockStylePart)>,
+	current_block_border: Option<(usize, BorderLines, BlockStylePart)>,
 	render_line_start: usize,
+	complete_with_overflow: bool,
 }
 
 impl<'a> RedrawContext<'a> {
@@ -506,6 +521,7 @@ impl<'a> RedrawContext<'a> {
 			current_block_background: None,
 			current_block_border: None,
 			render_line_start: 0,
+			complete_with_overflow: false,
 		}
 	}
 }
@@ -542,7 +558,8 @@ pub trait GuiRender {
 	fn cache_mut(&mut self) -> &mut HashMap<u64, CharDrawData>;
 	fn default_line_size(&self, render_context: &RenderContext) -> f32;
 	fn calc_block_rect(&self, render_lines: &Vec<RenderLine>,
-		range: Range<usize>, context: &RenderContext) -> Rect;
+		range: Range<usize>, render_in_single_line: bool,
+		context: &RenderContext) -> Rect;
 
 	/// for scrolling view
 	/// get redraw lines size for scrollable size measure
@@ -609,10 +626,11 @@ pub trait GuiRender {
 
 	#[inline]
 	fn calc_block_border_decoration(&self, render_lines: &Vec<RenderLine>,
-		range: Range<usize>, position: BlockStylePart,
-		context: &RenderContext) -> TextDecoration
+		range: Range<usize>, border_lines: &BorderLines,
+		position: BlockStylePart, context: &RenderContext) -> TextDecoration
 	{
-		let rect = self.calc_block_rect(render_lines, range, context);
+		let render_in_single_line = matches!(position, BlockStylePart::Single) && (range.end - range.start) == 1;
+		let rect = self.calc_block_rect(render_lines, range, render_in_single_line, context);
 		let color = context.colors.color.clone();
 		let stroke_width = self.default_line_size(context) / 16.;
 		let (start, end) = match position {
@@ -627,6 +645,7 @@ pub trait GuiRender {
 			start,
 			end,
 			color,
+			lines: border_lines.clone(),
 		}
 	}
 
@@ -645,7 +664,7 @@ pub trait GuiRender {
 		let mut background_found = false;
 		for bs in block_styles {
 			match bs {
-				BlockStyle::Border(range) => if !border_found && range.contains(&line_idx) {
+				BlockStyle::Border { range, lines: border_lines } => if !border_found && range.contains(&line_idx) {
 					border_found = true;
 					let end_idx = range.end - 1;
 					if line_idx == range.start {
@@ -667,28 +686,31 @@ pub trait GuiRender {
 							let border = self.calc_block_border_decoration(
 								&rc.render_lines,
 								rc.render_line_start..render_line_count,
+								border_lines,
 								part,
 								render_context);
 							rc.block_borders.push(border);
 						} else {
 							rc.current_block_border = Some((
 								rc.render_line_start,
+								border_lines.clone(),
 								if rc.offset == 0 { BlockStylePart::Begin } else { BlockStylePart::Middle }));
 						}
 					} else if line_idx == end_idx {
-						let (start, part) = if let Some((start, part)) = &rc.current_block_border {
-							let target_part = if matches!(part, BlockStylePart::Middle) {
-								if overflow {
+						let (start, part) = if let Some((start, .., part)) = &rc.current_block_border {
+							let target_part = match part {
+								BlockStylePart::Begin => if overflow {
+									BlockStylePart::Begin
+								} else {
+									BlockStylePart::Single
+								},
+								BlockStylePart::End => panic!("End part of block style should not exists in scan process."),
+								BlockStylePart::Middle => if overflow {
 									BlockStylePart::Middle
 								} else {
 									BlockStylePart::End
 								}
-							} else {
-								if overflow {
-									BlockStylePart::Begin
-								} else {
-									BlockStylePart::Single
-								}
+								BlockStylePart::Single => panic!("Single part of block style should not exists in scan process."),
 							};
 							(*start, target_part)
 						} else if overflow {
@@ -699,6 +721,7 @@ pub trait GuiRender {
 						let border = self.calc_block_border_decoration(
 							&rc.render_lines,
 							start..render_line_count,
+							border_lines,
 							part,
 							render_context);
 						rc.block_borders.push(border);
@@ -706,6 +729,7 @@ pub trait GuiRender {
 					} else if rc.current_block_border.is_none() {
 						rc.current_block_border = Some((
 							rc.render_line_start,
+							border_lines.clone(),
 							BlockStylePart::Middle));
 					}
 				}
@@ -715,9 +739,11 @@ pub trait GuiRender {
 					if line_idx == range.start {
 						if line_idx == end_idx {
 							// single line block
+							let render_in_single_line = !overflow && rc.offset == 0 && render_line_count - rc.render_line_start == 1;
 							let rect = self.calc_block_rect(
 								&rc.render_lines,
 								rc.render_line_start..render_line_count,
+								render_in_single_line,
 								render_context);
 							rc.block_backgrounds.push(BlockBackgroundEntry::new(rect, color.clone()));
 						} else {
@@ -734,6 +760,7 @@ pub trait GuiRender {
 						let rect = self.calc_block_rect(
 							&rc.render_lines,
 							start..render_line_count,
+							false,
 							render_context);
 						rc.block_backgrounds.push(BlockBackgroundEntry::new(rect, color.clone()));
 						rc.current_block_background = None;
@@ -750,19 +777,22 @@ pub trait GuiRender {
 
 	fn finalize_blocks(&self, rc: &mut RedrawContext, render_context: &RenderContext)
 	{
-		if let Some((start, part)) = &rc.current_block_border {
+		if let Some((start, border_lines, part)) = &rc.current_block_border {
 			let border = self.calc_block_border_decoration(
 				&rc.render_lines,
 				*start..rc.render_lines.len(),
+				border_lines,
 				part.clone(),
 				render_context);
 			rc.block_borders.push(border);
 			rc.current_block_border = None;
 		}
 		if let Some((start, color)) = &rc.current_block_background {
+			let render_in_single_line = rc.offset == 0 && !rc.complete_with_overflow && rc.render_lines.len() - rc.render_line_start == 1;
 			let rect = self.calc_block_rect(
 				&rc.render_lines,
 				*start..rc.render_lines.len(),
+				render_in_single_line,
 				render_context);
 			rc.block_backgrounds.push(BlockBackgroundEntry::new(
 				rect, color.clone()));
@@ -795,6 +825,7 @@ pub trait GuiRender {
 						Some(Position::new(index, 0))
 					};
 					self.setup_line_blocks(&mut rc, index, true, context);
+					rc.complete_with_overflow = true;
 					break 'Done;
 				}
 				drawn_size += wrapped_line.line_space;
@@ -814,11 +845,11 @@ pub trait GuiRender {
 		cairo: &CairoContext, layout: &PangoContext)
 	{
 		cairo.set_line_width(1.0);
-		for border in block_borders {
-			self.draw_decoration(border, cairo);
-		}
 		for bg in block_backgrounds {
 			draw_rect(cairo, &bg.rect, 1.0, &bg.color);
+		}
+		for border in block_borders {
+			self.draw_decoration(border, cairo);
 		}
 		for render_line in render_lines {
 			for dc in &render_line.chars {

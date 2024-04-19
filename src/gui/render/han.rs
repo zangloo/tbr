@@ -11,6 +11,7 @@ use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, vec2};
 use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, CharDrawData, ScrollSizing, ScrolledDrawData};
 use crate::gui::render::imp::draw_border;
+use crate::html_parser::TextStyle;
 
 pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
@@ -126,17 +127,34 @@ impl GuiRender for GuiHanRender
 				let cell_size = vec2(measures.draw_size.x, char_height);
 				let color = char_style.color.clone();
 				let mut rect = Rect::new(self.baseline - cell_size.x, top, cell_size.x, cell_size.y);
-				if let Some(range) = &char_style.border {
-					let padding = cell_size.y / 4.0;
-					let max = &mut rect.max;
-					if range.len() == 1 {
-						max.y += padding * 2.0;
-						cell_offset.y += padding;
-					} else if i == range.start {
-						max.y += padding;
-						cell_offset.y += padding;
-					} else if i == range.end - 1 {
-						max.y += padding;
+				if let Some((range, TextStyle::Border(lines))) = &char_style.border {
+					if lines.left {
+						if lines.right {
+							let padding = cell_size.y / 4.0;
+							let max = &mut rect.max;
+							if range.len() == 1 {
+								max.y += padding * 2.0;
+								cell_offset.y += padding;
+							} else if i == range.start {
+								max.y += padding;
+								cell_offset.y += padding;
+							} else if i == range.end - 1 {
+								max.y += padding;
+							}
+						} else {
+							let padding = cell_size.y / 4.0;
+							let max = &mut rect.max;
+							if i == range.start {
+								max.y += padding;
+								cell_offset.y += padding;
+							}
+						}
+					} else if lines.right {
+						let padding = cell_size.y / 4.0;
+						let max = &mut rect.max;
+						if i == range.end - 1 {
+							max.y += padding;
+						}
 					}
 				}
 
@@ -207,18 +225,18 @@ impl GuiRender for GuiHanRender
 
 	fn draw_decoration(&self, decoration: &TextDecoration, cairo: &CairoContext) {
 		match decoration {
-			TextDecoration::Border { rect, stroke_width, start, end, color } => {
+			TextDecoration::Border { rect, stroke_width, start, end, color, lines: bl } => {
 				draw_border(cairo, *stroke_width, color,
 					rect.min.x, rect.max.x, rect.min.y, rect.max.y,
-					true, true, *start, *end);
+					bl.bottom, bl.top, bl.left && *start, bl.right && *end);
 			}
 			TextDecoration::UnderLine { pos2, length, stroke_width, color, .. } => {
 				vline(cairo, pos2.x, pos2.y, pos2.y + length, *stroke_width, color);
 			}
-			TextDecoration::BlockBorder { rect, stroke_width, start, end, color } => {
+			TextDecoration::BlockBorder { rect, stroke_width, start, end, color, lines: bl } => {
 				draw_border(cairo, *stroke_width, color,
 					rect.min.x, rect.max.x, rect.min.y, rect.max.y,
-					*end, *start, true, true);
+					bl.bottom && *end, bl.top && *start, bl.left, bl.right);
 			}
 		}
 	}
@@ -278,10 +296,37 @@ impl GuiRender for GuiHanRender
 		render_context.default_font_measure.x
 	}
 
-	fn calc_block_rect(&self, render_lines: &Vec<RenderLine>, range: Range<usize>, context: &RenderContext) -> Rect
+	fn calc_block_rect(&self, render_lines: &Vec<RenderLine>,
+		range: Range<usize>, render_in_single_line: bool,
+		context: &RenderContext) -> Rect
 	{
+		#[inline]
+		fn calc_top_and_height(render_in_single_line: bool, range: &Range<usize>,
+			render_lines: &Vec<RenderLine>, context: &RenderContext, bottom: f32) -> (f32, f32)
+		{
+			if render_in_single_line {
+				if let Some(render_line) = render_lines.get(range.start) {
+					if let (Some(first), Some(last)) = (render_line.first_render_char(), render_line.last_render_char()) {
+						let top = first.rect.min.y;
+						let first_margin = (first.rect.max.y - top) / 8.;
+						let top = top - first_margin;
+
+						let bottom = last.rect.max.y;
+						let last_margin = (bottom - last.rect.min.y) / 8.;
+						let bottom = bottom + last_margin;
+						return (top, bottom - top);
+					}
+				}
+			}
+			let top = context.render_rect.min.y;
+			let y_padding = context.y_padding();
+			(top - y_padding / 4., bottom - top + y_padding)
+		}
 		let Pos2 { x: mut right, y: bottom } = context.render_rect.max;
-		let top = context.render_rect.min.y;
+		// for single line, render border around text only
+		let (top, height) = calc_top_and_height(
+			render_in_single_line, &range, render_lines, context, bottom);
+
 		let mut right_padding = self.default_line_size(context) / 8.;
 		let mut left_padding = right_padding;
 		for idx in 0..range.start {
@@ -299,12 +344,12 @@ impl GuiRender for GuiHanRender
 		}
 		right += right_padding;
 		left += left_padding;
-		let y_padding = context.y_padding();
+
 		Rect::new(
 			left,
-			top - y_padding / 2.,
+			top,
 			right - left,
-			bottom - top + y_padding)
+			height)
 	}
 
 	#[inline]
@@ -434,7 +479,7 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 	let len = draw_chars.len();
 	let mut iter = draw_chars.into_iter().enumerate();
 	while let Some((index, (mut draw_char, char_style))) = iter.next() {
-		if let Some(range) = char_style.border {
+		if let Some((range, TextStyle::Border(border_lines))) = char_style.border {
 			let rect = &draw_char.rect;
 			let min = &rect.min;
 			let top = min.y;
@@ -495,6 +540,7 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 				start,
 				end,
 				color,
+				lines: border_lines,
 			});
 		} else if let Some((_, range)) = char_style.line {
 			let decoration = setup_underline(draw_char, &range, render_line, index, len, &mut iter, context);

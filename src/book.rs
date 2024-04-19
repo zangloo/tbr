@@ -180,7 +180,7 @@ pub struct CharStyle {
 	pub color: Color32,
 	pub background: Option<Color32>,
 	pub line: Option<(TextDecorationLine, Range<usize>)>,
-	pub border: Option<Range<usize>>,
+	pub border: Option<(Range<usize>, TextStyle)>,
 	pub link: Option<(usize, Range<usize>)>,
 	pub image: Option<String>,
 }
@@ -416,7 +416,7 @@ impl Line {
 							new_color = Some(colors.link.clone());
 						}
 					}
-					TextStyle::Border => char_style.border = Some(range.clone()),
+					TextStyle::Border{..} => char_style.border = Some((range.clone(), style.clone())),
 					TextStyle::Line(line) => char_style.line = Some((*line, range.clone())),
 					TextStyle::Color(color) => if custom_color { new_color = Some(color.clone()) },
 					TextStyle::BackgroundColor(color) => if custom_color { char_style.background = Some(color.clone()) },
