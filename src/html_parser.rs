@@ -11,6 +11,7 @@ use indexmap::IndexSet;
 use lightningcss::declaration::DeclarationBlock;
 use lightningcss::properties::{border, font, Property};
 use lightningcss::properties::border::{Border, BorderSideWidth};
+use lightningcss::properties::display::{Display, DisplayOutside, DisplayPair};
 use lightningcss::properties::font::{AbsoluteFontWeight, FontFamily, FontSize, FontWeight as CssFontWeight};
 use lightningcss::properties::text::TextDecorationLine;
 use lightningcss::rules::{CssRule, font_face};
@@ -145,8 +146,26 @@ impl TextStyle {
 			TextStyle::BackgroundColor(_) => 9,
 		}
 	}
+}
+
+#[derive(Clone, Debug)]
+enum ParseTag {
+	Style(TextStyle),
+	Paragraph,
+}
+
+impl ParseTag {
 	#[inline]
-	fn cmp(&self, another: &TextStyle) -> Ordering
+	fn id(&self) -> usize
+	{
+		match self {
+			ParseTag::Style(style) => style.id(),
+			ParseTag::Paragraph => 1000,
+		}
+	}
+
+	#[inline]
+	fn cmp(&self, another: &Self) -> Ordering
 	{
 		let a = self.id();
 		let b = another.id();
@@ -162,9 +181,9 @@ impl TextStyle {
 
 // style with !important or not
 #[derive(Clone, Debug)]
-struct LeveledTextStyle(TextStyle, bool);
+struct LeveledParseTag(ParseTag, bool);
 
-type LeveledTextStyleSet = Vec<LeveledTextStyle>;
+type LeveledParseTagSet = Vec<LeveledParseTag>;
 
 #[derive(Clone, Debug)]
 pub struct FontScale(f32);
@@ -316,7 +335,7 @@ pub trait HtmlResolver {
 
 pub struct HtmlParser<'a> {
 	resolver: Option<&'a dyn HtmlResolver>,
-	element_styles: HashMap<NodeId, LeveledTextStyleSet>,
+	element_tags: HashMap<NodeId, LeveledParseTagSet>,
 	font_families: Option<&'a mut IndexSet<String>>,
 	font_faces: Vec<HtmlFontFaceDesc>,
 	font_face_map: HashMap<&'a str, Option<String>>,
@@ -397,12 +416,12 @@ impl<'a> HtmlParser<'a> {
 						let mut styles = vec![];
 						for property in &style_rule.declarations.important_declarations {
 							if let Some(style) = self.convert_style(property) {
-								insert_or_replace_style(&mut styles, style, true)
+								insert_or_replace_tag(&mut styles, style, true)
 							}
 						}
 						for property in &style_rule.declarations.declarations {
 							if let Some(style) = self.convert_style(property) {
-								insert_or_replace_style(&mut styles, style, false)
+								insert_or_replace_tag(&mut styles, style, false)
 							}
 						}
 						if styles.len() == 0 {
@@ -412,11 +431,11 @@ impl<'a> HtmlParser<'a> {
 						if let Ok(selector) = Selector::parse(&selector_str) {
 							for element in document.select(&selector) {
 								let styles = styles.clone();
-								match self.element_styles.entry(element.id()) {
+								match self.element_tags.entry(element.id()) {
 									Entry::Occupied(o) => {
 										let orig = o.into_mut();
 										for new_style in styles {
-											insert_or_replace_style(orig, new_style.0, new_style.1);
+											insert_or_replace_tag(orig, new_style.0, new_style.1);
 										}
 									}
 									Entry::Vacant(v) => { v.insert(styles); }
@@ -526,9 +545,14 @@ impl<'a> HtmlParser<'a> {
 				if let Some(id) = element.id() {
 					self.id_map.insert(id.to_string(), position.clone());
 				}
-				let mut element_styles = self.load_element_styles(
+				let mut element_tags = self.load_element_tags(
 					element,
 					node.id());
+				let force_paragraph = remove_tag(&mut element_tags, ParseTag::Paragraph)
+					.is_some();
+				if force_paragraph {
+					self.new_line();
+				}
 				match element.name.local {
 					local_name!("title") => self.load_title(node),
 					local_name!("script") => {}
@@ -538,35 +562,35 @@ impl<'a> HtmlParser<'a> {
 						self.newline_for_class(element);
 					}
 					local_name!("h1") => {
-						unique_and_insert_font_size(&mut element_styles, 6, false);
+						unique_and_insert_font_size(&mut element_tags, 6, false);
 						self.new_paragraph(node);
 					}
 					| local_name!("h2") => {
-						unique_and_insert_font_size(&mut element_styles, 5, false);
+						unique_and_insert_font_size(&mut element_tags, 5, false);
 						self.new_paragraph(node);
 					}
 					| local_name!("h3") => {
-						unique_and_insert_font_size(&mut element_styles, 4, false);
+						unique_and_insert_font_size(&mut element_tags, 4, false);
 						self.new_paragraph(node);
 					}
 					| local_name!("h4") => {
-						unique_and_insert_font_size(&mut element_styles, 3, false);
+						unique_and_insert_font_size(&mut element_tags, 3, false);
 						self.new_paragraph(node);
 					}
 					| local_name!("h5") => {
-						unique_and_insert_font_size(&mut element_styles, 2, false);
+						unique_and_insert_font_size(&mut element_tags, 2, false);
 						self.new_paragraph(node);
 					}
 					| local_name!("h6") => {
-						unique_and_insert_font_size(&mut element_styles, 1, false);
+						unique_and_insert_font_size(&mut element_tags, 1, false);
 						self.new_paragraph(node);
 					}
 					local_name!("small") => {
-						unique_and_insert_font_size(&mut element_styles, 2, true);
+						unique_and_insert_font_size(&mut element_tags, 2, true);
 						self.convert_node_children(node.children());
 					}
 					local_name!("big") => {
-						unique_and_insert_font_size(&mut element_styles, 4, true);
+						unique_and_insert_font_size(&mut element_tags, 4, true);
 						self.convert_node_children(node.children());
 					}
 					local_name!("p")
@@ -575,19 +599,19 @@ impl<'a> HtmlParser<'a> {
 					| local_name!("dt")
 					| local_name!("li") => self.new_paragraph(node),
 					local_name!("br") => {
-						self.new_line(true);
+						self.new_line();
 						self.convert_node_children(node.children());
 					}
 					local_name!("font") => {
 						if let Some(level_text) = element.attr("size") {
 							if let Ok(level) = level_text.parse::<u8>() {
-								replace_font_size(&mut element_styles, level, true);
+								replace_font_size(&mut element_tags, level, true);
 							}
 						}
 						if let Some(color_text) = element.attr("color") {
 							if let Ok(color) = CssColor::parse_string(color_text) {
 								if let Some(color) = self.css_color(&color) {
-									insert_or_replace_style(&mut element_styles, TextStyle::Color(color), false);
+									insert_or_replace_tag(&mut element_tags, ParseTag::Style(TextStyle::Color(color)), false);
 								}
 							}
 						}
@@ -595,7 +619,7 @@ impl<'a> HtmlParser<'a> {
 					}
 					local_name!("a") => {
 						if let Some(href) = element.attr("href") {
-							insert_or_replace_style(&mut element_styles, TextStyle::Link(href.to_string()), false);
+							insert_or_replace_tag(&mut element_tags, ParseTag::Style(TextStyle::Link(href.to_string())), false);
 						}
 						self.convert_node_children(node.children());
 					}
@@ -616,7 +640,10 @@ impl<'a> HtmlParser<'a> {
 					}
 					_ => self.convert_node_children(node.children()),
 				}
-				if !element_styles.is_empty() {
+				if force_paragraph {
+					self.new_line();
+				}
+				if !element_tags.is_empty() {
 					let lines = &self.lines;
 					// only for new lines
 					for last_line in (position.line..lines.len()).rev() {
@@ -626,12 +653,14 @@ impl<'a> HtmlParser<'a> {
 							continue;
 						}
 						let end = Position::new(last_line, line.len());
-						for style in &element_styles {
-							self.styles.push(StyleDescription {
-								start: position.clone(),
-								end: end.clone(),
-								style: style.0.clone(),
-							});
+						for tag in &element_tags {
+							if let LeveledParseTag(ParseTag::Style(style), _) = tag {
+								self.styles.push(StyleDescription {
+									start: position.clone(),
+									end: end.clone(),
+									style: style.clone(),
+								});
+							}
 						}
 						break;
 					}
@@ -643,24 +672,24 @@ impl<'a> HtmlParser<'a> {
 	}
 
 	#[inline]
-	fn load_element_styles(&mut self, element: &Element, node_id: NodeId) -> LeveledTextStyleSet
+	fn load_element_tags(&mut self, element: &Element, node_id: NodeId) -> LeveledParseTagSet
 	{
-		let mut element_styles = vec![];
+		let mut element_tags = vec![];
 		if let Some(style) = element.attr("style") {
 			if let Ok(declaration) = DeclarationBlock::parse_string(style, style_parse_options()) {
 				for property in &declaration.declarations {
 					if let Some(style) = self.convert_style(property) {
-						insert_or_replace_style(&mut element_styles, style, false);
+						insert_or_replace_tag(&mut element_tags, style, false);
 					}
 				}
 			}
 		}
-		if let Some(styles) = self.element_styles.remove(&node_id) {
+		if let Some(styles) = self.element_tags.remove(&node_id) {
 			for style in styles {
-				insert_or_replace_style(&mut element_styles, style.0, style.1);
+				insert_or_replace_tag(&mut element_tags, style.0, style.1);
 			}
 		};
-		element_styles
+		element_tags
 	}
 
 	fn add_image(&mut self, href: &str)
@@ -677,7 +706,7 @@ impl<'a> HtmlParser<'a> {
 			if let Some(class) = element.attr("class") {
 				for class_name in DIV_PUSH_CLASSES {
 					if class.contains(class_name) {
-						self.new_line(true);
+						self.new_line();
 						return;
 					}
 				}
@@ -685,7 +714,7 @@ impl<'a> HtmlParser<'a> {
 		}
 	}
 
-	fn new_line(&mut self, ignore_empty_buf: bool)
+	fn new_line(&mut self)
 	{
 		let mut empty_count = 0;
 		// no more then 2 empty lines
@@ -699,7 +728,7 @@ impl<'a> HtmlParser<'a> {
 				break;
 			}
 		}
-		if empty_count == 0 || !ignore_empty_buf {
+		if empty_count == 0 {
 			self.lines.push(Line::default())
 		}
 	}
@@ -707,18 +736,18 @@ impl<'a> HtmlParser<'a> {
 	#[inline]
 	fn new_paragraph(&mut self, child: NodeRef<Node>)
 	{
-		self.new_line(true);
+		self.new_line();
 		self.convert_node_children(child.children());
-		self.new_line(false);
+		self.new_line();
 	}
 
 	#[inline]
-	fn convert_style(&mut self, property: &Property) -> Option<TextStyle>
+	fn convert_style(&mut self, property: &Property) -> Option<ParseTag>
 	{
 		match property {
 			Property::Border(border) => border_style(border),
 			Property::BorderBottom(line)
-			if border_width(&line.width) => Some(TextStyle::Line(TextDecorationLine::Underline)),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Line(TextDecorationLine::Underline))),
 			Property::BorderWidth(width) => {
 				let top = border_width(&width.top);
 				let right = border_width(&width.right);
@@ -726,22 +755,23 @@ impl<'a> HtmlParser<'a> {
 				let left = border_width(&width.left);
 				match (top, left, right, bottom) {
 					(false, false, false, false) => None,
-					(_, _, _, _) => Some(TextStyle::Border(BorderLines { top, right, bottom, left })),
+					(_, _, _, _) => Some(ParseTag::Style(TextStyle::Border(BorderLines { top, right, bottom, left }))),
 				}
 			}
 			Property::FontSize(size) => Some(font_size(size)),
-			Property::FontWeight(weight) => Some(TextStyle::FontWeight(FontWeightValue::from(weight))),
+			Property::FontWeight(weight) => Some(ParseTag::Style(TextStyle::FontWeight(FontWeightValue::from(weight)))),
 			Property::FontFamily(families) => self.font_family(families),
-			Property::TextDecorationLine(line, _) => Some(TextStyle::Line(*line)),
-			Property::Color(color) => Some(TextStyle::Color(self.css_color(color)?)),
-			Property::BackgroundColor(color) => Some(TextStyle::BackgroundColor(self.css_color(color)?)),
-			Property::Background(bg) => Some(TextStyle::BackgroundColor(self.css_color(&bg[0].color)?)),
+			Property::TextDecorationLine(line, _) => Some(ParseTag::Style(TextStyle::Line(*line))),
+			Property::Color(color) => Some(ParseTag::Style(TextStyle::Color(self.css_color(color)?))),
+			Property::BackgroundColor(color) => Some(ParseTag::Style(TextStyle::BackgroundColor(self.css_color(color)?))),
+			Property::Background(bg) => Some(ParseTag::Style(TextStyle::BackgroundColor(self.css_color(&bg[0].color)?))),
+			Property::Display(Display::Pair(DisplayPair { outside: DisplayOutside::Block, .. })) => Some(ParseTag::Paragraph),
 			_ => None,
 		}
 	}
 
 	#[inline]
-	fn font_family(&mut self, families: &Vec<FontFamily>) -> Option<TextStyle>
+	fn font_family(&mut self, families: &Vec<FontFamily>) -> Option<ParseTag>
 	{
 		if let Some(font_families) = &mut self.font_families {
 			let mut string = String::new();
@@ -765,7 +795,7 @@ impl<'a> HtmlParser<'a> {
 			if is_empty {
 				None
 			} else {
-				Some(TextStyle::FontFamily(idx as u16))
+				Some(ParseTag::Style(TextStyle::FontFamily(idx as u16)))
 			}
 		} else {
 			None
@@ -838,15 +868,19 @@ fn setup_block_style(start: &Position, end: &Position, style: &TextStyle,
 }
 
 #[inline]
-fn unique_and_insert_font_size(styles: &mut LeveledTextStyleSet, font_level: u8, relative: bool)
+fn unique_and_insert_font_size(tags: &mut LeveledParseTagSet, font_level: u8, relative: bool)
 {
-	unique_and_insert_style(styles, font_size_level(font_level, relative));
+	let style = font_size_level(font_level, relative);
+	let tag = ParseTag::Style(style);
+	unique_and_insert_tag(tags, tag);
 }
 
 #[inline]
-fn replace_font_size(styles: &mut LeveledTextStyleSet, font_level: u8, relative: bool)
+fn replace_font_size(tags: &mut LeveledParseTagSet, font_level: u8, relative: bool)
 {
-	insert_or_replace_style(styles, font_size_level(font_level, relative), false);
+	let style = font_size_level(font_level, relative);
+	let tag = ParseTag::Style(style);
+	insert_or_replace_tag(tags, tag, false);
 }
 
 const DIV_PUSH_CLASSES: [&str; 3] = ["contents", "toc", "mulu"];
@@ -859,22 +893,31 @@ fn style_parse_options<'a>() -> ParserOptions<'a, 'a>
 	options
 }
 
-fn insert_or_replace_style(styles: &mut LeveledTextStyleSet, style: TextStyle, important: bool)
+fn insert_or_replace_tag(styles: &mut LeveledParseTagSet, tag: ParseTag, important: bool)
 {
-	match styles.binary_search_by(|s| s.0.cmp(&style)) {
+	match styles.binary_search_by(|s| s.0.cmp(&tag)) {
 		Ok(idx) => if important || !styles[idx].1 {
-			styles[idx] = LeveledTextStyle(style, important);
+			styles[idx] = LeveledParseTag(tag, important);
 		}
-		Err(idx) => styles.insert(idx, LeveledTextStyle(style, important)),
+		Err(idx) => styles.insert(idx, LeveledParseTag(tag, important)),
+	}
+}
+
+#[inline]
+fn remove_tag(tags: &mut LeveledParseTagSet, tag: ParseTag) -> Option<LeveledParseTag>
+{
+	match tags.binary_search_by(|s| s.0.cmp(&tag)) {
+		Ok(idx) => Some(tags.remove(idx)),
+		Err(_) => None,
 	}
 }
 
 /// insert if unique, will not insert if exists
 #[inline]
-fn unique_and_insert_style(styles: &mut LeveledTextStyleSet, style: TextStyle)
+fn unique_and_insert_tag(tags: &mut LeveledParseTagSet, tag: ParseTag)
 {
-	if let Err(idx) = styles.binary_search_by(|s| s.0.cmp(&style)) {
-		styles.insert(idx, LeveledTextStyle(style, false));
+	if let Err(idx) = tags.binary_search_by(|s| s.0.cmp(&tag)) {
+		tags.insert(idx, LeveledParseTag(tag, false));
 	}
 }
 
@@ -895,9 +938,9 @@ fn font_size_level(level: u8, relative: bool) -> TextStyle
 	TextStyle::FontSize { scale, relative }
 }
 
-fn font_size(size: &FontSize) -> TextStyle
+fn font_size(size: &FontSize) -> ParseTag
 {
-	match size {
+	let style = match size {
 		FontSize::Length(lp) => match lp {
 			LengthPercentage::Dimension(lv) => {
 				let (scale, relative) = length_value(lv, DEFAULT_FONT_SIZE);
@@ -922,11 +965,12 @@ fn font_size(size: &FontSize) -> TextStyle
 			font::RelativeFontSize::Smaller => font_size_level(2, true),
 			font::RelativeFontSize::Larger => font_size_level(4, true),
 		}
-	}
+	};
+	ParseTag::Style(style)
 }
 
 #[inline]
-fn border_style(border: &Border) -> Option<TextStyle>
+fn border_style(border: &Border) -> Option<ParseTag>
 {
 	match border.style {
 		border::LineStyle::Inset
@@ -937,12 +981,12 @@ fn border_style(border: &Border) -> Option<TextStyle>
 		| border::LineStyle::Dashed
 		| border::LineStyle::Solid
 		| border::LineStyle::Double
-		if border_width(&border.width) => Some(TextStyle::Border(BorderLines {
+		if border_width(&border.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines {
 			top: true,
 			right: true,
 			bottom: true,
 			left: true,
-		})),
+		}))),
 		_ => None
 	}
 }
@@ -1091,7 +1135,7 @@ pub fn parse(options: HtmlParseOptions) -> Result<(HtmlContent, Vec<HtmlFontFace
 
 	let mut parser = HtmlParser {
 		resolver: options.resolver,
-		element_styles: Default::default(),
+		element_tags: Default::default(),
 		font_families: options.font_family,
 		font_faces: vec![],
 		font_face_map: Default::default(),
