@@ -320,7 +320,7 @@ impl GuiRender for GuiHanRender
 			}
 			let top = context.render_rect.min.y;
 			let y_padding = context.y_padding();
-			(top - y_padding / 4., bottom - top + y_padding)
+			(top - y_padding / 4., bottom - top + y_padding / 2.)
 		}
 		let Pos2 { x: mut right, y: bottom } = context.render_rect.max;
 		// for single line, render border around text only
