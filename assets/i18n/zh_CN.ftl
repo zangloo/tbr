@@ -22,6 +22,7 @@ search-hint = 查找
 with-custom-color = 使用书籍设定颜色
 with-custom-font = 使用书籍设定字体
 custom-style = 自定义样式
+invalid-style = 样式错误：{ $error }
 strip-empty-lines = 隐藏空行
 scroll-for-page = 鼠标滚动页
 tab-chapter = 章节

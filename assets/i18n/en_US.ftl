@@ -22,6 +22,7 @@ search-hint = Search
 with-custom-color = Book custom color
 with-custom-font = Book custom font
 custom-style = Custom styles
+invalid-style = Invalid style: { $error }
 strip-empty-lines = No empty lines
 scroll-for-page = Mouse scroll for page
 tab-chapter = Chapter

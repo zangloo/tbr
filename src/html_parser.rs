@@ -1128,6 +1128,17 @@ pub fn parse_xml(xml: &str) -> Result<Document>
 	Ok(Document::parse_with_options(xml, options)?)
 }
 
+#[inline]
+pub fn parse_stylesheet(css: &str, strict: bool) -> Result<StyleSheet>
+{
+	let mut options = ParserOptions::default();
+	if !strict {
+		options.error_recovery = true;
+	}
+	StyleSheet::parse(css, options)
+		.map_err(|err| anyhow!("{}",err.to_string()))
+}
+
 pub fn parse(options: HtmlParseOptions) -> Result<(HtmlContent, Vec<HtmlFontFaceDesc>)>
 {
 	let html = Html::parse_document(&options.html);

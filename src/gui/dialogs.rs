@@ -4,6 +4,7 @@ use gtk4::{Align, Button, Entry, EventControllerKey, glib, Orientation, Separato
 use gtk4::gdk::Key;
 use gtk4::prelude::{BoxExt, ButtonExt, EditableExt, EntryExt, GtkWindowExt, IsA, TextBufferExt, WidgetExt};
 use crate::gui::{alert, GuiContext, MODIFIER_NONE};
+use crate::html_parser;
 
 pub(crate) fn custom_styles<F>(style: &Option<String>, gc: &GuiContext,
 	main_win: &impl IsA<Window>, callback: F)
@@ -21,9 +22,15 @@ pub(crate) fn custom_styles<F>(style: &Option<String>, gc: &GuiContext,
 		.height_request(450)
 		.width_request(450)
 		.build();
+	let gc2 = gc.clone();
 	input_dialog(&text, "custom-style-dialog-title", gc, main_win, move |_, _| {
 		let (start, end) = buf.bounds();
 		let text = buf.text(&start, &end, true);
+		html_parser::parse_stylesheet(&text, true)
+			.map_err(|err|
+				Cow::Owned(gc2.i18n.args_msg("invalid-style", vec![
+					("error", err.to_string()),
+				])))?;
 		callback(text.to_string());
 		Ok(())
 	});
