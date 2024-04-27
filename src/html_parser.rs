@@ -746,8 +746,34 @@ impl<'a> HtmlParser<'a> {
 	{
 		match property {
 			Property::Border(border) => border_style(border),
+			Property::BorderTop(line)
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines {
+				top: true,
+				right: false,
+				bottom: false,
+				left: false,
+			}))),
+			Property::BorderRight(line)
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines {
+				top: false,
+				right: true,
+				bottom: false,
+				left: false,
+			}))),
 			Property::BorderBottom(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Line(TextDecorationLine::Underline))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines {
+				top: false,
+				right: false,
+				bottom: true,
+				left: false,
+			}))),
+			Property::BorderLeft(line)
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines {
+				top: false,
+				right: false,
+				bottom: false,
+				left: true,
+			}))),
 			Property::BorderWidth(width) => {
 				let top = border_width(&width.top);
 				let right = border_width(&width.right);
