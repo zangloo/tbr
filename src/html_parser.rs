@@ -556,6 +556,8 @@ impl<'a> HtmlParser<'a> {
 				match element.name.local {
 					local_name!("title") => self.load_title(node),
 					local_name!("script") => {}
+					local_name!("table") => self.new_paragraph(node),
+					local_name!("tr") => self.new_paragraph(node),
 					local_name!("div") => {
 						self.newline_for_class(element);
 						self.convert_node_children(node.children());
