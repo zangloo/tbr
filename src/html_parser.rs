@@ -556,7 +556,6 @@ impl<'a> HtmlParser<'a> {
 				match element.name.local {
 					local_name!("title") => self.load_title(node),
 					local_name!("script") => {}
-					local_name!("table") => self.new_paragraph(node),
 					local_name!("b") => {
 						insert_or_replace_tag(
 							&mut element_tags,
@@ -564,7 +563,6 @@ impl<'a> HtmlParser<'a> {
 							false);
 						self.convert_node_children(node.children());
 					},
-					local_name!("tr") => self.new_paragraph(node),
 					local_name!("div") => {
 						self.newline_for_class(element);
 						self.convert_node_children(node.children());
@@ -604,6 +602,7 @@ impl<'a> HtmlParser<'a> {
 					}
 					local_name!("p")
 					| local_name!("blockquote")
+					| local_name!("table")
 					| local_name!("tr")
 					| local_name!("dt")
 					| local_name!("li") => self.new_paragraph(node),
