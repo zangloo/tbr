@@ -286,8 +286,8 @@ impl ReadingView {
 			Event::Key(Key::Up) => self.controller.step_prev(&mut self.render_context)?,
 			Event::Char('n') => self.controller.search_again(true, &mut self.render_context)?,
 			Event::Char('N') => self.controller.search_again(false, &mut self.render_context)?,
-			Event::CtrlChar('d') => { self.controller.switch_chapter(true, &mut self.render_context)?; }
-			Event::CtrlChar('b') => { self.controller.switch_chapter(false, &mut self.render_context)?; }
+			Event::CtrlChar('d') => { self.controller.switch_toc(true, &mut self.render_context)?; }
+			Event::CtrlChar('b') => { self.controller.switch_toc(false, &mut self.render_context)?; }
 			Event::Key(Key::Right) => self.controller.goto_trace(false, &mut self.render_context)?,
 			Event::Key(Key::Left) => self.controller.goto_trace(true, &mut self.render_context)?,
 			Event::Key(Key::Tab) => self.controller.switch_link_next(&mut self.render_context),

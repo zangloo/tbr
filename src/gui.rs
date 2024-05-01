@@ -375,12 +375,12 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>,
 				}
 				(Key::d, ModifierType::CONTROL_MASK) => {
 					handle(&gc, |controller, render_context|
-						controller.switch_chapter(true, render_context));
+						controller.switch_toc(true, render_context));
 					glib::Propagation::Stop
 				}
 				(Key::b, ModifierType::CONTROL_MASK) => {
 					handle(&gc, |controller, render_context|
-						controller.switch_chapter(false, render_context));
+						controller.switch_toc(false, render_context));
 					glib::Propagation::Stop
 				}
 				(Key::Right, MODIFIER_NONE) => {
@@ -1685,7 +1685,7 @@ impl GuiContext {
 				drop(controller);
 				self.chapter_list.sync_chapter_list(ChapterListSyncMode::Reload);
 				update_status(false, &msg, &self.status_bar)
-			},
+			}
 			Err(err) => self.error(&err.to_string()),
 		}
 	}

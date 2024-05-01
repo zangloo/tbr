@@ -365,7 +365,8 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		Ok(())
 	}
 
-	pub fn goto_toc(&mut self, toc_index: usize, context: &mut C) -> Option<String> {
+	pub fn goto_toc(&mut self, toc_index: usize, context: &mut C) -> Option<String>
+	{
 		if let Some(trace_info) = self.book.toc_position(toc_index) {
 			if self.reading.chapter != trace_info.chapter {
 				if let Ok(Some(new_chapter)) = self.book.goto_chapter(trace_info.chapter) {
@@ -393,7 +394,24 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		}
 	}
 
-	pub fn switch_chapter(&mut self, forward: bool, context: &mut C) -> Result<bool> {
+	pub fn switch_toc(&mut self, forward: bool, context: &mut C) -> Result<bool>
+	{
+		let toc_index = self.toc_index();
+		let target_toc_index = if forward {
+			toc_index + 1
+		} else {
+			if toc_index == 0 {
+				return self.switch_chapter(false, context);
+			} else {
+				toc_index - 1
+			}
+		};
+		self.goto_toc(target_toc_index, context);
+		Ok(true)
+	}
+
+	pub fn switch_chapter(&mut self, forward: bool, context: &mut C) -> Result<bool>
+	{
 		let option = if forward {
 			self.book.next_chapter()?
 		} else {
