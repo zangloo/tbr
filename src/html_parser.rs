@@ -563,6 +563,13 @@ impl<'a> HtmlParser<'a> {
 							false);
 						self.convert_node_children(node.children());
 					},
+					local_name!("u") => {
+						insert_or_replace_tag(
+							&mut element_tags,
+							ParseTag::Style(TextStyle::Line(TextDecorationLine::Underline)),
+							false);
+						self.convert_node_children(node.children());
+					},
 					local_name!("div") => {
 						self.newline_for_class(element);
 						self.convert_node_children(node.children());
