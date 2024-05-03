@@ -5,6 +5,7 @@ use std::vec::IntoIter;
 
 use gtk4::cairo::Context as CairoContext;
 use gtk4::pango::Layout as PangoContext;
+use lightningcss::properties::text::TextDecorationLine;
 
 use crate::book::{Book, CharStyle, Line};
 use crate::common::with_leading;
@@ -12,6 +13,7 @@ use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2};
 use crate::gui::render::{CharCell, CharDrawData, GuiRender, hline, ImageDrawingData, PointerPosition, RenderCell, RenderChar, RenderContext, RenderLine, ScrolledDrawData, ScrollSizing, TextDecoration, update_for_highlight};
 use crate::gui::render::imp::draw_border;
+use crate::html_parser;
 use crate::html_parser::TextStyle;
 
 pub(super) struct GuiXiRender {
@@ -278,9 +280,10 @@ impl GuiRender for GuiXiRender
 					rect.min.x, rect.max.x, rect.min.y, rect.max.y,
 					bl.left && *start, bl.right && *end, bl.top, bl.bottom);
 			}
-			TextDecoration::UnderLine { pos2, length, stroke_width, color, .. } => {
-				hline(cairo, pos2.x, pos2.x + length, pos2.y, *stroke_width, color);
-			}
+			TextDecoration::Line { start_points, style, length, stroke_width, color, .. } =>
+				for pos2 in start_points {
+					hline(cairo, pos2.x, pos2.x + length, pos2.y, *style, *stroke_width, color);
+				}
 			TextDecoration::BlockBorder { rect, stroke_width, start, end, color, lines: bl } => {
 				draw_border(cairo, *stroke_width, color,
 					rect.min.x, rect.max.x, rect.min.y, rect.max.y,
@@ -449,17 +452,28 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 	render_line: &mut RenderLine, context: &RenderContext)
 {
 	#[inline]
-	fn setup_underline(mut draw_char: RenderChar, range: &Range<usize>, render_line: &mut RenderLine,
+	fn setup_decoration(mut draw_char: RenderChar, decoration: &html_parser::TextDecoration,
+		range: &Range<usize>, render_line: &mut RenderLine,
 		index: usize, len: usize, iter: &mut Enumerate<IntoIter<(RenderChar, CharStyle)>>, context: &RenderContext) -> TextDecoration {
 		let rect = &draw_char.rect;
 		let min = &rect.min;
 		let left = min.x;
+		let mut top = min.y;
 		let offset = draw_char.offset;
 		let (color, padding) = match &draw_char.cell {
-			RenderCell::Image(_) => (context.colors.color.clone(), 0.0),
+			RenderCell::Image(_) =>
+				if let Some(color) = &decoration.color {
+					(color.clone(), 0.0)
+				} else {
+					(context.colors.color.clone(), 0.0)
+				},
 			RenderCell::Char(CharCell { color, cell_size, .. })
 			| RenderCell::Link(CharCell { color, cell_size, .. }, _)
-			=> (color.clone(), cell_size.x / 4.0),
+			=> if let Some(color) = &decoration.color {
+				(color.clone(), cell_size.x / 4.0)
+			} else {
+				(color.clone(), cell_size.x / 4.0)
+			}
 		};
 		let margin = padding / 2.0;
 		let draw_left = if offset == range.start {
@@ -478,9 +492,17 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 			render_line.push(draw_char);
 			for _ in 1..left_count {
 				let e = iter.next().unwrap();
+				let char_top = e.1.0.rect.top();
+				if top > char_top {
+					top = char_top;
+				}
 				render_line.push(e.1.0);
 			}
 			let e = iter.next().unwrap();
+			let char_top = e.1.0.rect.top();
+			if top > char_top {
+				top = char_top;
+			}
 			draw_char = e.1.0;
 		}
 		let max = draw_char.rect.max;
@@ -489,10 +511,20 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 		} else {
 			max.x
 		};
-		let draw_bottom = max.y + margin;
 		render_line.push(draw_char);
-		TextDecoration::UnderLine {
-			pos2: Pos2 { x: draw_left, y: draw_bottom },
+		let mut start_points = vec![];
+		if decoration.line.contains(TextDecorationLine::Underline) {
+			start_points.push(Pos2 { x: draw_left, y: max.y + margin });
+		}
+		if decoration.line.contains(TextDecorationLine::Overline) {
+			start_points.push(Pos2 { x: draw_left, y: top - margin });
+		}
+		if decoration.line.contains(TextDecorationLine::LineThrough) {
+			start_points.push(Pos2 { x: draw_left, y: (max.y + top) / 2. });
+		}
+		TextDecoration::Line {
+			style: decoration.style,
+			start_points,
 			length: draw_right - draw_left,
 			stroke_width: margin / 2.0,
 			color,
@@ -559,11 +591,12 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 				color,
 				lines: border_lines,
 			});
-		} else if let Some((_, range)) = char_style.line {
-			let decoration = setup_underline(draw_char, &range, render_line, index, len, &mut iter, context);
+		} else if let Some((decoration, range)) = char_style.decoration {
+			let decoration = setup_decoration(draw_char, &decoration, &range, render_line, index, len, &mut iter, context);
 			render_line.add_decoration(decoration)
 		} else if let Some((_, range)) = char_style.link {
-			let decoration = setup_underline(draw_char, &range, render_line, index, len, &mut iter, context);
+			let decoration = html_parser::TextDecoration::line(TextDecorationLine::Underline);
+			let decoration = setup_decoration(draw_char, &decoration, &range, render_line, index, len, &mut iter, context);
 			render_line.add_decoration(decoration)
 		} else {
 			render_line.push(draw_char);

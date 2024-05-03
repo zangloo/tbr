@@ -5,10 +5,11 @@ use std::rc::Rc;
 use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
 use gtk4::{cairo, pango};
 use gtk4::prelude::GdkCairoContextExt;
-use gtk4::cairo::{Context as CairoContext};
+use gtk4::cairo::{Context as CairoContext, LineJoin};
 use gtk4::pango::{Layout as PangoContext, FontDescription};
 use gtk4::pango::ffi::PANGO_SCALE;
 use indexmap::IndexSet;
+use lightningcss::properties::text::TextDecorationStyle;
 
 use crate::book::{Book, CharStyle, Colors, Line};
 use crate::color::Color32;
@@ -75,8 +76,9 @@ pub enum TextDecoration {
 		lines: BorderLines,
 	},
 	// start(x,y), length,stroke width, is first, color
-	UnderLine {
-		pos2: Pos2,
+	Line {
+		start_points: Vec<Pos2>,
+		style: TextDecorationStyle,
 		length: f32,
 		stroke_width: f32,
 		color: Color32,
@@ -1232,24 +1234,184 @@ fn load_font_weight<'a>(font_weight: &'a FontWeight, render_context: &RenderCont
 }
 
 #[inline]
-pub fn vline(cairo: &CairoContext, x: f32, top: f32, bottom: f32, stroke_width: f32, color: &Color32)
+pub fn vline(cairo: &CairoContext, x: f32, top: f32, bottom: f32,
+	style: TextDecorationStyle, stroke_width: f32, color: &Color32)
 {
 	let x = x as f64;
+	let top = top as f64;
+	let bottom = bottom as f64;
 	color.apply(cairo);
-	cairo.move_to(x, top as f64);
-	cairo.line_to(x, bottom as f64);
-	cairo.set_line_width(stroke_width as f64);
+	match style {
+		TextDecorationStyle::Solid => {
+			cairo.move_to(x, top);
+			cairo.set_line_width(stroke_width as f64);
+			cairo.line_to(x, bottom);
+		}
+		TextDecorationStyle::Double => {
+			let width = stroke_width as f64 / 2.;
+			let delta = width / 0.75;
+			cairo.set_line_width(width);
+			cairo.move_to(x - delta, top);
+			cairo.line_to(x - delta, bottom);
+			cairo.move_to(x + delta, top);
+			cairo.line_to(x + delta, bottom);
+		}
+		TextDecorationStyle::Dotted => {
+			let size = stroke_width as f64;
+			let step = size * 2.;
+			let stop = bottom;
+			let mut y = top;
+			cairo.set_line_width(size);
+			while y < stop {
+				cairo.move_to(x, y);
+				cairo.line_to(x, y + size);
+				y += step;
+			}
+		}
+		TextDecorationStyle::Dashed => {
+			let width = stroke_width as f64;
+			let line_size = width * 4.;
+			let stop = bottom;
+			let mut y = top;
+			let mut end = y + width;
+			cairo.set_line_width(width);
+			let mut dot = true;
+			loop {
+				cairo.move_to(x, y);
+				cairo.line_to(x, end);
+
+				dot = !dot;
+				y = end + width;
+				if y >= stop {
+					break;
+				}
+				end = y + if dot {
+					width
+				} else {
+					line_size
+				};
+				if end > stop {
+					end = stop;
+				}
+			}
+		}
+		TextDecorationStyle::Wavy => {
+			let width = stroke_width as f64;
+			let size = width * 2.;
+			let stop = bottom;
+			let mut y = top;
+			cairo.set_line_width(width / 2.);
+			cairo.set_line_join(LineJoin::Round);
+			cairo.move_to(x - width, y);
+			let mut l2r = true;
+			loop {
+				let rel_x = if l2r {
+					l2r = false;
+					size
+				} else {
+					l2r = true;
+					-size
+				};
+				if y + size > stop {
+					break;
+				} else {
+					y += size;
+				}
+				cairo.rel_line_to(rel_x, size);
+			}
+		}
+	}
 	handle_cairo(cairo.stroke());
 }
 
 #[inline]
-pub fn hline(cairo: &CairoContext, left: f32, right: f32, y: f32, stroke_width: f32, color: &Color32)
+pub fn hline(cairo: &CairoContext, left: f32, right: f32, y: f32,
+	style: TextDecorationStyle, stroke_width: f32, color: &Color32)
 {
 	let y = y as f64;
+	let left = left as f64;
+	let right = right as f64;
 	color.apply(cairo);
-	cairo.move_to(left as f64, y);
-	cairo.line_to(right as f64, y);
-	cairo.set_line_width(stroke_width as f64);
+	match style {
+		TextDecorationStyle::Solid => {
+			cairo.set_line_width(stroke_width as f64);
+			cairo.move_to(left, y);
+			cairo.line_to(right, y);
+		}
+		TextDecorationStyle::Double => {
+			let width = stroke_width as f64 / 2.;
+			let delta = width / 0.75;
+			cairo.set_line_width(width);
+			cairo.move_to(left, y - delta);
+			cairo.line_to(right, y - delta);
+			cairo.move_to(left, y + delta);
+			cairo.line_to(right, y + delta);
+		}
+		TextDecorationStyle::Dotted => {
+			let size = stroke_width as f64;
+			let step = size * 2.;
+			let stop = right as f64;
+			let mut x = left as f64;
+			cairo.set_line_width(size);
+			while x < stop {
+				cairo.move_to(x, y);
+				cairo.line_to(x + size, y);
+				x += step;
+			}
+		}
+		TextDecorationStyle::Dashed => {
+			let size = stroke_width as f64;
+			let line_size = size * 4.;
+			let stop = right as f64;
+			let mut x = left as f64;
+			let mut end = x + size;
+			cairo.set_line_width(size);
+			let mut dot = true;
+			loop {
+				cairo.move_to(x, y);
+				cairo.line_to(end, y);
+
+				dot = !dot;
+				x = end + size;
+				if x >= stop {
+					break;
+				}
+				end = x + if dot {
+					size
+				} else {
+					line_size
+				};
+				if end > stop {
+					end = stop;
+				}
+			}
+		}
+		TextDecorationStyle::Wavy => {
+			let width = stroke_width as f64;
+			let size = width * 2.;
+			let stop = right as f64;
+			let mut x = left as f64;
+			cairo.set_line_width(width / 2.);
+			cairo.set_line_join(LineJoin::Round);
+			cairo.move_to(x, y - width);
+			let mut t2b = true;
+			loop {
+				let rel_y = if t2b {
+					t2b = false;
+					size
+				} else {
+					t2b = true;
+					-size
+				};
+				if x + size > stop {
+					break;
+				} else {
+					x += size;
+				}
+				cairo.rel_line_to(size, rel_y);
+			}
+		}
+	}
 	handle_cairo(cairo.stroke());
 }
 
@@ -1258,16 +1420,16 @@ pub fn draw_border(cairo: &CairoContext, stroke_width: f32, color: &Color32,
 	left: f32, right: f32, top: f32, bottom: f32,
 	draw_left: bool, draw_right: bool, draw_top: bool, draw_bottom: bool) {
 	if draw_left {
-		vline(cairo, left, top, bottom, stroke_width, &color);
+		vline(cairo, left, top, bottom, TextDecorationStyle::Solid, stroke_width, &color);
 	}
 	if draw_right {
-		vline(cairo, right, top, bottom, stroke_width, &color);
+		vline(cairo, right, top, bottom, TextDecorationStyle::Solid, stroke_width, &color);
 	}
 	if draw_top {
-		hline(cairo, left, right, top, stroke_width, &color);
+		hline(cairo, left, right, top, TextDecorationStyle::Solid, stroke_width, &color);
 	}
 	if draw_bottom {
-		hline(cairo, left, right, bottom, stroke_width, &color);
+		hline(cairo, left, right, bottom, TextDecorationStyle::Solid, stroke_width, &color);
 	}
 }
 

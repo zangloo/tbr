@@ -27,7 +27,7 @@ use crate::gui::HtmlFonts;
 #[cfg(feature = "gui")]
 use crate::html_parser::{FontScale, FontWeight};
 #[cfg(feature = "gui")]
-use crate::html_parser::BlockStyle;
+use crate::html_parser::{BlockStyle, TextDecoration};
 use crate::html_parser::TextStyle;
 use crate::terminal::Listable;
 
@@ -169,9 +169,6 @@ impl<'a> ImageData<'a> {
 }
 
 #[cfg(feature = "gui")]
-type TextDecorationLine = lightningcss::properties::text::TextDecorationLine;
-
-#[cfg(feature = "gui")]
 #[derive(Debug)]
 pub struct CharStyle {
 	pub font_scale: FontScale,
@@ -179,7 +176,7 @@ pub struct CharStyle {
 	pub font_family: Option<u16>,
 	pub color: Color32,
 	pub background: Option<Color32>,
-	pub line: Option<(TextDecorationLine, Range<usize>)>,
+	pub decoration: Option<(TextDecoration, Range<usize>)>,
 	pub border: Option<(Range<usize>, TextStyle)>,
 	pub link: Option<(usize, Range<usize>)>,
 	pub image: Option<String>,
@@ -395,7 +392,7 @@ impl Line {
 			font_family: None,
 			color: colors.color.clone(),
 			background: None,
-			line: None,
+			decoration: None,
 			border: None,
 			link: None,
 			image: None,
@@ -416,8 +413,8 @@ impl Line {
 							new_color = Some(colors.link.clone());
 						}
 					}
-					TextStyle::Border{..} => char_style.border = Some((range.clone(), style.clone())),
-					TextStyle::Line(line) => char_style.line = Some((*line, range.clone())),
+					TextStyle::Border { .. } => char_style.border = Some((range.clone(), style.clone())),
+					TextStyle::Decoration(decoration) => char_style.decoration = Some((decoration.clone(), range.clone())),
 					TextStyle::Color(color) => if custom_color { new_color = Some(color.clone()) },
 					TextStyle::BackgroundColor(color) => if custom_color { char_style.background = Some(color.clone()) },
 				}
@@ -784,7 +781,7 @@ mod test {
 		set.insert(TextStyle::Link("keep me".to_string()));
 		set.insert(TextStyle::Border);
 
-		assert!(set.insert(TextStyle::Line(TextDecorationLine::all())));
+		assert!(set.insert(TextStyle::Decoration(TextDecorationLine::all())));
 		assert_eq!(set.insert(TextStyle::Border), false);
 		assert!(set.insert(TextStyle::FontSize { scale: 1., relative: true }));
 		assert!(set.insert(TextStyle::FontWeight(FontWeightValue::Lighter)));

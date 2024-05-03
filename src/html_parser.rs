@@ -13,7 +13,7 @@ use lightningcss::properties::{border, font, Property};
 use lightningcss::properties::border::{Border, BorderSideWidth};
 use lightningcss::properties::display::{Display, DisplayOutside, DisplayPair};
 use lightningcss::properties::font::{AbsoluteFontWeight, FontFamily, FontSize, FontWeight as CssFontWeight};
-use lightningcss::properties::text::TextDecorationLine;
+use lightningcss::properties::text::{TextDecoration as CssTextDecoration, TextDecorationLine, TextDecorationStyle};
 use lightningcss::rules::{CssRule, font_face};
 use lightningcss::rules::font_face::FontFaceProperty;
 use lightningcss::stylesheet::{ParserOptions, StyleSheet};
@@ -64,6 +64,7 @@ impl<'a> HtmlParseOptions<'a> {
 		self.resolver = Some(resolver);
 		self
 	}
+	#[allow(unused)]
 	pub fn with_custom_title(mut self, custom_title: String) -> Self
 	{
 		self.custom_title = Some(custom_title);
@@ -118,8 +119,26 @@ pub enum BlockStyle {
 }
 
 #[derive(Clone, Debug)]
+pub struct TextDecoration {
+	pub line: TextDecorationLine,
+	pub style: TextDecorationStyle,
+	pub color: Option<Color32>,
+}
+
+impl TextDecoration {
+	pub(crate) fn line(line: TextDecorationLine) -> Self
+	{
+		Self {
+			line,
+			style: TextDecorationStyle::Solid,
+			color: None,
+		}
+	}
+}
+
+#[derive(Clone, Debug)]
 pub enum TextStyle {
-	Line(TextDecorationLine),
+	Decoration(TextDecoration),
 	Border(BorderLines),
 	FontSize { scale: FontScale, relative: bool },
 	FontWeight(FontWeightValue),
@@ -135,7 +154,7 @@ impl TextStyle {
 	fn id(&self) -> usize
 	{
 		match self {
-			TextStyle::Line(_) => 1,
+			TextStyle::Decoration { .. } => 1,
 			TextStyle::Border { .. } => 2,
 			TextStyle::FontSize { .. } => 3,
 			TextStyle::FontWeight(_) => 4,
@@ -282,6 +301,7 @@ impl FontWeight {
 pub struct HtmlContent {
 	title: Option<String>,
 	lines: Vec<Line>,
+	#[allow(unused)]
 	block_styles: Option<Vec<BlockStyle>>,
 	id_map: HashMap<String, Position>,
 }
@@ -289,6 +309,7 @@ pub struct HtmlContent {
 impl HtmlContent
 {
 	#[inline]
+	#[allow(unused)]
 	pub fn empty() -> Self
 	{
 		HtmlContent {
@@ -309,6 +330,7 @@ impl HtmlContent
 		&self.lines
 	}
 	#[inline]
+	#[allow(unused)]
 	pub fn block_styles(&self) -> Option<&Vec<BlockStyle>>
 	{
 		self.block_styles.as_ref()
@@ -562,14 +584,14 @@ impl<'a> HtmlParser<'a> {
 							ParseTag::Style(TextStyle::FontWeight(FontWeightValue::Bolder)),
 							false);
 						self.convert_node_children(node.children());
-					},
+					}
 					local_name!("u") => {
 						insert_or_replace_tag(
 							&mut element_tags,
-							ParseTag::Style(TextStyle::Line(TextDecorationLine::Underline)),
+							ParseTag::Style(TextStyle::Decoration(TextDecoration::line(TextDecorationLine::Underline))),
 							false);
 						self.convert_node_children(node.children());
-					},
+					}
 					local_name!("div") => {
 						self.newline_for_class(element);
 						self.convert_node_children(node.children());
@@ -802,7 +824,8 @@ impl<'a> HtmlParser<'a> {
 			Property::FontSize(size) => Some(font_size(size)),
 			Property::FontWeight(weight) => Some(ParseTag::Style(TextStyle::FontWeight(FontWeightValue::from(weight)))),
 			Property::FontFamily(families) => self.font_family(families),
-			Property::TextDecorationLine(line, _) => Some(ParseTag::Style(TextStyle::Line(*line))),
+			Property::TextDecorationLine(line, _) => Some(ParseTag::Style(TextStyle::Decoration(TextDecoration::line(*line)))),
+			Property::TextDecoration(decoration, _) => Some(self.text_decoration(decoration)),
 			Property::Color(color) => Some(ParseTag::Style(TextStyle::Color(self.css_color(color)?))),
 			Property::BackgroundColor(color) => Some(ParseTag::Style(TextStyle::BackgroundColor(self.css_color(color)?))),
 			Property::Background(bg) => Some(ParseTag::Style(TextStyle::BackgroundColor(self.css_color(&bg[0].color)?))),
@@ -864,6 +887,15 @@ impl<'a> HtmlParser<'a> {
 			},
 			CssColor::System(_) => None,
 		}
+	}
+
+	fn text_decoration(&self, decoration: &CssTextDecoration) -> ParseTag
+	{
+		let style = decoration.style;
+		let line = decoration.line;
+		let color = self.css_color(&decoration.color);
+		let decoration = TextDecoration { line, style, color };
+		ParseTag::Style(TextStyle::Decoration(decoration))
 	}
 }
 
@@ -1170,6 +1202,7 @@ pub fn parse_xml(xml: &str) -> Result<Document>
 }
 
 #[inline]
+#[allow(unused)]
 pub fn parse_stylesheet(css: &str, strict: bool) -> Result<StyleSheet>
 {
 	let mut options = ParserOptions::default();
