@@ -415,12 +415,14 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			} else {
 				false
 			};
-			if !goto_prev {
-				current_toc
-			} else if toc_index == 0 {
-				return self.switch_chapter(false, context);
+			if goto_prev {
+				if toc_index == 0 {
+					return self.switch_chapter(false, context);
+				} else {
+					self.book.toc_position(toc_index - 1)
+				}
 			} else {
-				self.book.toc_position(toc_index - 1)
+				current_toc
 			}
 		};
 		if let Some(toc) = target_toc {
