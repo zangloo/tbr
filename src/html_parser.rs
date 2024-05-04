@@ -805,16 +805,16 @@ impl<'a> HtmlParser<'a> {
 			Property::BorderWidth(width) => {
 				let mut borders = BorderLines::NONE;
 				if border_width(&width.top) {
-					borders &= BorderLines::TOP;
+					borders |= BorderLines::TOP;
 				}
 				if border_width(&width.right) {
-					borders &= BorderLines::RIGHT;
+					borders |= BorderLines::RIGHT;
 				}
 				if border_width(&width.bottom) {
-					borders &= BorderLines::BOTTOM;
+					borders |= BorderLines::BOTTOM;
 				}
 				if border_width(&width.left) {
-					borders &= BorderLines::LEFT;
+					borders |= BorderLines::LEFT;
 				}
 				if borders.is_empty() {
 					None
