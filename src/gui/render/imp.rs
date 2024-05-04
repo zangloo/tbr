@@ -110,6 +110,7 @@ pub struct RenderChar {
 	pub cell: RenderCell,
 	pub offset: usize,
 	pub rect: Rect,
+	pub has_title: bool,
 }
 
 #[derive(Clone)]

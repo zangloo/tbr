@@ -2961,6 +2961,7 @@ version = "2.4.2"
 dependencies = [
  "ab_glyph",
  "anyhow",
+ "bitflags 2.5.0",
  "chardetng",
  "clap",
  "cursive",

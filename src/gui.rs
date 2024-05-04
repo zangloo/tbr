@@ -782,6 +782,30 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 	}
 
 	{
+		// show title
+		let gc = gc.clone();
+		view.connect_closure(
+			GuiView::SHOW_TITLE_SIGNAL,
+			false,
+			closure_local!(move |view: GuiView, show: bool, line: u64, offset: u64| {
+				if show {
+					let line_no = line as usize;
+					let controller = gc.ctrl();
+					if let Some(line) = controller.book.lines().get(line_no) {
+						let render_context = gc.ctx();
+						let char_style =  line.char_style_at(offset as usize, false, &render_context.colors);
+						if let Some(title) = char_style.title {
+							view.set_tooltip_text(Some(title));
+							return;
+						}
+					};
+				}
+				view.set_tooltip_text(None);
+			}),
+		);
+	}
+
+	{
 		// scroll signal
 		let gc = gc.clone();
 		view.connect_closure(
@@ -1601,6 +1625,12 @@ impl GuiContext {
 	fn ctrl_mut(&self) -> RefMut<GuiController>
 	{
 		self.ctrl.borrow_mut()
+	}
+
+	#[inline]
+	fn ctx(&self) -> Ref<RenderContext>
+	{
+		self.ctx.borrow()
 	}
 
 	#[inline]

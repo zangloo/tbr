@@ -170,16 +170,17 @@ impl<'a> ImageData<'a> {
 
 #[cfg(feature = "gui")]
 #[derive(Debug)]
-pub struct CharStyle {
+pub struct CharStyle<'a> {
 	pub font_scale: FontScale,
 	pub font_weight: FontWeight,
 	pub font_family: Option<u16>,
 	pub color: Color32,
 	pub background: Option<Color32>,
-	pub decoration: Option<(TextDecoration, Range<usize>)>,
-	pub border: Option<(Range<usize>, TextStyle)>,
-	pub link: Option<(usize, Range<usize>)>,
-	pub image: Option<String>,
+	pub decoration: Option<(&'a TextDecoration, &'a Range<usize>)>,
+	pub border: Option<(&'a Range<usize>, TextStyle)>,
+	pub link: Option<(usize, &'a Range<usize>)>,
+	pub image: Option<&'a String>,
+	pub title: Option<&'a String>,
 }
 
 #[derive(Clone)]
@@ -396,6 +397,7 @@ impl Line {
 			border: None,
 			link: None,
 			image: None,
+			title: None,
 		};
 		let mut new_color = None;
 		for (index, (style, range)) in self.styles.iter().enumerate().rev() {
@@ -406,17 +408,18 @@ impl Line {
 					TextStyle::FontWeight(weight) =>
 						char_style.font_weight.update(weight),
 					TextStyle::FontFamily(families) => char_style.font_family = Some(families.clone()),
-					TextStyle::Image(href) => char_style.image = Some(href.clone()),
+					TextStyle::Image(href) => char_style.image = Some(&href),
 					TextStyle::Link(_) => {
-						char_style.link = Some((index, range.clone()));
+						char_style.link = Some((index, &range));
 						if new_color.is_none() {
 							new_color = Some(colors.link.clone());
 						}
 					}
-					TextStyle::Border { .. } => char_style.border = Some((range.clone(), style.clone())),
-					TextStyle::Decoration(decoration) => char_style.decoration = Some((decoration.clone(), range.clone())),
+					TextStyle::Border { .. } => char_style.border = Some((&range, style.clone())),
+					TextStyle::Decoration(decoration) => char_style.decoration = Some((&decoration, &range)),
 					TextStyle::Color(color) => if custom_color { new_color = Some(color.clone()) },
 					TextStyle::BackgroundColor(color) => if custom_color { char_style.background = Some(color.clone()) },
+					TextStyle::Title(title) => char_style.title = Some(title),
 				}
 			}
 		}

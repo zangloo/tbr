@@ -100,6 +100,7 @@ impl GuiView {
 	pub const CLEAR_SELECTION_SIGNAL: &'static str = "clear-selection";
 	pub const SCROLL_SIGNAL: &'static str = "scroll";
 	pub const SELECT_WORD_SIGNAL: &'static str = "select-word";
+	pub const SHOW_TITLE_SIGNAL: &'static str = "title";
 
 	pub fn new(instance_name: &str, render_han: bool, book_fonts: Option<&HtmlFonts>,
 		user_fonts: Rc<Option<UserFonts>>, render_context: &mut RenderContext) -> Self
@@ -428,6 +429,14 @@ mod imp {
 					Signal::builder(super::GuiView::SCROLL_SIGNAL)
 						.param_types([
 							<i32>::static_type(),
+						])
+						.run_last()
+						.build(),
+					Signal::builder(super::GuiView::SHOW_TITLE_SIGNAL)
+						.param_types([
+							<bool>::static_type(),
+							<u64>::static_type(),
+							<u64>::static_type(),
 						])
 						.run_last()
 						.build(),
@@ -834,7 +843,7 @@ mod imp {
 		}
 
 		#[inline]
-		fn pointer_info<F, T>(&self, mut pointer_position: Pos2, f: F) -> Option<T>
+		pub(super) fn pointer_info<F, T>(&self, mut pointer_position: Pos2, f: F) -> Option<T>
 			where F: FnOnce(&RenderLine, &RenderChar) -> Option<T>
 		{
 			let data = self.data.borrow();
@@ -877,19 +886,18 @@ mod imp {
 		}
 
 		#[cfg(not(windows))]
-		pub fn pointer_cursor(&self, mouse_position: Pos2, state: ModifierType) -> &str
+		pub fn pointer_cursor(&self, dc: &RenderChar, state: ModifierType) -> &str
 		{
-			self.pointer_info(mouse_position, |_, dc| {
-				match dc.cell {
-					RenderCell::Char(_) => None,
-					RenderCell::Image(_) => if state.eq(&ModifierType::CONTROL_MASK) {
-						Some("zoom-in")
-					} else {
-						None
-					}
-					RenderCell::Link(_, _) => Some("pointer"),
+			let name = match dc.cell {
+				RenderCell::Char(_) => None,
+				RenderCell::Image(_) => if state.eq(&ModifierType::CONTROL_MASK) {
+					Some("zoom-in")
+				} else {
+					None
 				}
-			}).unwrap_or_else(|| {
+				RenderCell::Link(_, _) => Some("pointer"),
+			};
+			name.unwrap_or_else(|| {
 				if self.render_han.get() {
 					"vertical-text"
 				} else {
@@ -899,19 +907,18 @@ mod imp {
 		}
 
 		#[cfg(windows)]
-		pub fn pointer_cursor(&self, mouse_position: &Pos2, state: ModifierType) -> &str
+		pub fn pointer_cursor(&self, dc: &RenderChar, state: ModifierType) -> &str
 		{
-			self.pointer_info(mouse_position, |_, dc| {
-				match dc.cell {
-					RenderCell::Char(_) => None,
-					RenderCell::Image(_) => if state.eq(&ModifierType::CONTROL_MASK) {
-						Some("pointer")
-					} else {
-						None
-					}
-					RenderCell::Link(_, _) => Some("pointer"),
+			let name = match dc.cell {
+				RenderCell::Char(_) => None,
+				RenderCell::Image(_) => if state.eq(&ModifierType::CONTROL_MASK) {
+					Some("pointer")
+				} else {
+					None
 				}
-			}).unwrap_or("default")
+				RenderCell::Link(_, _) => Some("pointer"),
+			};
+			name.unwrap_or("default")
 		}
 	}
 
@@ -966,6 +973,26 @@ pub fn update_mouse_pointer(view: &GuiView, x: f32, y: f32, state: ModifierType)
 {
 	let pos = pos2(x, y);
 	let imp = view.imp();
-	let cursor_name = imp.pointer_cursor(pos, state);
-	view.set_cursor_from_name(Some(cursor_name))
+	let title_info = imp.pointer_info(pos, |render_line, render_char| {
+		let cursor_name = imp.pointer_cursor(render_char, state);
+		view.set_cursor_from_name(Some(cursor_name));
+		if render_char.has_title {
+			Some((render_line.line(), render_char.offset))
+		} else {
+			None
+		}
+	});
+	if let Some((line, offset)) = title_info {
+		view.emit_by_name::<()>(GuiView::SHOW_TITLE_SIGNAL, &[
+			&true,
+			&(line as u64),
+			&(offset as u64),
+		]);
+	} else {
+		view.emit_by_name::<()>(GuiView::SHOW_TITLE_SIGNAL, &[
+			&false,
+			&(0u64),
+			&(0u64),
+		]);
+	}
 }

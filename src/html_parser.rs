@@ -5,6 +5,7 @@ use std::ops::{Deref, Range};
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
+use bitflags::bitflags;
 use ego_tree::{NodeId, NodeRef};
 use ego_tree::iter::Children;
 use indexmap::IndexSet;
@@ -105,12 +106,16 @@ impl From<&CssFontWeight> for FontWeightValue {
 	}
 }
 
+bitflags! {
 #[derive(Clone, Debug)]
-pub struct BorderLines {
-	pub top: bool,
-	pub right: bool,
-	pub bottom: bool,
-	pub left: bool,
+pub struct BorderLines: u8 {
+		const TOP = 0x01;
+		const RIGHT = 0x02;
+		const BOTTOM = 0x04;
+		const LEFT = 0x08;
+		const NONE = 0x00;
+		const ALL = 0x0f;
+	}
 }
 
 pub enum BlockStyle {
@@ -147,6 +152,7 @@ pub enum TextStyle {
 	Link(String),
 	Color(Color32),
 	BackgroundColor(Color32),
+	Title(String),
 }
 
 impl TextStyle {
@@ -163,6 +169,7 @@ impl TextStyle {
 			TextStyle::Link(_) => 7,
 			TextStyle::Color(_) => 8,
 			TextStyle::BackgroundColor(_) => 9,
+			TextStyle::Title(_) => 10,
 		}
 	}
 }
@@ -715,17 +722,21 @@ impl<'a> HtmlParser<'a> {
 		if let Some(style) = element.attr("style") {
 			if let Ok(declaration) = DeclarationBlock::parse_string(style, style_parse_options()) {
 				for property in &declaration.declarations {
-					if let Some(style) = self.convert_style(property) {
-						insert_or_replace_tag(&mut element_tags, style, false);
+					if let Some(tag) = self.convert_style(property) {
+						insert_or_replace_tag(&mut element_tags, tag, false);
 					}
 				}
 			}
 		}
-		if let Some(styles) = self.element_tags.remove(&node_id) {
-			for style in styles {
-				insert_or_replace_tag(&mut element_tags, style.0, style.1);
+		if let Some(tags) = self.element_tags.remove(&node_id) {
+			for tag in tags {
+				insert_or_replace_tag(&mut element_tags, tag.0, tag.1);
 			}
 		};
+		if let Some(title) = element.attr("title") {
+			let tag = ParseTag::Style(TextStyle::Title(title.to_string()));
+			insert_or_replace_tag(&mut element_tags, tag, false);
+		}
 		element_tags
 	}
 
@@ -784,41 +795,31 @@ impl<'a> HtmlParser<'a> {
 		match property {
 			Property::Border(border) => border_style(border),
 			Property::BorderTop(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines {
-				top: true,
-				right: false,
-				bottom: false,
-				left: false,
-			}))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::TOP))),
 			Property::BorderRight(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines {
-				top: false,
-				right: true,
-				bottom: false,
-				left: false,
-			}))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::RIGHT))),
 			Property::BorderBottom(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines {
-				top: false,
-				right: false,
-				bottom: true,
-				left: false,
-			}))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::BOTTOM))),
 			Property::BorderLeft(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines {
-				top: false,
-				right: false,
-				bottom: false,
-				left: true,
-			}))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::LEFT))),
 			Property::BorderWidth(width) => {
-				let top = border_width(&width.top);
-				let right = border_width(&width.right);
-				let bottom = border_width(&width.bottom);
-				let left = border_width(&width.left);
-				match (top, left, right, bottom) {
-					(false, false, false, false) => None,
-					(_, _, _, _) => Some(ParseTag::Style(TextStyle::Border(BorderLines { top, right, bottom, left }))),
+				let mut borders = BorderLines::NONE;
+				if border_width(&width.top) {
+					borders &= BorderLines::TOP;
+				}
+				if border_width(&width.right) {
+					borders &= BorderLines::RIGHT;
+				}
+				if border_width(&width.bottom) {
+					borders &= BorderLines::BOTTOM;
+				}
+				if border_width(&width.left) {
+					borders &= BorderLines::LEFT;
+				}
+				if borders.is_empty() {
+					None
+				} else {
+					Some(ParseTag::Style(TextStyle::Border(borders)))
 				}
 			}
 			Property::FontSize(size) => Some(font_size(size)),
@@ -1054,12 +1055,7 @@ fn border_style(border: &Border) -> Option<ParseTag>
 		| border::LineStyle::Dashed
 		| border::LineStyle::Solid
 		| border::LineStyle::Double
-		if border_width(&border.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines {
-			top: true,
-			right: true,
-			bottom: true,
-			left: true,
-		}))),
+		if border_width(&border.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::ALL))),
 		_ => None
 	}
 }

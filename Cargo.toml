@@ -55,6 +55,7 @@ encoding_rs = "0.8"
 zip = "1.1.1"
 lexical-sort = "0.3"
 elsa = "1.8"
+bitflags = "2.5"
 
 # scraper need v0.11
 markup5ever = "0.11"

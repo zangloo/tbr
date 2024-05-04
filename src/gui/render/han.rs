@@ -13,7 +13,7 @@ use crate::gui::math::{Pos2, pos2, Rect, vec2};
 use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, CharDrawData, ScrollSizing, ScrolledDrawData};
 use crate::gui::render::imp::draw_border;
 use crate::html_parser;
-use crate::html_parser::TextStyle;
+use crate::html_parser::{BorderLines, TextStyle};
 
 pub(super) struct GuiHanRender {
 	chars_map: HashMap<char, char>,
@@ -130,8 +130,8 @@ impl GuiRender for GuiHanRender
 				let color = char_style.color.clone();
 				let mut rect = Rect::new(self.baseline - cell_size.x, top, cell_size.x, cell_size.y);
 				if let Some((range, TextStyle::Border(lines))) = &char_style.border {
-					if lines.left {
-						if lines.right {
+					if lines.contains(BorderLines::LEFT) {
+						if lines.contains(BorderLines::RIGHT) {
 							let padding = cell_size.y / 4.0;
 							let max = &mut rect.max;
 							if range.len() == 1 {
@@ -151,7 +151,7 @@ impl GuiRender for GuiHanRender
 								cell_offset.y += padding;
 							}
 						}
-					} else if lines.right {
+					} else if lines.contains(BorderLines::RIGHT) {
 						let padding = cell_size.y / 4.0;
 						let max = &mut rect.max;
 						if i == range.end - 1 {
@@ -213,6 +213,7 @@ impl GuiRender for GuiHanRender
 				cell,
 				offset: i,
 				rect,
+				has_title: char_style.title.is_some(),
 			};
 			draw_chars.push((dc, char_style));
 		}
@@ -230,7 +231,10 @@ impl GuiRender for GuiHanRender
 			TextDecoration::Border { rect, stroke_width, start, end, color, lines: bl } => {
 				draw_border(cairo, *stroke_width, color,
 					rect.min.x, rect.max.x, rect.min.y, rect.max.y,
-					bl.bottom, bl.top, bl.left && *start, bl.right && *end);
+					bl.contains(BorderLines::BOTTOM),
+					bl.contains(BorderLines::TOP),
+					bl.contains(BorderLines::LEFT) && *start,
+					bl.contains(BorderLines::RIGHT) && *end);
 			}
 			TextDecoration::Line { start_points, style, length, stroke_width, color } =>
 				for pos2 in start_points {
@@ -239,7 +243,10 @@ impl GuiRender for GuiHanRender
 			TextDecoration::BlockBorder { rect, stroke_width, start, end, color, lines: bl } => {
 				draw_border(cairo, *stroke_width, color,
 					rect.min.x, rect.max.x, rect.min.y, rect.max.y,
-					bl.bottom && *end, bl.top && *start, bl.left, bl.right);
+					bl.contains(BorderLines::BOTTOM) && *end,
+					bl.contains(BorderLines::TOP) && *start,
+					bl.contains(BorderLines::LEFT),
+					bl.contains(BorderLines::RIGHT));
 			}
 		}
 	}
