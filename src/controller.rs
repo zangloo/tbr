@@ -365,49 +365,70 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		Ok(())
 	}
 
+	#[inline]
 	pub fn goto_toc(&mut self, toc_index: usize, context: &mut C) -> Option<String>
 	{
 		if let Some(trace_info) = self.book.toc_position(toc_index) {
-			if self.reading.chapter != trace_info.chapter {
-				if let Ok(Some(new_chapter)) = self.book.goto_chapter(trace_info.chapter) {
-					self.reading.chapter = new_chapter;
-					if new_chapter == trace_info.chapter {
-						self.reading.line = trace_info.line;
-						self.reading.position = trace_info.offset;
-					} else {
-						// would happen???
-						self.reading.line = 0;
-						self.reading.position = 0;
-					}
-				} else {
-					return None;
-				}
-			} else {
-				self.reading.line = trace_info.line;
-				self.reading.position = trace_info.offset;
-			}
-			self.push_trace(true);
-			self.redraw(context);
-			Some(self.status().to_string())
+			self.do_goto_toc(trace_info, context)
 		} else {
 			None
 		}
 	}
 
+	fn do_goto_toc(&mut self, trace_info: TraceInfo, context: &mut C) -> Option<String>
+	{
+		if self.reading.chapter != trace_info.chapter {
+			if let Ok(Some(new_chapter)) = self.book.goto_chapter(trace_info.chapter) {
+				self.reading.chapter = new_chapter;
+				if new_chapter == trace_info.chapter {
+					self.reading.line = trace_info.line;
+					self.reading.position = trace_info.offset;
+				} else {
+					// would happen???
+					self.reading.line = 0;
+					self.reading.position = 0;
+				}
+			} else {
+				return None;
+			}
+		} else {
+			self.reading.line = trace_info.line;
+			self.reading.position = trace_info.offset;
+		}
+		self.push_trace(true);
+		self.redraw(context);
+		Some(self.status().to_string())
+	}
+
 	pub fn switch_toc(&mut self, forward: bool, context: &mut C) -> Result<bool>
 	{
 		let toc_index = self.toc_index();
-		let target_toc_index = if forward {
-			toc_index + 1
+		let target_toc = if forward {
+			self.book.toc_position(toc_index + 1)
 		} else {
-			if toc_index == 0 {
+			// if not at the head of the toc, just goto the head of it
+			let current_toc = self.book.toc_position(toc_index);
+			let goto_prev = if let Some(toc) = &current_toc {
+				toc.chapter == self.book.current_chapter()
+					&& toc.line == self.reading.line
+					&& toc.offset == self.reading.position
+			} else {
+				false
+			};
+			if !goto_prev {
+				current_toc
+			} else if toc_index == 0 {
 				return self.switch_chapter(false, context);
 			} else {
-				toc_index - 1
+				self.book.toc_position(toc_index - 1)
 			}
 		};
-		self.goto_toc(target_toc_index, context);
-		Ok(true)
+		if let Some(toc) = target_toc {
+			self.do_goto_toc(toc, context);
+			Ok(true)
+		} else {
+			Ok(false)
+		}
 	}
 
 	pub fn switch_chapter(&mut self, forward: bool, context: &mut C) -> Result<bool>
