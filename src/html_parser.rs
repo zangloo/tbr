@@ -14,7 +14,7 @@ use lightningcss::properties::{border, font, Property};
 use lightningcss::properties::border::{Border, BorderSideWidth};
 use lightningcss::properties::display::{Display, DisplayOutside, DisplayPair};
 use lightningcss::properties::font::{AbsoluteFontWeight, FontFamily, FontSize, FontWeight as CssFontWeight};
-use lightningcss::properties::text::{TextDecoration as CssTextDecoration, TextDecorationLine, TextDecorationStyle};
+use lightningcss::properties::text::{TextDecoration as CssTextDecoration, TextDecorationLine as CssTextDecorationLine, TextDecorationStyle as CssTextDecorationStyle};
 use lightningcss::rules::{CssRule, font_face};
 use lightningcss::rules::font_face::FontFaceProperty;
 use lightningcss::stylesheet::{ParserOptions, StyleSheet};
@@ -106,15 +106,51 @@ impl From<&CssFontWeight> for FontWeightValue {
 	}
 }
 
+#[derive(Clone, Debug, Copy)]
+pub enum TextDecorationStyle {
+	Solid,
+	Double,
+	Dotted,
+	Dashed,
+	Wavy,
+}
+
+impl From<CssTextDecorationStyle> for TextDecorationStyle {
+	fn from(value: CssTextDecorationStyle) -> Self
+	{
+		match value {
+			CssTextDecorationStyle::Solid => TextDecorationStyle::Solid,
+			CssTextDecorationStyle::Double => TextDecorationStyle::Double,
+			CssTextDecorationStyle::Dotted => TextDecorationStyle::Dotted,
+			CssTextDecorationStyle::Dashed => TextDecorationStyle::Dashed,
+			CssTextDecorationStyle::Wavy => TextDecorationStyle::Wavy,
+		}
+	}
+}
+
 bitflags! {
-#[derive(Clone, Debug)]
-pub struct BorderLines: u8 {
-		const TOP = 0x01;
-		const RIGHT = 0x02;
-		const BOTTOM = 0x04;
-		const LEFT = 0x08;
-		const NONE = 0x00;
-		const ALL = 0x0f;
+	#[derive(Clone, Debug, Copy)]
+	pub struct TextDecorationLine: u8 {
+		const Underline = 0b00000001;
+		const Overline = 0b00000010;
+		const LineThrough = 0b00000100;
+	}
+}
+
+impl From<CssTextDecorationLine> for TextDecorationLine {
+	fn from(value: CssTextDecorationLine) -> Self
+	{
+		TextDecorationLine::from_bits_truncate(value.bits())
+	}
+}
+
+bitflags! {
+	#[derive(Clone, Debug, Copy)]
+	pub struct BorderLines: u8 {
+			const Top = 0x01;
+			const Right = 0x02;
+			const Bottom = 0x04;
+			const Left = 0x08;
 	}
 }
 
@@ -795,26 +831,26 @@ impl<'a> HtmlParser<'a> {
 		match property {
 			Property::Border(border) => border_style(border),
 			Property::BorderTop(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::TOP))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::Top))),
 			Property::BorderRight(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::RIGHT))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::Right))),
 			Property::BorderBottom(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::BOTTOM))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::Bottom))),
 			Property::BorderLeft(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::LEFT))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::Left))),
 			Property::BorderWidth(width) => {
-				let mut borders = BorderLines::NONE;
+				let mut borders = BorderLines::empty();
 				if border_width(&width.top) {
-					borders |= BorderLines::TOP;
+					borders |= BorderLines::Top;
 				}
 				if border_width(&width.right) {
-					borders |= BorderLines::RIGHT;
+					borders |= BorderLines::Right;
 				}
 				if border_width(&width.bottom) {
-					borders |= BorderLines::BOTTOM;
+					borders |= BorderLines::Bottom;
 				}
 				if border_width(&width.left) {
-					borders |= BorderLines::LEFT;
+					borders |= BorderLines::Left;
 				}
 				if borders.is_empty() {
 					None
@@ -825,7 +861,7 @@ impl<'a> HtmlParser<'a> {
 			Property::FontSize(size) => Some(font_size(size)),
 			Property::FontWeight(weight) => Some(ParseTag::Style(TextStyle::FontWeight(FontWeightValue::from(weight)))),
 			Property::FontFamily(families) => self.font_family(families),
-			Property::TextDecorationLine(line, _) => Some(ParseTag::Style(TextStyle::Decoration(TextDecoration::line(*line)))),
+			Property::TextDecorationLine(line, _) => Some(ParseTag::Style(TextStyle::Decoration(TextDecoration::line((*line).into())))),
 			Property::TextDecoration(decoration, _) => Some(self.text_decoration(decoration)),
 			Property::Color(color) => Some(ParseTag::Style(TextStyle::Color(self.css_color(color)?))),
 			Property::BackgroundColor(color) => Some(ParseTag::Style(TextStyle::BackgroundColor(self.css_color(color)?))),
@@ -892,8 +928,8 @@ impl<'a> HtmlParser<'a> {
 
 	fn text_decoration(&self, decoration: &CssTextDecoration) -> ParseTag
 	{
-		let style = decoration.style;
-		let line = decoration.line;
+		let style = decoration.style.into();
+		let line = decoration.line.into();
 		let color = self.css_color(&decoration.color);
 		let decoration = TextDecoration { line, style, color };
 		ParseTag::Style(TextStyle::Decoration(decoration))
@@ -1055,7 +1091,7 @@ fn border_style(border: &Border) -> Option<ParseTag>
 		| border::LineStyle::Dashed
 		| border::LineStyle::Solid
 		| border::LineStyle::Double
-		if border_width(&border.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::ALL))),
+		if border_width(&border.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::all()))),
 		_ => None
 	}
 }

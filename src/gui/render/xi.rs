@@ -5,7 +5,6 @@ use std::vec::IntoIter;
 
 use gtk4::cairo::Context as CairoContext;
 use gtk4::pango::Layout as PangoContext;
-use lightningcss::properties::text::TextDecorationLine;
 
 use crate::book::{Book, CharStyle, Line};
 use crate::common::with_leading;
@@ -14,7 +13,7 @@ use crate::gui::math::{Pos2, pos2, Rect, Vec2};
 use crate::gui::render::{CharCell, CharDrawData, GuiRender, hline, ImageDrawingData, PointerPosition, RenderCell, RenderChar, RenderContext, RenderLine, ScrolledDrawData, ScrollSizing, TextDecoration, update_for_highlight};
 use crate::gui::render::imp::draw_border;
 use crate::html_parser;
-use crate::html_parser::{BorderLines, TextStyle};
+use crate::html_parser::{BorderLines, TextDecorationLine, TextStyle};
 
 pub(super) struct GuiXiRender {
 	images: HashMap<String, ImageDrawingData>,
@@ -152,8 +151,8 @@ impl GuiRender for GuiXiRender
 				let color = char_style.color.clone();
 				let background = update_for_highlight(line, i, char_style.background.clone(), &context.colors, highlight);
 				let cell_offset = if let Some((range, TextStyle::Border(lines))) = &char_style.border {
-					if lines.contains(BorderLines::LEFT) {
-						if lines.contains(BorderLines::RIGHT) {
+					if lines.contains(BorderLines::Left) {
+						if lines.contains(BorderLines::Right) {
 							let draw_width = measures.size.x;
 							let padding = draw_width / 4.0;
 							if range.len() == 1 {
@@ -178,7 +177,7 @@ impl GuiRender for GuiXiRender
 								Vec2::ZERO
 							}
 						}
-					} else if lines.contains(BorderLines::RIGHT) {
+					} else if lines.contains(BorderLines::Right) {
 						let draw_width = measures.size.x;
 						let padding = draw_width / 4.0;
 						if i == range.end - 1 {
@@ -279,10 +278,10 @@ impl GuiRender for GuiXiRender
 			TextDecoration::Border { rect, stroke_width, start, end, color, lines: bl } => {
 				draw_border(cairo, *stroke_width, color,
 					rect.min.x, rect.max.x, rect.min.y, rect.max.y,
-					bl.contains(BorderLines::LEFT) && *start,
-					bl.contains(BorderLines::RIGHT) && *end,
-					bl.contains(BorderLines::TOP),
-					bl.contains(BorderLines::BOTTOM));
+					bl.contains(BorderLines::Left) && *start,
+					bl.contains(BorderLines::Right) && *end,
+					bl.contains(BorderLines::Top),
+					bl.contains(BorderLines::Bottom));
 			}
 			TextDecoration::Line { start_points, style, length, stroke_width, color, .. } =>
 				for pos2 in start_points {
@@ -291,10 +290,10 @@ impl GuiRender for GuiXiRender
 			TextDecoration::BlockBorder { rect, stroke_width, start, end, color, lines: bl } => {
 				draw_border(cairo, *stroke_width, color,
 					rect.min.x, rect.max.x, rect.min.y, rect.max.y,
-					bl.contains(BorderLines::LEFT),
-					bl.contains(BorderLines::RIGHT),
-					bl.contains(BorderLines::TOP) && *start,
-					bl.contains(BorderLines::BOTTOM) && *end);
+					bl.contains(BorderLines::Left),
+					bl.contains(BorderLines::Right),
+					bl.contains(BorderLines::Top) && *start,
+					bl.contains(BorderLines::Bottom) && *end);
 			}
 		}
 	}

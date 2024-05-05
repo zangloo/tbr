@@ -9,7 +9,6 @@ use gtk4::cairo::{Context as CairoContext, LineJoin};
 use gtk4::pango::{Layout as PangoContext, FontDescription};
 use gtk4::pango::ffi::PANGO_SCALE;
 use indexmap::IndexSet;
-use lightningcss::properties::text::TextDecorationStyle;
 
 use crate::book::{Book, CharStyle, Colors, Line};
 use crate::color::Color32;
@@ -18,7 +17,7 @@ use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::load_image;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
 use crate::gui::font::{Fonts, HtmlFonts, UserFonts};
-use crate::html_parser::{BlockStyle, BorderLines, FontScale, FontWeight};
+use crate::html_parser::{BlockStyle, BorderLines, FontScale, FontWeight, TextDecorationStyle};
 
 pub const HAN_CHAR: char = '漢';
 
