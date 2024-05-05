@@ -549,20 +549,26 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 				render_line.push(draw_char);
 				for _ in 1..left_count {
 					let e = iter.next().unwrap();
-					let new_left = e.1.0.rect.left();
+					let new_rect = &e.1.0.rect;
+					let new_left = new_rect.left();
 					if left > new_left {
 						left = new_left;
 					}
-					let new_right = e.1.0.rect.right();
+					let new_right = new_rect.right();
 					if right < new_right {
 						right = new_right;
 					}
 					render_line.push(e.1.0);
 				}
 				let e = iter.next().unwrap();
-				let new_left = e.1.0.rect.left();
+				let new_rect = &e.1.0.rect;
+				let new_left = new_rect.left();
 				if left > new_left {
 					left = new_left;
+				}
+				let new_right = new_rect.right();
+				if right < new_right {
+					right = new_right;
 				}
 				draw_char = e.1.0;
 			}
