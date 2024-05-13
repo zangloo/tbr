@@ -1922,6 +1922,7 @@ impl GuiContext {
 fn update_status(error: bool, msg: &str, status_bar: &Label)
 {
 	if error {
+		let msg = glib::markup_escape_text(msg);
 		let markup = format!("<span foreground='red'>{msg}</span>");
 		status_bar.set_markup(&markup);
 	} else {
