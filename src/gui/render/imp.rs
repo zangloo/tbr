@@ -1234,6 +1234,86 @@ fn load_font_weight<'a>(font_weight: &'a FontWeight, render_context: &RenderCont
 }
 
 #[inline]
+fn draw_double_line<D>(cairo: &CairoContext, stroke_width: f32,
+	middle: f64, draw: D)
+	where D: Fn(&CairoContext, f64),
+{
+	let width = stroke_width as f64 / 2.;
+	let delta = width / 0.75;
+	cairo.set_line_width(width);
+
+	draw(cairo, middle - delta);
+	draw(cairo, middle + delta);
+}
+
+#[inline]
+fn draw_dotted_line<D>(cairo: &CairoContext, stroke_width: f32,
+	mut start: f64, stop: f64, draw: D)
+	where D: Fn(&CairoContext, f64, f64),
+{
+	let size = stroke_width as f64;
+	let step = size * 2.;
+	cairo.set_line_width(size);
+	while start < stop {
+		draw(cairo, start, start + size);
+		start += step;
+	}
+}
+
+#[inline]
+fn draw_dashed_line<F>(cairo: &CairoContext, stroke_width: f32,
+	mut start: f64, stop: f64, draw: F)
+	where F: Fn(&CairoContext, f64, f64)
+{
+	let width = stroke_width as f64;
+	let line_size = width * 4.;
+	let step_size = width * 5.;
+	cairo.set_line_width(width);
+	loop {
+		let mut end = start + line_size;
+		if end > stop {
+			end = stop;
+		}
+		draw(cairo, start, end);
+
+		start += step_size;
+		if start >= stop {
+			break;
+		}
+	}
+}
+
+#[inline]
+fn draw_wavy_line<I, D>(cairo: &CairoContext, stroke_width: f32,
+	wave_start: f64, mut line_start: f64, line_stop: f64,
+	init: I, draw: D)
+	where I: Fn(&CairoContext, f64, f64),
+	      D: Fn(&CairoContext, f64, f64)
+{
+	let width = stroke_width as f64;
+	let size = width * 2.;
+	cairo.set_line_width(width / 2.);
+	cairo.set_line_join(LineJoin::Round);
+	init(cairo, wave_start - width, line_start);
+	let mut up = true;
+	loop {
+		let wave_pos = if up {
+			up = false;
+			size
+		} else {
+			up = true;
+			-size
+		};
+		if line_start + size > line_stop {
+			break;
+		} else {
+			line_start += size;
+		}
+		draw(cairo, wave_pos, size);
+	}
+}
+
+#[inline]
 pub fn vline(cairo: &CairoContext, x: f32, top: f32, bottom: f32,
 	style: TextDecorationStyle, stroke_width: f32, color: &Color32)
 {
@@ -1247,79 +1327,27 @@ pub fn vline(cairo: &CairoContext, x: f32, top: f32, bottom: f32,
 			cairo.set_line_width(stroke_width as f64);
 			cairo.line_to(x, bottom);
 		}
-		TextDecorationStyle::Double => {
-			let width = stroke_width as f64 / 2.;
-			let delta = width / 0.75;
-			cairo.set_line_width(width);
-			cairo.move_to(x - delta, top);
-			cairo.line_to(x - delta, bottom);
-			cairo.move_to(x + delta, top);
-			cairo.line_to(x + delta, bottom);
-		}
+		TextDecorationStyle::Double =>
+			draw_double_line(cairo, stroke_width, x, |cairo, x| {
+				cairo.move_to(x, top);
+				cairo.line_to(x, bottom);
+			}),
 		TextDecorationStyle::Dotted => {
-			let size = stroke_width as f64;
-			let step = size * 2.;
-			let stop = bottom;
-			let mut y = top;
-			cairo.set_line_width(size);
-			while y < stop {
-				cairo.move_to(x, y);
-				cairo.line_to(x, y + size);
-				y += step;
-			}
-		}
-		TextDecorationStyle::Dashed => {
-			let width = stroke_width as f64;
-			let line_size = width * 4.;
-			let stop = bottom;
-			let mut y = top;
-			let mut end = y + width;
-			cairo.set_line_width(width);
-			let mut dot = true;
-			loop {
-				cairo.move_to(x, y);
+			cairo.move_to(x, top);
+			draw_dotted_line(cairo, stroke_width, top, bottom, |cairo, start, end| {
+				cairo.move_to(x, start);
 				cairo.line_to(x, end);
-
-				dot = !dot;
-				y = end + width;
-				if y >= stop {
-					break;
-				}
-				end = y + if dot {
-					width
-				} else {
-					line_size
-				};
-				if end > stop {
-					end = stop;
-				}
-			}
+			});
 		}
-		TextDecorationStyle::Wavy => {
-			let width = stroke_width as f64;
-			let size = width * 2.;
-			let stop = bottom;
-			let mut y = top;
-			cairo.set_line_width(width / 2.);
-			cairo.set_line_join(LineJoin::Round);
-			cairo.move_to(x - width, y);
-			let mut l2r = true;
-			loop {
-				let rel_x = if l2r {
-					l2r = false;
-					size
-				} else {
-					l2r = true;
-					-size
-				};
-				if y + size > stop {
-					break;
-				} else {
-					y += size;
-				}
-				cairo.rel_line_to(rel_x, size);
-			}
-		}
+		TextDecorationStyle::Dashed =>
+			draw_dashed_line(cairo, stroke_width, top, bottom, |cairo, start, end| {
+				cairo.move_to(x, start);
+				cairo.line_to(x, end);
+			}),
+		TextDecorationStyle::Wavy =>
+			draw_wavy_line(cairo, stroke_width, x, top, bottom,
+				|cairo, x, y| cairo.move_to(x, y),
+				|cairo, x, y| cairo.rel_line_to(x, y)),
 	}
 	handle_cairo(cairo.stroke());
 }
@@ -1338,79 +1366,27 @@ pub fn hline(cairo: &CairoContext, left: f32, right: f32, y: f32,
 			cairo.move_to(left, y);
 			cairo.line_to(right, y);
 		}
-		TextDecorationStyle::Double => {
-			let width = stroke_width as f64 / 2.;
-			let delta = width / 0.75;
-			cairo.set_line_width(width);
-			cairo.move_to(left, y - delta);
-			cairo.line_to(right, y - delta);
-			cairo.move_to(left, y + delta);
-			cairo.line_to(right, y + delta);
-		}
+		TextDecorationStyle::Double =>
+			draw_double_line(cairo, stroke_width, y, |cairo, y| {
+				cairo.move_to(left, y);
+				cairo.line_to(right, y);
+			}),
 		TextDecorationStyle::Dotted => {
-			let size = stroke_width as f64;
-			let step = size * 2.;
-			let stop = right as f64;
-			let mut x = left as f64;
-			cairo.set_line_width(size);
-			while x < stop {
-				cairo.move_to(x, y);
-				cairo.line_to(x + size, y);
-				x += step;
-			}
-		}
-		TextDecorationStyle::Dashed => {
-			let size = stroke_width as f64;
-			let line_size = size * 4.;
-			let stop = right as f64;
-			let mut x = left as f64;
-			let mut end = x + size;
-			cairo.set_line_width(size);
-			let mut dot = true;
-			loop {
-				cairo.move_to(x, y);
+			cairo.move_to(left, y);
+			draw_dotted_line(cairo, stroke_width, left, right, |cairo, start, end| {
+				cairo.move_to(start, y);
 				cairo.line_to(end, y);
-
-				dot = !dot;
-				x = end + size;
-				if x >= stop {
-					break;
-				}
-				end = x + if dot {
-					size
-				} else {
-					line_size
-				};
-				if end > stop {
-					end = stop;
-				}
-			}
+			});
 		}
-		TextDecorationStyle::Wavy => {
-			let width = stroke_width as f64;
-			let size = width * 2.;
-			let stop = right as f64;
-			let mut x = left as f64;
-			cairo.set_line_width(width / 2.);
-			cairo.set_line_join(LineJoin::Round);
-			cairo.move_to(x, y - width);
-			let mut t2b = true;
-			loop {
-				let rel_y = if t2b {
-					t2b = false;
-					size
-				} else {
-					t2b = true;
-					-size
-				};
-				if x + size > stop {
-					break;
-				} else {
-					x += size;
-				}
-				cairo.rel_line_to(size, rel_y);
-			}
-		}
+		TextDecorationStyle::Dashed =>
+			draw_dashed_line(cairo, stroke_width, left, right, |cairo, start, end| {
+				cairo.move_to(start, y);
+				cairo.line_to(end, y);
+			}),
+		TextDecorationStyle::Wavy =>
+			draw_wavy_line(cairo, stroke_width, y, left, right,
+				|cairo, y, x| cairo.move_to(x, y),
+				|cairo, y, x| cairo.rel_line_to(x, y)),
 	}
 	handle_cairo(cairo.stroke());
 }
