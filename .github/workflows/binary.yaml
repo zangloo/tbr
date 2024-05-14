@@ -38,7 +38,7 @@ jobs:
       - name: Config pkgconfig-lite
         uses: engineerd/configurator@v0.0.9
         with:
-          name: pkgconfig-lite
+          name: "pkg-config.exe"
           url: https://deac-fra.dl.sourceforge.net/project/pkgconfiglite/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip
           pathInArchive: /pkg-config-lite-0.28-1/bin/pkg-config.exe
 
