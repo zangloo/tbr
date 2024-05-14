@@ -40,12 +40,13 @@ jobs:
         id: pkgconfig-lite  # Remember to give an ID if you need the output filename
         with:
           url: "https://deac-fra.dl.sourceforge.net/project/pkgconfiglite/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip"
-          target: /
+          target: /pkg_config_tmp
           filename: pkg_config_lite.zip
 
       #          Invoke-WebRequest -Uri https://deac-fra.dl.sourceforge.net/project/pkgconfiglite/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip -OutFile /pkg_config_lite.zip -MaximumRetryCount 5
       - name: Install pkgconfig-lite
         run: |
+          mv /pkg_config_tmp/pkg_config_lite.zip /
           Expand-Archive /pkg_config_lite.zip -DestinationPath C:\
           ls C:\
           ls C:\pkg-config-lite-0.28-1
