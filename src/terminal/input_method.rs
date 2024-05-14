@@ -10,7 +10,7 @@ pub trait InputMethod {
 #[cfg(windows)]
 pub(crate) fn setup_im() -> Option<Box<dyn InputMethod>>
 {
-	InputMethod::None
+	None
 }
 
 #[cfg(unix)]
