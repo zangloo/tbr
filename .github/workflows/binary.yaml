@@ -19,15 +19,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         id: cache
         with:
           path: c:/gnome
           key: ${{ runner.os }}-gtk4-14.2
           restore-keys: |
             ${{ runner.os }}-gtk4-14.2
+
       - name: Set up the PATH environment
         run: |
           echo "C:\pkg-config-lite-0.28-1\bin" >> $GITHUB_PATH
@@ -52,27 +53,21 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.x'
+          python-version: "3.x"
 
       - name: Install Python Dependencies
-        run: pip install meson ninja
+        run: pip install meson ninja setuptools packaging
 
       - name: Setup MSVC
         uses: bus1/cabuild/action/msdevshell@v1
         with:
           architecture: x64
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-
       - name: Prepare GTK build
         working-directory: /gtk
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          meson setup builddir --prefix=C:/gnome -Dbackend_max_links=1 -Ddemos=false -Dbuild-tests=false -Dmedia-gstreamer=disabled -Dbuild-examples=false -Dglib:tests=false -Dharfbuzz:tests=disabled -Dharfbuzz:docs=disabled -Dgraphene:tests=false -Dgdk-pixbuf:tests=false -Dcairo:tests=disabled
+          meson setup builddir --prefix=C:/gnome -Dbackend_max_links=1 -Dbuild-demos=false -Dbuild-tests=false -Dvulkan=disabled -Dmedia-gstreamer=disabled -Dbuild-examples=false -Dglib:tests=false -Dharfbuzz:tests=disabled -Dharfbuzz:docs=disabled -Dgraphene:tests=false -Dgdk-pixbuf:tests=false -Dcairo:tests=disabled
 
       - name: Build and install GTK
         working-directory: /gtk
@@ -80,11 +75,17 @@ jobs:
         run: |
           meson install -C builddir
 
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+
       - name: Build
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release
+          args: --release --features v4_12
 
       - name: Get version
         id: version
