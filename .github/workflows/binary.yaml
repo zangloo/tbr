@@ -35,9 +35,15 @@ jobs:
           echo "C:\gnome\bin" >> $GITHUB_PATH
         shell: bash
 
+        # Invoke-WebRequest failed with site using TLS 1.3, so using curl
+      - name: Download pkgconfig-lite
+        uses: enflo/curl-action@master
+        with:
+          curl: {{ https://deac-fra.dl.sourceforge.net/project/pkgconfiglite/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip -o /pkg_config_lite.zip }}
+
       - name: Install pkgconfig-lite
         run: |
-          Invoke-WebRequest -Uri https://deac-fra.dl.sourceforge.net/project/pkgconfiglite/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip -OutFile /pkg_config_lite.zip -MaximumRetryCount 5
+          # Invoke-WebRequest -Uri https://deac-fra.dl.sourceforge.net/project/pkgconfiglite/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip -OutFile /pkg_config_lite.zip -MaximumRetryCount 5
           Expand-Archive /pkg_config_lite.zip -DestinationPath C:\
           ls C:\
           ls C:\pkg-config-lite-0.28-1
