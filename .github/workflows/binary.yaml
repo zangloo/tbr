@@ -39,7 +39,7 @@ jobs:
       - name: Download pkgconfig-lite
         uses: enflo/curl-action@master
         with:
-          curl: {{ https://deac-fra.dl.sourceforge.net/project/pkgconfiglite/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip -o /pkg_config_lite.zip }}
+          curl: https://deac-fra.dl.sourceforge.net/project/pkgconfiglite/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip -o /pkg_config_lite.zip
 
       - name: Install pkgconfig-lite
         run: |
