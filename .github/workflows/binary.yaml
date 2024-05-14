@@ -92,7 +92,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --features v4_12
+          args: --release
 
       - name: Get version
         id: version
