@@ -40,7 +40,7 @@ jobs:
         with:
           name: pkgconfig-lite
           url: https://deac-fra.dl.sourceforge.net/project/pkgconfiglite/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip
-          pathInArchive: pkg-config
+          pathInArchive: /pkg-config-lite-0.28-1/bin/pkg-config.exe
 
       - name: Install pkgconfig-lite
         run: pkg-config --version
