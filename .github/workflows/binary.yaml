@@ -37,7 +37,10 @@ jobs:
 
       - name: Install pkgconfig-lite
         run: |
-          Invoke-WebRequest -SslProtocol Tls12 -Uri https://deac-fra.dl.sourceforge.net/project/pkgconfiglite/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip -OutFile /pkg_config_lite.zip -MaximumRetryCount 5
+          # Invoke-WebRequest -SslProtocol Tls12 -Uri https://deac-fra.dl.sourceforge.net/project/pkgconfiglite/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip -OutFile /pkg_config_lite.zip -MaximumRetryCount 5
+          Invoke-WebRequest -Uri https://curl.se/windows/dl-8.7.1_9/curl-8.7.1_9-win64-mingw.zip -OutFile /curl.zip -MaximumRetryCount 5
+          Expand-Archive /curl.zip -DestinationPath C:\
+          C:/curl-8.7.1_9-win64-mingw/bin/curl https://deac-fra.dl.sourceforge.net/project/pkgconfiglite/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip -o /pkg_config_lite.zip
           Expand-Archive /pkg_config_lite.zip -DestinationPath C:\
           ls C:\
           ls C:\pkg-config-lite-0.28-1
