@@ -1993,8 +1993,24 @@ pub fn start(configuration: Configuration, themes: Themes)
 		.application_id(APP_ID)
 		.build();
 
+	let current = configuration.current.clone();
+	let mut args = env::args().collect::<Vec<_>>();
+	args.drain(1..);
+	let start_without_file = if let Some(filename) = current {
+		args.push(filename);
+		false
+	} else {
+		true
+	};
+
+	let cfg = Rc::new(RefCell::new(configuration));
+	let themes = Rc::new(themes);
+	let gcs = Rc::new(RefCell::new(vec![]));
 	{
-		app.connect_startup(|app| {
+		let cfg = cfg.clone();
+		let themes = themes.clone();
+		let gcs = gcs.clone();
+		app.connect_startup(move |app| {
 			let css_provider = CssProvider::new();
 			css_provider.load_from_string(include_str!("../assets/gui/gtk.css"));
 			gtk4::style_context_add_provider_for_display(
@@ -2009,17 +2025,13 @@ pub fn start(configuration: Configuration, themes: Themes)
 				handle_signal(2, app.clone());
 				handle_signal(15, app.clone());
 			}
+			if start_without_file {
+				show(app, &cfg, &themes, &gcs);
+			}
 		});
 	}
 
-	let current = configuration.current.clone();
-	let cfg = Rc::new(RefCell::new(configuration));
-	let themes = Rc::new(themes);
-	let gcs = Rc::new(RefCell::new(vec![]));
 	{
-		let cfg = cfg.clone();
-		let themes = themes.clone();
-		let gcs = gcs.clone();
 		app.connect_open(move |app, files, _| {
 			if !files.is_empty() {
 				if let Some(path) = files[0].path() {
@@ -2037,15 +2049,7 @@ pub fn start(configuration: Configuration, themes: Themes)
 			}
 		});
 	}
-	app.connect_activate(move |app| {
-		show(app, &cfg, &themes, &gcs);
-	});
 
-	let mut args = env::args().collect::<Vec<_>>();
-	args.drain(1..);
-	if let Some(filename) = current {
-		args.push(filename);
-	}
 	if app.run_with_args::<String>(&args) == ExitCode::FAILURE {
 		bail!("Failed start tbr")
 	}
