@@ -473,13 +473,18 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 				} else {
 					(context.colors.color.clone(), 0.0)
 				},
-			RenderCell::Char(CharCell { color, cell_size, .. })
-			| RenderCell::Link(CharCell { color, cell_size, .. }, _)
-			=> if let Some(color) = &decoration.color {
-				(color.clone(), cell_size.x / 4.0)
-			} else {
-				(color.clone(), cell_size.x / 4.0)
-			}
+			RenderCell::Char(CharCell { cell_size, .. }) =>
+				if let Some(color) = &decoration.color {
+					(color.clone(), cell_size.x / 4.0)
+				} else {
+					(context.colors.color.clone(), cell_size.x / 4.0)
+				}
+			RenderCell::Link(CharCell { color, cell_size, .. }, _) =>
+				if let Some(color) = &decoration.color {
+					(color.clone(), cell_size.x / 4.0)
+				} else {
+					(color.clone(), cell_size.x / 4.0)
+				}
 		};
 		let margin = padding / 2.0;
 		let draw_left = if offset == range.start {
