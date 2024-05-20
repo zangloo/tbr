@@ -46,7 +46,7 @@ pub const HAN_RENDER_CHARS_PAIRS: [(char, char); 36] = [
 ];
 
 #[allow(unused)]
-pub const HAN_COMPACT_CHARS: [char; 28] = [
+pub const HAN_COMPACT_CHARS: [char; 29] = [
 	'﹁',
 	'﹂',
 	'︿',
@@ -75,6 +75,7 @@ pub const HAN_COMPACT_CHARS: [char; 28] = [
 	'︸',
 	'︘',
 	'︗',
+	'·',
 ];
 
 #[derive(Clone)]
