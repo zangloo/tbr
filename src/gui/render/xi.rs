@@ -479,11 +479,11 @@ fn setup_decorations(draw_chars: Vec<(RenderChar, CharStyle)>,
 				} else {
 					(context.colors.color.clone(), cell_size.x / 4.0)
 				}
-			RenderCell::Link(CharCell { color, cell_size, .. }, _) =>
+			RenderCell::Link(CharCell { cell_size, .. }, _) =>
 				if let Some(color) = &decoration.color {
 					(color.clone(), cell_size.x / 4.0)
 				} else {
-					(color.clone(), cell_size.x / 4.0)
+					(context.colors.link.clone(), cell_size.x / 4.0)
 				}
 		};
 		let margin = padding / 2.0;
