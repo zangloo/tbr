@@ -12,7 +12,7 @@ use indexmap::IndexSet;
 use lightningcss::declaration::DeclarationBlock;
 use lightningcss::properties::{border, font, Property};
 use lightningcss::properties::border::{Border, BorderSideWidth};
-use lightningcss::properties::display::{Display, DisplayOutside, DisplayPair};
+use lightningcss::properties::display::{Display, DisplayKeyword, DisplayOutside, DisplayPair};
 use lightningcss::properties::font::{AbsoluteFontWeight, FontFamily, FontSize, FontWeight as CssFontWeight};
 use lightningcss::properties::text::{TextDecoration as CssTextDecoration, TextDecorationLine as CssTextDecorationLine, TextDecorationStyle as CssTextDecorationStyle};
 use lightningcss::rules::{CssRule, font_face};
@@ -214,6 +214,7 @@ impl TextStyle {
 enum ParseTag {
 	Style(TextStyle),
 	Paragraph,
+	Hidden,
 }
 
 impl ParseTag {
@@ -223,6 +224,7 @@ impl ParseTag {
 		match self {
 			ParseTag::Style(style) => style.id(),
 			ParseTag::Paragraph => 1000,
+			ParseTag::Hidden => 1001,
 		}
 	}
 
@@ -613,6 +615,9 @@ impl<'a> HtmlParser<'a> {
 				let mut element_tags = self.load_element_tags(
 					element,
 					node.id());
+				if find_tag(&element_tags, ParseTag::Hidden) {
+					return;
+				}
 				let force_paragraph = remove_tag(&mut element_tags, ParseTag::Paragraph)
 					.is_some();
 				if force_paragraph {
@@ -867,6 +872,7 @@ impl<'a> HtmlParser<'a> {
 			Property::BackgroundColor(color) => Some(ParseTag::Style(TextStyle::BackgroundColor(self.css_color(color)?))),
 			Property::Background(bg) => Some(ParseTag::Style(TextStyle::BackgroundColor(self.css_color(&bg[0].color)?))),
 			Property::Display(Display::Pair(DisplayPair { outside: DisplayOutside::Block, .. })) => Some(ParseTag::Paragraph),
+			Property::Display(Display::Keyword(DisplayKeyword::None)) => Some(ParseTag::Hidden),
 			_ => None,
 		}
 	}
@@ -1020,6 +1026,12 @@ fn remove_tag(tags: &mut LeveledParseTagSet, tag: ParseTag) -> Option<LeveledPar
 		Ok(idx) => Some(tags.remove(idx)),
 		Err(_) => None,
 	}
+}
+
+#[inline]
+fn find_tag(tags: &LeveledParseTagSet, tag: ParseTag) -> bool
+{
+	tags.binary_search_by(|s| s.0.cmp(&tag)).is_ok()
 }
 
 /// insert if unique, will not insert if exists
