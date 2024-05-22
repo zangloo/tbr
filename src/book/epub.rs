@@ -507,7 +507,7 @@ impl EpubBook {
 		};
 		let content_opf_text = archive.string(&content_opf_path)?;
 		let content_opf = parse_content_opf(&content_opf_text, &content_opf_dir, archive.as_ref())
-			.ok_or(anyhow!("Malformatted content.opf file"))?;
+			.map_err(|e| anyhow!("Malformatted content.opf file: {}", e.to_string()))?;
 
 		let mut toc = match content_opf.manifest.get(content_opf.toc_id.as_ref().unwrap_or(&"ncx".to_string())) {
 			Some(ManifestItem { href, .. }) => {
@@ -828,7 +828,7 @@ fn parse_manifest(manifest: Node, path: &PathBuf) -> Manifest
 }
 
 #[inline]
-fn parse_spine(spine: Node, manifest: &Manifest, archive: &dyn EpubArchive) -> Option<(Spine, Option<String>)>
+fn parse_spine(spine: Node, manifest: &Manifest, archive: &dyn EpubArchive) -> (Spine, Option<String>)
 {
 	let chapters = spine.children()
 		.filter_map(|node| {
@@ -843,17 +843,24 @@ fn parse_spine(spine: Node, manifest: &Manifest, archive: &dyn EpubArchive) -> O
 		})
 		.collect();
 	let toc_id = spine.attribute("toc").map(|id| id.to_owned());
-	Some((chapters, toc_id))
+	(chapters, toc_id)
 }
 
-fn parse_content_opf(text: &str, content_opf_dir: &PathBuf, archive: &dyn EpubArchive) -> Option<ContentOPF>
+fn parse_content_opf(text: &str, content_opf_dir: &PathBuf, archive: &dyn EpubArchive) -> Result<ContentOPF>
 {
-	let doc = parse_xml(text).ok()?;
+	let doc = parse_xml(text)?;
 	let package = doc.root_element();
-	let metadata = get_child(package, "metadata")?;
-	let manifest = get_child(package, "manifest")?;
-	let spine = get_child(package, "spine")?;
-	let title = get_child(metadata, "title")?.text()?.to_string();
+	let metadata = get_child(package, "metadata")
+		.ok_or(anyhow!("No metadata node found in OPF"))?;
+	let manifest = get_child(package, "manifest")
+		.ok_or(anyhow!("No manifest node found in OPF"))?;
+	let spine = get_child(package, "spine")
+		.ok_or(anyhow!("No spine node found in OPF"))?;
+	let title = get_child(metadata, "title")
+		.ok_or(anyhow!("No title node found in OPF metadata"))?
+		.text()
+		.ok_or(anyhow!("No title node found in OPF metadata"))?
+		.to_string();
 	let author = get_child(metadata, "creator")
 		.map(|el| el.text())
 		.flatten()
@@ -862,8 +869,8 @@ fn parse_content_opf(text: &str, content_opf_dir: &PathBuf, archive: &dyn EpubAr
 		.map_or(String::new(), |e| e.text()
 			.map_or(String::new(), |s| s.to_owned()));
 	let manifest = parse_manifest(manifest, content_opf_dir);
-	let (spine, toc_id) = parse_spine(spine, &manifest, archive)?;
-	Some(ContentOPF {
+	let (spine, toc_id) = parse_spine(spine, &manifest, archive);
+	Ok(ContentOPF {
 		title,
 		author,
 		language,
