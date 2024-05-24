@@ -2,22 +2,24 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
-use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
+
 use gtk4::{cairo, pango};
-use gtk4::prelude::GdkCairoContextExt;
 use gtk4::cairo::{Context as CairoContext, LineJoin};
-use gtk4::pango::{Layout as PangoContext, FontDescription};
+use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
+use gtk4::pango::{FontDescription, Layout as PangoContext};
 use gtk4::pango::ffi::PANGO_SCALE;
+use gtk4::prelude::GdkCairoContextExt;
 use indexmap::IndexSet;
 
-use crate::book::{Book, CharStyle, Colors, Line};
+use crate::book::{Book, CharStyle, Colors, Line, LineDecoration};
 use crate::color::Color32;
-use crate::common::Position;
+use crate::common::{overlap_range, Position};
 use crate::controller::{HighlightInfo, HighlightMode};
+use crate::gui::font::{Fonts, HtmlFonts, UserFonts};
 use crate::gui::load_image;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
-use crate::gui::font::{Fonts, HtmlFonts, UserFonts};
-use crate::html_parser::{BlockStyle, BorderLines, FontScale, FontWeight, TextDecorationStyle};
+use crate::html_parser;
+use crate::html_parser::{BlockStyle, BorderLines, FontScale, FontWeight, TextDecorationLine, TextDecorationStyle};
 
 pub const HAN_CHAR: char = '漢';
 
@@ -563,6 +565,13 @@ pub trait GuiRender {
 		range: Range<usize>, render_in_single_line: bool,
 		context: &RenderContext) -> Rect;
 
+	fn setup_decoration(&self, decoration: &html_parser::TextDecoration,
+		decoration_chars_range: Range<usize>, start: bool, end: bool,
+		render_line: &mut RenderLine, context: &RenderContext);
+	fn setup_border(&self, render_line: &mut RenderLine, lines: BorderLines,
+		decoration_chars_range: Range<usize>, start: bool, end: bool,
+		context: &RenderContext);
+
 	/// for scrolling view
 	/// get redraw lines size for scrollable size measure
 	fn scroll_size(&self, context: &mut RenderContext) -> ScrollSizing;
@@ -648,6 +657,46 @@ pub trait GuiRender {
 			end,
 			color,
 			lines: border_lines.clone(),
+		}
+	}
+
+	fn setup_decorations(&self, decorations: &Vec<LineDecoration>,
+		render_line: &mut RenderLine, context: &RenderContext)
+	{
+		let render_start = render_line.first_offset();
+		let render_end = render_line.last_offset() + 1;
+		let render_range = render_start..render_end;
+		for decoration in decorations {
+			match decoration {
+				LineDecoration::Lines(decoration, range) => if let Some((render_range, start, end)) = crate::gui::render::imp::make_render_range(range, &render_range) {
+					self.setup_decoration(
+						decoration,
+						render_range,
+						start,
+						end,
+						render_line,
+						context);
+				}
+				LineDecoration::Border(lines, range) => if let Some((render_range, start, end)) = crate::gui::render::imp::make_render_range(range, &render_range) {
+					self.setup_border(
+						render_line,
+						lines.clone(),
+						render_range,
+						start,
+						end,
+						context);
+				}
+				LineDecoration::Link(range) => if let Some((render_range, start, end)) = crate::gui::render::imp::make_render_range(range, &render_range) {
+					let decoration = html_parser::TextDecoration::line(TextDecorationLine::Underline);
+					self.setup_decoration(
+						&decoration,
+						render_range,
+						start,
+						end,
+						render_line,
+						context);
+				}
+			}
 		}
 	}
 
@@ -1467,4 +1516,22 @@ fn get_font_family_names<'a>(font_family_idx: &Option<u16>,
 				.map_or(None, |str| Some(str))
 		} else { None }
 	} else { None }
+}
+
+#[inline]
+pub fn make_render_range(decoration_range: &Range<usize>, render_range: &Range<usize>)
+	-> Option<(Range<usize>, bool, bool)>
+{
+	let range = overlap_range(decoration_range, render_range)?;
+	let start = render_range.start;
+	let render_chars_range = range.start - start..range.end - start;
+	if render_chars_range.is_empty() {
+		None
+	} else {
+		Some((
+			render_chars_range,
+			range.start == decoration_range.start,
+			range.end == decoration_range.end,
+		))
+	}
 }

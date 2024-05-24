@@ -2,6 +2,8 @@ use anyhow::Result;
 use chardetng::EncodingDetector;
 use encoding_rs::{Encoding, UTF_8};
 use std::borrow::Borrow;
+use std::cmp;
+use std::ops::Range;
 use unicode_width::UnicodeWidthChar;
 
 use crate::book::Line;
@@ -211,4 +213,78 @@ macro_rules! frozen_map_get {
 	    };
 	    Some(value)
     });
+}
+
+pub fn overlap_range(a: &Range<usize>, b: &Range<usize>)
+	-> Option<Range<usize>>
+{
+	let a_start = a.start;
+	let a_stop = a.end;
+	let b_start = b.start;
+	let b_stop = b.end;
+	if a_start >= b_start {
+		if a_start < b_stop {
+			let stop = cmp::min(a_stop, b_stop);
+			Some(a_start..stop)
+		} else {
+			None
+		}
+	} else if a_stop > b_start {
+		let stop = cmp::min(a_stop, b_stop);
+		Some(b_start..stop)
+	} else {
+		None
+	}
+}
+
+pub fn is_overlap(a: &Range<usize>, b: &Range<usize>) -> bool
+{
+	let a_start = a.start;
+	let a_stop = a.end;
+	let b_start = b.start;
+	let b_stop = b.end;
+	if a_start >= b_start {
+		a_start < b_stop
+	} else {
+		a_stop > b_start
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use crate::common::{is_overlap, overlap_range};
+
+	#[test]
+	fn test_is_range_overlap()
+	{
+		assert!(is_overlap(&(10..15), &(9..14)));
+		assert!(is_overlap(&(10..15), &(9..15)));
+		assert!(is_overlap(&(10..15), &(9..16)));
+		assert!(is_overlap(&(10..15), &(10..14)));
+		assert!(is_overlap(&(10..15), &(10..15)));
+		assert!(is_overlap(&(10..15), &(10..16)));
+		assert!(is_overlap(&(10..15), &(11..14)));
+		assert!(is_overlap(&(10..15), &(11..15)));
+		assert!(is_overlap(&(10..15), &(11..16)));
+
+		assert!(!is_overlap(&(10..15), &(8..9)));
+		assert!(!is_overlap(&(10..15), &(15..16)));
+	}
+
+	#[test]
+	fn test_overlap_range()
+	{
+		assert_eq!(overlap_range(&(10..15), &(9..14)), Some(10..14));
+		assert_eq!(overlap_range(&(10..15), &(9..15)), Some(10..15));
+		assert_eq!(overlap_range(&(10..15), &(9..16)), Some(10..15));
+		assert_eq!(overlap_range(&(10..15), &(10..14)), Some(10..14));
+		assert_eq!(overlap_range(&(10..15), &(10..15)), Some(10..15));
+		assert_eq!(overlap_range(&(10..15), &(10..16)), Some(10..15));
+		assert_eq!(overlap_range(&(10..15), &(11..14)), Some(11..14));
+		assert_eq!(overlap_range(&(10..15), &(11..15)), Some(11..15));
+		assert_eq!(overlap_range(&(10..15), &(11..16)), Some(11..15));
+
+		assert!(overlap_range(&(10..15), &(8..9)).is_none());
+		assert!(overlap_range(&(10..15), &(15..16)).is_none());
+	}
 }

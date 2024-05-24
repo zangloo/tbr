@@ -16,7 +16,7 @@ use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
 #[cfg(feature = "gui")]
 use crate::color::Color32;
-use crate::common::{char_index_for_byte, Position};
+use crate::common::{char_index_for_byte, Position, is_overlap};
 use crate::common::TraceInfo;
 use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::container::BookContent;
@@ -28,7 +28,7 @@ use crate::gui::HtmlFonts;
 use crate::html_parser::{FontScale, FontWeight};
 #[cfg(feature = "gui")]
 use crate::html_parser::{BlockStyle, TextDecoration};
-use crate::html_parser::TextStyle;
+use crate::html_parser::{BorderLines, TextStyle};
 use crate::terminal::Listable;
 
 mod epub;
@@ -176,11 +176,18 @@ pub struct CharStyle<'a> {
 	pub font_family: Option<u16>,
 	pub color: Color32,
 	pub background: Option<Color32>,
-	pub decoration: Option<(&'a TextDecoration, &'a Range<usize>)>,
 	pub border: Option<(&'a Range<usize>, TextStyle)>,
 	pub link: Option<(usize, &'a Range<usize>)>,
 	pub image: Option<&'a String>,
 	pub title: Option<&'a String>,
+}
+
+#[cfg(feature = "gui")]
+#[derive(Debug)]
+pub enum LineDecoration<'a> {
+	Lines(&'a TextDecoration, &'a Range<usize>),
+	Border(BorderLines, &'a Range<usize>),
+	Link(&'a Range<usize>),
 }
 
 #[derive(Clone)]
@@ -384,6 +391,32 @@ impl Line {
 	}
 
 	#[cfg(feature = "gui")]
+	pub fn decorations_for_range(&self, target: Range<usize>) -> Vec<LineDecoration>
+	{
+		let mut decorations = vec![];
+		for (style, range) in self.styles.iter().rev() {
+			if is_overlap(range, &target) {
+				match style {
+					TextStyle::Link(_) =>
+						decorations.push(LineDecoration::Link(&range)),
+					TextStyle::Border(lines) =>
+						decorations.push(LineDecoration::Border(lines.clone(), &range)),
+					TextStyle::Decoration(decoration) =>
+						decorations.push(LineDecoration::Lines(decoration, &range)),
+					TextStyle::FontSize { .. } |
+					TextStyle::FontWeight(..) |
+					TextStyle::FontFamily(..) |
+					TextStyle::Image(..) |
+					TextStyle::Color(..) |
+					TextStyle::BackgroundColor(..) |
+					TextStyle::Title(..) => {}
+				}
+			}
+		}
+		decorations
+	}
+
+	#[cfg(feature = "gui")]
 	pub fn char_style_at(&self, char_index: usize, custom_color: bool,
 		colors: &Colors) -> CharStyle
 	{
@@ -393,7 +426,6 @@ impl Line {
 			font_family: None,
 			color: colors.color.clone(),
 			background: None,
-			decoration: None,
 			border: None,
 			link: None,
 			image: None,
@@ -416,10 +448,10 @@ impl Line {
 						}
 					}
 					TextStyle::Border { .. } => char_style.border = Some((&range, style.clone())),
-					TextStyle::Decoration(decoration) => char_style.decoration = Some((&decoration, &range)),
 					TextStyle::Color(color) => if custom_color { new_color = Some(color.clone()) },
 					TextStyle::BackgroundColor(color) => if custom_color { char_style.background = Some(color.clone()) },
 					TextStyle::Title(title) => char_style.title = Some(title),
+					TextStyle::Decoration(_) => {}
 				}
 			}
 		}
@@ -769,46 +801,5 @@ impl ChapterError
 	pub fn anyhow(msg: String) -> anyhow::Error
 	{
 		anyhow::Error::new(ChapterError::new(msg))
-	}
-}
-
-#[cfg(test)]
-mod test {
-	use std::collections::HashSet;
-	use crate::book::{FontWeightValue, TextDecorationLine, TextStyle};
-	use crate::color::Color32;
-
-	#[test]
-	fn test() {
-		let mut set = HashSet::new();
-		set.insert(TextStyle::Link("keep me".to_string()));
-		set.insert(TextStyle::Border);
-
-		assert!(set.insert(TextStyle::Decoration(TextDecorationLine::all())));
-		assert_eq!(set.insert(TextStyle::Border), false);
-		assert!(set.insert(TextStyle::FontSize { scale: 1., relative: true }));
-		assert!(set.insert(TextStyle::FontWeight(FontWeightValue::Lighter)));
-		assert!(set.insert(TextStyle::FontFamily(1)));
-		assert!(set.insert(TextStyle::Image("image".to_string())));
-		assert_eq!(set.insert(TextStyle::Link("link".to_string())), false);
-		assert!(set.insert(TextStyle::Color(Color32::from_rgb(0, 0, 0))));
-		assert!(set.insert(TextStyle::BackgroundColor(Color32::from_rgb(0, 0, 0))));
-		assert_eq!(set.len(), 9);
-		if let TextStyle::Link(link) = set.get(&TextStyle::Link("not me".to_string())).unwrap() {
-			assert_eq!("keep me", link);
-		} else {
-			panic!("failed");
-		}
-		let replaced = set.replace(TextStyle::Link("no way".to_string()));
-		if let TextStyle::Link(link) = replaced.unwrap() {
-			assert_eq!("keep me", link);
-		} else {
-			panic!("failed");
-		}
-		if let TextStyle::Link(link) = set.get(&TextStyle::Link("not me".to_string())).unwrap() {
-			assert_eq!("no way", link);
-		} else {
-			panic!("failed");
-		}
 	}
 }

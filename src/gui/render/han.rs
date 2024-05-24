@@ -1,15 +1,14 @@
 use std::collections::{HashMap, HashSet};
-use std::iter::Enumerate;
 use std::ops::Range;
-use std::vec::IntoIter;
+
 use gtk4::cairo::Context as CairoContext;
 use gtk4::pango::Layout as PangoContext;
 
-use crate::book::{Book, CharStyle, Line};
+use crate::book::{Book, Line};
 use crate::common::{HAN_COMPACT_CHARS, HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, vec2};
-use crate::gui::render::{RenderChar, RenderContext, RenderLine, GuiRender, update_for_highlight, ImageDrawingData, PointerPosition, RenderCell, CharCell, TextDecoration, vline, CharDrawData, ScrollSizing, ScrolledDrawData};
+use crate::gui::render::{CharCell, CharDrawData, GuiRender, ImageDrawingData, PointerPosition, RenderCell, RenderChar, RenderContext, RenderLine, ScrolledDrawData, ScrollSizing, TextDecoration, update_for_highlight, vline};
 use crate::gui::render::imp::draw_border;
 use crate::html_parser;
 use crate::html_parser::{BorderLines, TextDecorationLine, TextStyle};
@@ -93,6 +92,7 @@ impl GuiRender for GuiHanRender
 		let mut line_size = 0.0;
 		let mut line_space = 0.0;
 		let default_size = context.default_font_measure.x;
+		let line_decorations = text.decorations_for_range(start_offset..end_offset + 1);
 
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, context.custom_color, &context.colors);
@@ -180,7 +180,8 @@ impl GuiRender for GuiHanRender
 				let mut render_line = RenderLine::new(line, line_size, line_space);
 				line_size = 0.0;
 				line_space = 0.0;
-				setup_decorations(draw_chars, &mut render_line, context);
+				align_line(&mut render_line, draw_chars);
+				self.setup_decorations(&line_decorations, &mut render_line, context);
 				self.baseline -= render_line.line_size() + render_line.line_space();
 				let line_delta = render_line.line_size() + render_line.line_space();
 				draw_lines.push(render_line);
@@ -214,11 +215,12 @@ impl GuiRender for GuiHanRender
 				rect,
 				has_title: char_style.title.is_some(),
 			};
-			draw_chars.push((dc, char_style));
+			draw_chars.push(dc);
 		}
 		if draw_chars.len() > 0 {
 			let mut render_line = RenderLine::new(line, line_size, line_space);
-			setup_decorations(draw_chars, &mut render_line, context);
+			align_line(&mut render_line, draw_chars);
+			self.setup_decorations(&line_decorations, &mut render_line, context);
 			self.baseline -= render_line.line_size() + render_line.line_space();
 			draw_lines.push(render_line);
 		}
@@ -410,21 +412,17 @@ impl GuiRender for GuiHanRender
 		let width = render_rect.width();
 		mouse_pos.x -= scroll_size - width - scroll_value;
 	}
-}
 
-fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
-	render_line: &mut RenderLine, context: &RenderContext)
-{
-	#[inline]
-	fn setup_decoration(mut draw_char: RenderChar, decoration: &html_parser::TextDecoration,
-		range: &Range<usize>, render_line: &mut RenderLine, index: usize, len: usize,
-		iter: &mut Enumerate<IntoIter<(RenderChar, CharStyle)>>, context: &RenderContext) -> TextDecoration {
+	fn setup_decoration(&self, decoration: &html_parser::TextDecoration,
+		decoration_chars_range: Range<usize>, start: bool, end: bool,
+		render_line: &mut RenderLine, context: &RenderContext)
+	{
+		let mut draw_char = render_line.char_at_index(decoration_chars_range.start);
 		let rect = &draw_char.rect;
 		let min = &rect.min;
 		let mut left = min.x;
 		let mut right = rect.max.x;
 		let top = min.y;
-		let offset = draw_char.offset;
 		let (color, padding) = match &draw_char.cell {
 			RenderCell::Image(_) =>
 				if let Some(color) = &decoration.color {
@@ -446,40 +444,31 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 				}
 		};
 		let margin = padding / 2.0;
-		let draw_top = if offset == range.start {
+		let draw_top = if start {
 			top + margin
 		} else {
 			top
 		};
-		let style_left = range.end - offset - 1;
-		let chars_left = len - index - 1;
-		let (left_count, end) = if style_left <= chars_left {
-			(style_left, true)
-		} else {
-			(chars_left, false)
-		};
-		if left_count > 0 {
-			render_line.push(draw_char);
-			for _ in 1..left_count {
-				let e = iter.next().unwrap();
-				let char_rect = &e.1.0.rect;
+		if decoration_chars_range.len() > 1 {
+			let last_char_idx = decoration_chars_range.end - 1;
+			for i in decoration_chars_range.start + 1..last_char_idx {
+				draw_char = render_line.char_at_index(i);
+				let char_rect = &draw_char.rect;
 				if left > char_rect.left() {
 					left = char_rect.left();
 				}
 				if right < char_rect.right() {
 					right = char_rect.right();
 				}
-				render_line.push(e.1.0);
 			}
-			let e = iter.next().unwrap();
-			let char_rect = &e.1.0.rect;
+			draw_char = render_line.char_at_index(last_char_idx);
+			let char_rect = &draw_char.rect;
 			if left > char_rect.left() {
 				left = char_rect.left()
 			}
 			if right < char_rect.right() {
 				right = char_rect.right();
 			}
-			draw_char = e.1.0;
 		}
 		let draw_bottom = if end {
 			draw_char.rect.bottom() - margin
@@ -488,7 +477,6 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 		};
 		let draw_left = left - margin;
 		let draw_right = right + margin;
-		render_line.push(draw_char);
 		let mut start_points = vec![];
 		if decoration.line.contains(TextDecorationLine::Underline) {
 			start_points.push(Pos2 { x: draw_left, y: draw_top });
@@ -499,74 +487,42 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 		if decoration.line.contains(TextDecorationLine::LineThrough) {
 			start_points.push(Pos2 { x: (draw_right + draw_left) / 2., y: draw_top });
 		}
-		TextDecoration::Line {
+		render_line.add_decoration(TextDecoration::Line {
 			style: decoration.style,
 			start_points,
 			length: draw_bottom - draw_top,
 			stroke_width: margin / 2.0,
 			color,
-		}
+		})
 	}
 
-	// align chars
-	let line_size = render_line.line_size();
-	for (ref mut char, _) in &mut draw_chars {
-		let rect = &mut char.rect;
-		let width = rect.width();
-		if width < line_size {
-			let delta = (line_size - width) / 2.;
-			rect.min.x -= delta;
-			rect.max.x -= delta;
-		}
-	}
-
-	// do setup decorations
-	let len = draw_chars.len();
-	let mut iter = draw_chars.into_iter().enumerate();
-	while let Some((index, (mut draw_char, char_style))) = iter.next() {
-		if let Some((range, TextStyle::Border(border_lines))) = char_style.border {
-			let rect = &draw_char.rect;
-			let min = &rect.min;
-			let top = min.y;
-			let offset = draw_char.offset;
-			let (color, padding) = match &draw_char.cell {
-				RenderCell::Image(_) => (context.colors.color.clone(), 0.0),
-				RenderCell::Char(CharCell { color, cell_size, .. })
-				| RenderCell::Link(CharCell { color, cell_size, .. }, _)
-				=> (color.clone(), cell_size.y / 4.0),
-			};
-			let margin = padding / 2.0;
-			let mut left = min.x;
-			let mut right = rect.max.x;
-			let (start, border_top) = if offset == range.start {
-				(true, top + margin)
-			} else {
-				(false, top)
-			};
-			let style_left = range.end - offset - 1;
-			let chars_left = len - index - 1;
-			let (left_count, end) = if style_left <= chars_left {
-				(style_left, true)
-			} else {
-				(chars_left, false)
-			};
-			if left_count > 0 {
-				render_line.push(draw_char);
-				for _ in 1..left_count {
-					let e = iter.next().unwrap();
-					let new_rect = &e.1.0.rect;
-					let new_left = new_rect.left();
-					if left > new_left {
-						left = new_left;
-					}
-					let new_right = new_rect.right();
-					if right < new_right {
-						right = new_right;
-					}
-					render_line.push(e.1.0);
-				}
-				let e = iter.next().unwrap();
-				let new_rect = &e.1.0.rect;
+	fn setup_border(&self, render_line: &mut RenderLine, lines: BorderLines,
+		decoration_chars_range: Range<usize>, start: bool, end: bool,
+		context: &RenderContext)
+	{
+		let decoration_char = render_line.char_at_index(decoration_chars_range.start);
+		let rect = &decoration_char.rect;
+		let min = &rect.min;
+		let top = min.y;
+		let padding = match &decoration_char.cell {
+			RenderCell::Image(_) => 0.0,
+			RenderCell::Char(CharCell { cell_size, .. })
+			| RenderCell::Link(CharCell { cell_size, .. }, _)
+			=> cell_size.y / 4.0,
+		};
+		let margin = padding / 2.0;
+		let mut left = min.x;
+		let mut right = rect.max.x;
+		let border_top = if start {
+			top + margin
+		} else {
+			top
+		};
+		if decoration_chars_range.len() > 1 {
+			let last_char_idx = decoration_chars_range.end - 1;
+			for i in decoration_chars_range.start + 1..last_char_idx {
+				let draw_char = render_line.char_at_index(i);
+				let new_rect = &draw_char.rect;
 				let new_left = new_rect.left();
 				if left > new_left {
 					left = new_left;
@@ -575,33 +531,47 @@ fn setup_decorations(mut draw_chars: Vec<(RenderChar, CharStyle)>,
 				if right < new_right {
 					right = new_right;
 				}
-				draw_char = e.1.0;
 			}
-			let max = &draw_char.rect.max;
-			let border_bottom = max.y - margin;
-			let border_left = left - margin;
-			let border_right = right + margin;
-			render_line.push(draw_char);
-			render_line.add_decoration(TextDecoration::Border {
-				rect: Rect {
-					min: Pos2 { x: border_left, y: border_top },
-					max: Pos2 { x: border_right, y: border_bottom },
-				},
-				stroke_width: margin / 2.0,
-				start,
-				end,
-				color,
-				lines: border_lines,
-			});
-		} else if let Some((decoration, range)) = char_style.decoration {
-			let decoration = setup_decoration(draw_char, &decoration, &range, render_line, index, len, &mut iter, context);
-			render_line.add_decoration(decoration);
-		} else if let Some((_, range)) = char_style.link {
-			let decoration = html_parser::TextDecoration::line(TextDecorationLine::Underline);
-			let decoration = setup_decoration(draw_char, &decoration, &range, render_line, index, len, &mut iter, context);
-			render_line.add_decoration(decoration);
-		} else {
-			render_line.push(draw_char);
+			let draw_char = render_line.char_at_index(last_char_idx);
+			let new_rect = &draw_char.rect;
+			let new_left = new_rect.left();
+			if left > new_left {
+				left = new_left;
+			}
+			let new_right = new_rect.right();
+			if right < new_right {
+				right = new_right;
+			}
 		}
+		let max = &decoration_char.rect.max;
+		let border_bottom = max.y - margin;
+		let border_left = left - margin;
+		let border_right = right + margin;
+		render_line.add_decoration(TextDecoration::Border {
+			rect: Rect {
+				min: Pos2 { x: border_left, y: border_top },
+				max: Pos2 { x: border_right, y: border_bottom },
+			},
+			stroke_width: margin / 2.0,
+			start,
+			end,
+			color: context.colors.color.clone(),
+			lines,
+		});
+	}
+}
+
+fn align_line(render_line: &mut RenderLine, draw_chars: Vec<RenderChar>)
+{
+	let line_size = render_line.line_size();
+	for mut char in draw_chars.into_iter() {
+		let rect = &mut char.rect;
+		let width = rect.width();
+		if width < line_size {
+			let delta = (line_size - width) / 2.;
+			rect.min.x -= delta;
+			rect.max.x -= delta;
+		}
+		render_line.push(char);
 	}
 }
