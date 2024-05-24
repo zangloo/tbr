@@ -666,7 +666,7 @@ pub trait GuiRender {
 		let render_start = render_line.first_offset();
 		let render_end = render_line.last_offset() + 1;
 		let render_range = render_start..render_end;
-		line.iter_decoration_in_range(render_line,
+		line.decoration_iter(render_line,
 			|range, decoration, render_line|
 				if let Some((render_range, start, end)) = make_render_range(range, &render_range) {
 					self.setup_decoration(

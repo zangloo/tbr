@@ -382,7 +382,7 @@ impl Line {
 	}
 
 	#[cfg(feature = "gui")]
-	pub fn iter_decoration_in_range<D, B, L, P>(&self, param: &mut P,
+	pub fn decoration_iter<D, B, L, P>(&self, param: &mut P,
 		decoration: D, border: B, link: L)
 		where D: Fn(&Range<usize>, &TextDecoration, &mut P),
 		      B: Fn(&Range<usize>, BorderLines, &mut P),
