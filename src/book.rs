@@ -6,6 +6,7 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::ops::Range;
 use std::slice::Iter;
+
 use anyhow::{anyhow, Result};
 use fancy_regex::Regex;
 use indexmap::IndexSet;
@@ -16,7 +17,7 @@ use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
 #[cfg(feature = "gui")]
 use crate::color::Color32;
-use crate::common::{char_index_for_byte, Position, is_overlap};
+use crate::common::{char_index_for_byte, Position};
 use crate::common::TraceInfo;
 use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::container::BookContent;
@@ -25,10 +26,8 @@ use crate::controller::{HighlightInfo, HighlightMode};
 #[cfg(feature = "gui")]
 use crate::gui::HtmlFonts;
 #[cfg(feature = "gui")]
-use crate::html_parser::{FontScale, FontWeight};
-#[cfg(feature = "gui")]
-use crate::html_parser::{BlockStyle, TextDecoration};
-use crate::html_parser::{BorderLines, TextStyle};
+use crate::html_parser::{BlockStyle, BorderLines, FontScale, FontWeight, TextDecoration};
+use crate::html_parser::{TextStyle};
 use crate::terminal::Listable;
 
 mod epub;
@@ -180,14 +179,6 @@ pub struct CharStyle<'a> {
 	pub link: Option<(usize, &'a Range<usize>)>,
 	pub image: Option<&'a String>,
 	pub title: Option<&'a String>,
-}
-
-#[cfg(feature = "gui")]
-#[derive(Debug)]
-pub enum LineDecoration<'a> {
-	Lines(&'a TextDecoration, &'a Range<usize>),
-	Border(BorderLines, &'a Range<usize>),
-	Link(&'a Range<usize>),
 }
 
 #[derive(Clone)]
@@ -391,29 +382,29 @@ impl Line {
 	}
 
 	#[cfg(feature = "gui")]
-	pub fn decorations_for_range(&self, target: Range<usize>) -> Vec<LineDecoration>
+	pub fn iter_decoration_in_range<D, B, L, P>(&self, param: &mut P,
+		decoration: D, border: B, link: L)
+		where D: Fn(&Range<usize>, &TextDecoration, &mut P),
+		      B: Fn(&Range<usize>, BorderLines, &mut P),
+		      L: Fn(&Range<usize>, &mut P),
 	{
-		let mut decorations = vec![];
 		for (style, range) in self.styles.iter().rev() {
-			if is_overlap(range, &target) {
-				match style {
-					TextStyle::Link(_) =>
-						decorations.push(LineDecoration::Link(&range)),
-					TextStyle::Border(lines) =>
-						decorations.push(LineDecoration::Border(lines.clone(), &range)),
-					TextStyle::Decoration(decoration) =>
-						decorations.push(LineDecoration::Lines(decoration, &range)),
-					TextStyle::FontSize { .. } |
-					TextStyle::FontWeight(..) |
-					TextStyle::FontFamily(..) |
-					TextStyle::Image(..) |
-					TextStyle::Color(..) |
-					TextStyle::BackgroundColor(..) |
-					TextStyle::Title(..) => {}
-				}
+			match style {
+				TextStyle::Link(_) =>
+					link(&range, param),
+				TextStyle::Border(lines) =>
+					border(&range, lines.clone(), param),
+				TextStyle::Decoration(d) =>
+					decoration(&range, d, param),
+				TextStyle::FontSize { .. } |
+				TextStyle::FontWeight(..) |
+				TextStyle::FontFamily(..) |
+				TextStyle::Image(..) |
+				TextStyle::Color(..) |
+				TextStyle::BackgroundColor(..) |
+				TextStyle::Title(..) => {}
 			}
 		}
-		decorations
 	}
 
 	#[cfg(feature = "gui")]

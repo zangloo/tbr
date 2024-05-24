@@ -92,7 +92,6 @@ impl GuiRender for GuiHanRender
 		let mut line_size = 0.0;
 		let mut line_space = 0.0;
 		let default_size = context.default_font_measure.x;
-		let line_decorations = text.decorations_for_range(start_offset..end_offset + 1);
 
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, context.custom_color, &context.colors);
@@ -181,7 +180,7 @@ impl GuiRender for GuiHanRender
 				line_size = 0.0;
 				line_space = 0.0;
 				align_line(&mut render_line, draw_chars);
-				self.setup_decorations(&line_decorations, &mut render_line, context);
+				self.setup_decorations(text, &mut render_line, context);
 				self.baseline -= render_line.line_size() + render_line.line_space();
 				let line_delta = render_line.line_size() + render_line.line_space();
 				draw_lines.push(render_line);
@@ -220,7 +219,7 @@ impl GuiRender for GuiHanRender
 		if draw_chars.len() > 0 {
 			let mut render_line = RenderLine::new(line, line_size, line_space);
 			align_line(&mut render_line, draw_chars);
-			self.setup_decorations(&line_decorations, &mut render_line, context);
+			self.setup_decorations(text, &mut render_line, context);
 			self.baseline -= render_line.line_size() + render_line.line_space();
 			draw_lines.push(render_line);
 		}

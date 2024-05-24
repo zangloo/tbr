@@ -4,7 +4,7 @@ use std::ops::Range;
 use gtk4::cairo::Context as CairoContext;
 use gtk4::pango::Layout as PangoContext;
 
-use crate::book::{Book, Line, LineDecoration};
+use crate::book::{Book, Line};
 use crate::common::with_leading;
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2};
@@ -29,8 +29,7 @@ impl GuiXiRender
 	/// align chars and calculate line size and space,
 	/// and reset context.line_base
 	fn push_line(&self, draw_lines: &mut Vec<RenderLine>,
-		draw_chars: Vec<RenderChar>,
-		decorations: &Vec<LineDecoration>,
+		draw_chars: Vec<RenderChar>, text: &Line,
 		line: usize, context: &RenderContext, mut baseline: f32) -> f32
 	{
 		let mut line_size = 0.0;
@@ -67,7 +66,7 @@ impl GuiXiRender
 			}
 			render_line.push(dc);
 		}
-		self.setup_decorations(decorations, &mut render_line, context);
+		self.setup_decorations(text, &mut render_line, context);
 		draw_lines.push(render_line);
 		baseline
 	}
@@ -120,7 +119,6 @@ impl GuiRender for GuiXiRender
 		let mut draw_lines = vec![];
 		let mut draw_chars = vec![];
 		let mut break_position = None;
-		let line_decorations = text.decorations_for_range(start_offset..end_offset + 1);
 
 		let mut left = context.render_rect.min.x;
 		let max_left = context.render_rect.max.x;
@@ -224,7 +222,7 @@ impl GuiRender for GuiXiRender
 					self.baseline = self.push_line(
 						&mut draw_lines,
 						draw_chars,
-						&line_decorations,
+						text,
 						line,
 						context,
 						self.baseline);
@@ -248,7 +246,7 @@ impl GuiRender for GuiXiRender
 					self.baseline = self.push_line(
 						&mut draw_lines,
 						draw_chars,
-						&line_decorations,
+						text,
 						line,
 						context,
 						self.baseline);
@@ -283,7 +281,7 @@ impl GuiRender for GuiXiRender
 			self.baseline = self.push_line(
 				&mut draw_lines,
 				draw_chars,
-				&line_decorations,
+				text,
 				line,
 				context,
 				self.baseline);

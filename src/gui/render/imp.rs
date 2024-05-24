@@ -11,7 +11,7 @@ use gtk4::pango::ffi::PANGO_SCALE;
 use gtk4::prelude::GdkCairoContextExt;
 use indexmap::IndexSet;
 
-use crate::book::{Book, CharStyle, Colors, Line, LineDecoration};
+use crate::book::{Book, CharStyle, Colors, Line};
 use crate::color::Color32;
 use crate::common::{overlap_range, Position};
 use crate::controller::{HighlightInfo, HighlightMode};
@@ -660,15 +660,15 @@ pub trait GuiRender {
 		}
 	}
 
-	fn setup_decorations(&self, decorations: &Vec<LineDecoration>,
-		render_line: &mut RenderLine, context: &RenderContext)
+	fn setup_decorations(&self, line: &Line, render_line: &mut RenderLine,
+		context: &RenderContext)
 	{
 		let render_start = render_line.first_offset();
 		let render_end = render_line.last_offset() + 1;
 		let render_range = render_start..render_end;
-		for decoration in decorations {
-			match decoration {
-				LineDecoration::Lines(decoration, range) => if let Some((render_range, start, end)) = crate::gui::render::imp::make_render_range(range, &render_range) {
+		line.iter_decoration_in_range(render_line,
+			|range, decoration, render_line|
+				if let Some((render_range, start, end)) = make_render_range(range, &render_range) {
 					self.setup_decoration(
 						decoration,
 						render_range,
@@ -676,8 +676,9 @@ pub trait GuiRender {
 						end,
 						render_line,
 						context);
-				}
-				LineDecoration::Border(lines, range) => if let Some((render_range, start, end)) = crate::gui::render::imp::make_render_range(range, &render_range) {
+				},
+			|range, lines, render_line|
+				if let Some((render_range, start, end)) = make_render_range(range, &render_range) {
 					self.setup_border(
 						render_line,
 						lines.clone(),
@@ -685,8 +686,9 @@ pub trait GuiRender {
 						start,
 						end,
 						context);
-				}
-				LineDecoration::Link(range) => if let Some((render_range, start, end)) = crate::gui::render::imp::make_render_range(range, &render_range) {
+				},
+			|range, render_line|
+				if let Some((render_range, start, end)) = make_render_range(range, &render_range) {
 					let decoration = html_parser::TextDecoration::line(TextDecorationLine::Underline);
 					self.setup_decoration(
 						&decoration,
@@ -695,9 +697,7 @@ pub trait GuiRender {
 						end,
 						render_line,
 						context);
-				}
-			}
-		}
+				});
 	}
 
 	fn setup_line_blocks(&self, rc: &mut RedrawContext, line_idx: usize,

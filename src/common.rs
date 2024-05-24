@@ -2,7 +2,6 @@ use anyhow::Result;
 use chardetng::EncodingDetector;
 use encoding_rs::{Encoding, UTF_8};
 use std::borrow::Borrow;
-use std::cmp;
 use std::ops::Range;
 use unicode_width::UnicodeWidthChar;
 
@@ -215,9 +214,12 @@ macro_rules! frozen_map_get {
     });
 }
 
+#[cfg(feature = "gui")]
 pub fn overlap_range(a: &Range<usize>, b: &Range<usize>)
 	-> Option<Range<usize>>
 {
+	use std::cmp;
+
 	let a_start = a.start;
 	let a_stop = a.end;
 	let b_start = b.start;
@@ -237,6 +239,7 @@ pub fn overlap_range(a: &Range<usize>, b: &Range<usize>)
 	}
 }
 
+#[allow(unused)]
 pub fn is_overlap(a: &Range<usize>, b: &Range<usize>) -> bool
 {
 	let a_start = a.start;
