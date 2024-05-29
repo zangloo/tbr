@@ -5,6 +5,7 @@ use gtk4::cairo::Context as CairoContext;
 use gtk4::pango::Layout as PangoContext;
 
 use crate::book::{Book, Line};
+use crate::color::Color32;
 use crate::common::{HAN_COMPACT_CHARS, HAN_RENDER_CHARS_PAIRS, with_leading};
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, vec2};
@@ -127,7 +128,7 @@ impl GuiRender for GuiHanRender
 				let cell_size = vec2(measures.draw_size.x, char_height);
 				let color = char_style.color.clone();
 				let mut rect = Rect::new(self.baseline - cell_size.x, top, cell_size.x, cell_size.y);
-				if let Some((range, TextStyle::Border(lines))) = &char_style.border {
+				if let Some((range, TextStyle::Border(lines, ..))) = &char_style.border {
 					if lines.contains(BorderLines::Left) {
 						if lines.contains(BorderLines::Right) {
 							let padding = cell_size.y / 4.0;
@@ -497,7 +498,7 @@ impl GuiRender for GuiHanRender
 
 	fn setup_border(&self, render_line: &mut RenderLine, lines: BorderLines,
 		decoration_chars_range: Range<usize>, start: bool, end: bool,
-		context: &RenderContext)
+		color: Color32)
 	{
 		let mut draw_char = render_line.char_at_index(decoration_chars_range.start);
 		let rect = &draw_char.rect;
@@ -554,7 +555,7 @@ impl GuiRender for GuiHanRender
 			stroke_width: margin / 2.0,
 			start,
 			end,
-			color: context.colors.color.clone(),
+			color,
 			lines,
 		});
 	}

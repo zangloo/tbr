@@ -508,7 +508,7 @@ pub struct RedrawContext<'a> {
 	block_backgrounds: Vec<BlockBackgroundEntry>,
 	block_borders: Vec<TextDecoration>,
 	current_block_background: Option<(usize, Color32)>,
-	current_block_border: Option<(usize, BorderLines, BlockStylePart)>,
+	current_block_border: Option<(usize, BorderLines, &'a Option<Color32>, BlockStylePart)>,
 	render_line_start: usize,
 	complete_with_overflow: bool,
 }
@@ -570,7 +570,7 @@ pub trait GuiRender {
 		render_line: &mut RenderLine, context: &RenderContext);
 	fn setup_border(&self, render_line: &mut RenderLine, lines: BorderLines,
 		decoration_chars_range: Range<usize>, start: bool, end: bool,
-		context: &RenderContext);
+		color: Color32);
 
 	/// for scrolling view
 	/// get redraw lines size for scrollable size measure
@@ -637,12 +637,16 @@ pub trait GuiRender {
 
 	#[inline]
 	fn calc_block_border_decoration(&self, render_lines: &Vec<RenderLine>,
-		range: Range<usize>, border_lines: &BorderLines,
+		range: Range<usize>, border_lines: &BorderLines, color: &Option<Color32>,
 		position: BlockStylePart, context: &RenderContext) -> TextDecoration
 	{
 		let render_in_single_line = matches!(position, BlockStylePart::Single) && (range.end - range.start) == 1;
 		let rect = self.calc_block_rect(render_lines, range, render_in_single_line, context);
-		let color = context.colors.color.clone();
+		let color = if let Some(color) = color {
+			color.clone()
+		} else {
+			context.colors.color.clone()
+		};
 		let stroke_width = self.default_line_size(context) / 16.;
 		let (start, end) = match position {
 			BlockStylePart::Begin => (true, false),
@@ -677,7 +681,7 @@ pub trait GuiRender {
 						render_line,
 						context);
 				},
-			|range, lines, render_line|
+			|range, lines, color, render_line|
 				if let Some((render_range, start, end)) = make_render_range(range, &render_range) {
 					self.setup_border(
 						render_line,
@@ -685,11 +689,15 @@ pub trait GuiRender {
 						render_range,
 						start,
 						end,
-						context);
+						color.unwrap_or_else(|| context.colors.color.clone()));
 				},
 			|range, render_line|
 				if let Some((render_range, start, end)) = make_render_range(range, &render_range) {
-					let decoration = html_parser::TextDecoration::line(TextDecorationLine::Underline);
+					let decoration = html_parser::TextDecoration {
+						line: TextDecorationLine::Underline,
+						style: TextDecorationStyle::Solid,
+						color: Some(context.colors.link.clone()),
+					};
 					self.setup_decoration(
 						&decoration,
 						render_range,
@@ -715,7 +723,7 @@ pub trait GuiRender {
 		let mut background_found = false;
 		for bs in block_styles {
 			match bs {
-				BlockStyle::Border { range, lines: border_lines } => if !border_found && range.contains(&line_idx) {
+				BlockStyle::Border { range, lines: border_lines, color } => if !border_found && range.contains(&line_idx) {
 					border_found = true;
 					let end_idx = range.end - 1;
 					if line_idx == range.start {
@@ -738,6 +746,7 @@ pub trait GuiRender {
 								&rc.render_lines,
 								rc.render_line_start..render_line_count,
 								border_lines,
+								color,
 								part,
 								render_context);
 							rc.block_borders.push(border);
@@ -745,6 +754,7 @@ pub trait GuiRender {
 							rc.current_block_border = Some((
 								rc.render_line_start,
 								border_lines.clone(),
+								color,
 								if rc.offset == 0 { BlockStylePart::Begin } else { BlockStylePart::Middle }));
 						}
 					} else if line_idx == end_idx {
@@ -773,6 +783,7 @@ pub trait GuiRender {
 							&rc.render_lines,
 							start..render_line_count,
 							border_lines,
+							color,
 							part,
 							render_context);
 						rc.block_borders.push(border);
@@ -781,6 +792,7 @@ pub trait GuiRender {
 						rc.current_block_border = Some((
 							rc.render_line_start,
 							border_lines.clone(),
+							color,
 							BlockStylePart::Middle));
 					}
 				}
@@ -828,11 +840,12 @@ pub trait GuiRender {
 
 	fn finalize_blocks(&self, rc: &mut RedrawContext, render_context: &RenderContext)
 	{
-		if let Some((start, border_lines, part)) = &rc.current_block_border {
+		if let Some((start, border_lines, color, part)) = &rc.current_block_border {
 			let border = self.calc_block_border_decoration(
 				&rc.render_lines,
 				*start..rc.render_lines.len(),
 				border_lines,
+				color,
 				part.clone(),
 				render_context);
 			rc.block_borders.push(border);

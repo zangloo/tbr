@@ -155,7 +155,7 @@ bitflags! {
 }
 
 pub enum BlockStyle {
-	Border { range: Range<usize>, lines: BorderLines },
+	Border { range: Range<usize>, lines: BorderLines, color: Option<Color32> },
 	Background { range: Range<usize>, color: Color32 },
 }
 
@@ -180,7 +180,7 @@ impl TextDecoration {
 #[derive(Clone, Debug)]
 pub enum TextStyle {
 	Decoration(TextDecoration),
-	Border(BorderLines),
+	Border(BorderLines, Option<Color32>),
 	FontSize { scale: FontScale, relative: bool },
 	FontWeight(FontWeightValue),
 	FontFamily(u16),
@@ -834,15 +834,15 @@ impl<'a> HtmlParser<'a> {
 	fn convert_style(&mut self, property: &Property) -> Option<ParseTag>
 	{
 		match property {
-			Property::Border(border) => border_style(border),
+			Property::Border(border) => self.border_style(border),
 			Property::BorderTop(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::Top))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::Top, self.css_color(&line.color)))),
 			Property::BorderRight(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::Right))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::Right, self.css_color(&line.color)))),
 			Property::BorderBottom(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::Bottom))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::Bottom, self.css_color(&line.color)))),
 			Property::BorderLeft(line)
-			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::Left))),
+			if border_width(&line.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::Left, self.css_color(&line.color)))),
 			Property::BorderWidth(width) => {
 				let mut borders = BorderLines::empty();
 				if border_width(&width.top) {
@@ -860,7 +860,7 @@ impl<'a> HtmlParser<'a> {
 				if borders.is_empty() {
 					None
 				} else {
-					Some(ParseTag::Style(TextStyle::Border(borders)))
+					Some(ParseTag::Style(TextStyle::Border(borders, None)))
 				}
 			}
 			Property::FontSize(size) => Some(font_size(size)),
@@ -940,6 +940,26 @@ impl<'a> HtmlParser<'a> {
 		let decoration = TextDecoration { line, style, color };
 		ParseTag::Style(TextStyle::Decoration(decoration))
 	}
+
+	#[inline]
+	fn border_style(&self, border: &Border) -> Option<ParseTag>
+	{
+		match border.style {
+			border::LineStyle::Inset
+			| border::LineStyle::Groove
+			| border::LineStyle::Outset
+			| border::LineStyle::Ridge
+			| border::LineStyle::Dotted
+			| border::LineStyle::Dashed
+			| border::LineStyle::Solid
+			| border::LineStyle::Double
+			if border_width(&border.width) => Some(ParseTag::Style(
+				TextStyle::Border(
+					BorderLines::all(),
+					self.css_color(&border.color)))),
+			_ => None
+		}
+	}
 }
 
 /// return end line and offset for non-block-styles
@@ -965,10 +985,11 @@ fn setup_block_style(start: &Position, end: &Position, style: &TextStyle,
 		return Some((end_line, end_offset));
 	}
 	match style {
-		TextStyle::Border(border_lines) => {
+		TextStyle::Border(border_lines, color) => {
 			block_styles.push(BlockStyle::Border {
 				range: start.line..end_line + 1,
 				lines: border_lines.clone(),
+				color: color.clone(),
 			});
 			None
 		}
@@ -1089,23 +1110,6 @@ fn font_size(size: &FontSize) -> ParseTag
 		}
 	};
 	ParseTag::Style(style)
-}
-
-#[inline]
-fn border_style(border: &Border) -> Option<ParseTag>
-{
-	match border.style {
-		border::LineStyle::Inset
-		| border::LineStyle::Groove
-		| border::LineStyle::Outset
-		| border::LineStyle::Ridge
-		| border::LineStyle::Dotted
-		| border::LineStyle::Dashed
-		| border::LineStyle::Solid
-		| border::LineStyle::Double
-		if border_width(&border.width) => Some(ParseTag::Style(TextStyle::Border(BorderLines::all()))),
-		_ => None
-	}
 }
 
 #[inline]

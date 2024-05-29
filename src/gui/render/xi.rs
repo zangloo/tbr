@@ -5,6 +5,7 @@ use gtk4::cairo::Context as CairoContext;
 use gtk4::pango::Layout as PangoContext;
 
 use crate::book::{Book, Line};
+use crate::color::Color32;
 use crate::common::with_leading;
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2};
@@ -150,7 +151,7 @@ impl GuiRender for GuiXiRender
 				let mut rect = Rect::new(left, self.baseline, measures.size.x, measures.size.y);
 				let color = char_style.color.clone();
 				let background = update_for_highlight(line, i, char_style.background.clone(), &context.colors, highlight);
-				let cell_offset = if let Some((range, TextStyle::Border(lines))) = &char_style.border {
+				let cell_offset = if let Some((range, TextStyle::Border(lines, ..))) = &char_style.border {
 					if lines.contains(BorderLines::Left) {
 						if lines.contains(BorderLines::Right) {
 							let draw_width = measures.size.x;
@@ -502,17 +503,17 @@ impl GuiRender for GuiXiRender
 
 	fn setup_border(&self, render_line: &mut RenderLine, lines: BorderLines,
 		decoration_chars_range: Range<usize>, start: bool, end: bool,
-		context: &RenderContext)
+		color: Color32)
 	{
 		let mut draw_char = render_line.char_at_index(decoration_chars_range.start);
 		let rect = &draw_char.rect;
 		let min = &rect.min;
 		let left = min.x;
-		let (color, padding) = match &draw_char.cell {
-			RenderCell::Image(_) => (context.colors.color.clone(), 0.0),
-			RenderCell::Char(CharCell { color, cell_size, .. })
-			| RenderCell::Link(CharCell { color, cell_size, .. }, _)
-			=> (color.clone(), cell_size.x / 4.0),
+		let padding = match &draw_char.cell {
+			RenderCell::Image(_) => 0.0,
+			RenderCell::Char(CharCell { cell_size, .. })
+			| RenderCell::Link(CharCell { cell_size, .. }, _)
+			=> cell_size.x / 4.0,
 		};
 		let margin = padding / 2.0;
 		let mut top = min.y;

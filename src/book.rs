@@ -385,15 +385,15 @@ impl Line {
 	pub fn decoration_iter<D, B, L, P>(&self, param: &mut P,
 		decoration: D, border: B, link: L)
 		where D: Fn(&Range<usize>, &TextDecoration, &mut P),
-		      B: Fn(&Range<usize>, BorderLines, &mut P),
+		      B: Fn(&Range<usize>, BorderLines, Option<Color32>, &mut P),
 		      L: Fn(&Range<usize>, &mut P),
 	{
 		for (style, range) in self.styles.iter().rev() {
 			match style {
 				TextStyle::Link(_) =>
 					link(&range, param),
-				TextStyle::Border(lines) =>
-					border(&range, lines.clone(), param),
+				TextStyle::Border(lines, color) =>
+					border(&range, lines.clone(), color.clone(), param),
 				TextStyle::Decoration(d) =>
 					decoration(&range, d, param),
 				TextStyle::FontSize { .. } |
