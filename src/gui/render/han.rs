@@ -499,11 +499,11 @@ impl GuiRender for GuiHanRender
 		decoration_chars_range: Range<usize>, start: bool, end: bool,
 		context: &RenderContext)
 	{
-		let decoration_char = render_line.char_at_index(decoration_chars_range.start);
-		let rect = &decoration_char.rect;
+		let mut draw_char = render_line.char_at_index(decoration_chars_range.start);
+		let rect = &draw_char.rect;
 		let min = &rect.min;
 		let top = min.y;
-		let padding = match &decoration_char.cell {
+		let padding = match &draw_char.cell {
 			RenderCell::Image(_) => 0.0,
 			RenderCell::Char(CharCell { cell_size, .. })
 			| RenderCell::Link(CharCell { cell_size, .. }, _)
@@ -520,7 +520,7 @@ impl GuiRender for GuiHanRender
 		if decoration_chars_range.len() > 1 {
 			let last_char_idx = decoration_chars_range.end - 1;
 			for i in decoration_chars_range.start + 1..last_char_idx {
-				let draw_char = render_line.char_at_index(i);
+				draw_char = render_line.char_at_index(i);
 				let new_rect = &draw_char.rect;
 				let new_left = new_rect.left();
 				if left > new_left {
@@ -531,7 +531,7 @@ impl GuiRender for GuiHanRender
 					right = new_right;
 				}
 			}
-			let draw_char = render_line.char_at_index(last_char_idx);
+			draw_char = render_line.char_at_index(last_char_idx);
 			let new_rect = &draw_char.rect;
 			let new_left = new_rect.left();
 			if left > new_left {
@@ -542,7 +542,7 @@ impl GuiRender for GuiHanRender
 				right = new_right;
 			}
 		}
-		let max = &decoration_char.rect.max;
+		let max = &draw_char.rect.max;
 		let border_bottom = max.y - margin;
 		let border_left = left - margin;
 		let border_right = right + margin;
