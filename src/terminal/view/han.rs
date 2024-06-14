@@ -1,14 +1,12 @@
-use std::collections::HashMap;
 use unicode_width::UnicodeWidthChar;
 
 use crate::book::{Book, Line};
-use crate::common::{HAN_RENDER_CHARS_PAIRS, length_with_leading, with_leading};
+use crate::common::{han_render_char, length_with_leading, with_leading};
 use crate::config::ReadingInfo;
 use crate::controller::HighlightInfo;
 use crate::terminal::view::{DrawChar, Position, Render, RenderContext, TerminalRender};
 
 pub struct Han {
-	chars_map: HashMap<char, char>,
 	line_count: usize,
 }
 
@@ -16,7 +14,6 @@ impl Han {
 	pub fn new() -> Self
 	{
 		Han {
-			chars_map: HAN_RENDER_CHARS_PAIRS.into_iter().collect(),
 			line_count: 1,
 		}
 	}
@@ -61,10 +58,6 @@ impl Han {
 				}
 			}
 		}
-	}
-
-	fn map_char(&self, ch: char) -> char {
-		*self.chars_map.get(&ch).unwrap_or(&ch)
 	}
 }
 
@@ -133,7 +126,7 @@ impl Render<RenderContext> for Han {
 			}
 			for _y in 0..charts_to_draw {
 				let char = text.char_at(offset).unwrap();
-				let draw_char = self.map_char(char);
+				let draw_char = han_render_char(char);
 				let dc = self.setup_draw_char(draw_char, line, offset, lines, highlight);
 				draw_line.push(dc);
 				offset += 1;

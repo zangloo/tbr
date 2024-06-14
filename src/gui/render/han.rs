@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::Range;
 
 use gtk4::cairo::Context as CairoContext;
@@ -6,7 +6,7 @@ use gtk4::pango::Layout as PangoContext;
 
 use crate::book::{Book, Line};
 use crate::color::Color32;
-use crate::common::{HAN_COMPACT_CHARS, HAN_RENDER_CHARS_PAIRS, with_leading};
+use crate::common::{han_render_char, is_compact_for_han, with_leading};
 use crate::controller::HighlightInfo;
 use crate::gui::math::{Pos2, pos2, Rect, vec2};
 use crate::gui::render::{CharCell, CharDrawData, GuiRender, ImageDrawingData, PointerPosition, RenderCell, RenderChar, RenderContext, RenderLine, ScrolledDrawData, ScrollSizing, TextDecoration, update_for_highlight, vline};
@@ -15,8 +15,6 @@ use crate::html_parser;
 use crate::html_parser::{BorderLines, TextDecorationLine, TextStyle};
 
 pub(super) struct GuiHanRender {
-	chars_map: HashMap<char, char>,
-	compact_chars: HashSet<char>,
 	images: HashMap<String, ImageDrawingData>,
 	baseline: f32,
 	outline_draw_cache: HashMap<u64, CharDrawData>,
@@ -28,17 +26,10 @@ impl GuiHanRender
 	{
 		GuiHanRender
 		{
-			chars_map: HAN_RENDER_CHARS_PAIRS.into_iter().collect(),
-			compact_chars: HAN_COMPACT_CHARS.into_iter().collect(),
 			images: HashMap::new(),
 			baseline: 0.0,
 			outline_draw_cache: HashMap::new(),
 		}
-	}
-
-	fn map_char(&self, ch: char) -> char
-	{
-		*self.chars_map.get(&ch).unwrap_or(&ch)
 	}
 }
 
@@ -109,7 +100,7 @@ impl GuiRender for GuiHanRender
 					top = context.render_rect.min.y + context.leading_space;
 				}
 				let char = text.char_at(i).unwrap();
-				let char = self.map_char(char);
+				let char = han_render_char(char);
 				let measures = self.get_char_measures(
 					pango,
 					char,
@@ -119,7 +110,7 @@ impl GuiRender for GuiHanRender
 					book.font_family_names(),
 					book.custom_fonts(),
 					context);
-				let (char_height, y_offset) = if self.compact_chars.contains(&char) {
+				let (char_height, y_offset) = if is_compact_for_han(char) {
 					(measures.draw_size.y * 2., -measures.draw_offset.y + (measures.draw_size.y / 2.))
 				} else {
 					(measures.size.y, 0.)
