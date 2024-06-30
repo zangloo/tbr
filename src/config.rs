@@ -317,9 +317,10 @@ impl Configuration {
 		})
 	}
 
-	pub fn history(&self, current: Option<&String>) -> Result<Vec<ReadingInfo>>
+	pub fn history(&self, current: Option<&String>, filter_pattern: Option<&String>)
+		-> Result<Vec<ReadingInfo>>
 	{
-		Ok(query(&self.history_db, 20, current)?)
+		Ok(query(&self.history_db, 20, current, filter_pattern)?)
 	}
 
 	pub fn reading<'a>(&self, filename: &'a str) -> Result<BookLoadingInfo<'a>>
@@ -446,7 +447,7 @@ pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config
 			};
 			let history_db = load_history_db(&raw_config.history)?;
 			if current.is_none() {
-				if let Some(latest_reading) = query(&history_db, 1, None)?.pop() {
+				if let Some(latest_reading) = query(&history_db, 1, None, None)?.pop() {
 					current = Some(latest_reading.filename);
 				}
 			}
@@ -617,7 +618,8 @@ fn upgrade_db(connection: &Connection) -> Result<()>
 	Ok(())
 }
 
-fn query(conn: &Connection, limit: usize, exclude: Option<&String>) -> Result<Vec<ReadingInfo>>
+fn query(conn: &Connection, limit: usize, exclude: Option<&String>,
+	filter_pattern: Option<&String>) -> Result<Vec<ReadingInfo>>
 {
 	let mut stmt = conn.prepare("
 select row_id,
@@ -643,8 +645,14 @@ order by ts desc
 		if !path.exists() {
 			continue;
 		}
+		let filename = &info.filename;
 		if let Some(exclude) = exclude {
-			if *exclude == info.filename {
+			if exclude == filename {
+				continue;
+			}
+		}
+		if let Some(pattern) = filter_pattern {
+			if match_filename(&filename, pattern).is_none() {
 				continue;
 			}
 		}
@@ -654,6 +662,26 @@ order by ts desc
 		}
 	}
 	Ok(list)
+}
+
+pub fn match_filename(filename: &str, pattern: &str) -> Option<Vec<usize>>
+{
+	let mut vec = vec![];
+	let mut name_iter = filename.chars().into_iter();
+	let mut fi = 0;
+	for pc in pattern.chars() {
+		let pc = pc.to_ascii_lowercase();
+		loop {
+			let fc = name_iter.next()?.to_ascii_lowercase();
+			if fc == pc {
+				vec.push(fi);
+				fi += 1;
+				break;
+			}
+			fi += 1;
+		}
+	}
+	Some(vec)
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]

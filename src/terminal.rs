@@ -163,7 +163,7 @@ fn select_history(s: &mut Cursive)
 
 	let option = s.with_user_data(|controller_context: &mut TerminalContext| {
 		let configuration = &mut controller_context.configuration;
-		let history = match configuration.history(Some(&controller_context.current)) {
+		let history = match configuration.history(Some(&controller_context.current), None) {
 			Ok(history) => history,
 			Err(_) => {
 				// update_status(s, &err.to_string());

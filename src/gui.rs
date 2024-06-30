@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
-use gtk4::{AlertDialog, Align, Application, ApplicationWindow, Button, CssProvider, DirectionType, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, Popover, PopoverMenu, PositionType, SearchEntry, Separator, Stack, ToggleButton, Widget, Window};
+use gtk4::{AlertDialog, Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, Popover, PopoverMenu, PositionType, SearchEntry, Separator, Stack, ToggleButton, Widget, Window};
 use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle, Texture};
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio::{ApplicationFlags, Cancellable, File, MemoryInputStream, Menu, MenuItem, MenuModel, SimpleAction, SimpleActionGroup};
@@ -8,7 +8,7 @@ use gtk4::glib;
 use gtk4::glib::{Bytes, closure_local, ExitCode, format_size, Variant};
 use gtk4::glib::prelude::{ObjectExt, StaticType, ToVariant};
 use gtk4::graphene::Point;
-use gtk4::prelude::{ActionExt, ActionGroupExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, EventControllerExt, FileExt, GtkApplicationExt, GtkWindowExt, IsA, NativeExt, OrientableExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
+use gtk4::prelude::{ActionExt, ActionMapExt, ApplicationExt, ApplicationExtManual, BoxExt, ButtonExt, DisplayExt, DrawingAreaExt, EditableExt, EventControllerExt, FileExt, GtkApplicationExt, GtkWindowExt, IsA, NativeExt, OrientableExt, PopoverExt, SeatExt, SurfaceExt, ToggleButtonExt, WidgetExt};
 use pangocairo::glib::Propagation;
 use pangocairo::pango::EllipsizeMode;
 use resvg::{tiny_skia, usvg};
@@ -31,6 +31,7 @@ use crate::gui::chapter_list::ChapterList;
 use crate::gui::dict::{DictionaryBook, DictionaryManager};
 pub use crate::gui::font::HtmlFonts;
 use crate::gui::font::UserFonts;
+use crate::gui::history::HistoryList;
 use crate::gui::render::RenderContext;
 use crate::gui::settings::Settings;
 use crate::gui::view::{GuiView, update_mouse_pointer};
@@ -44,6 +45,7 @@ mod settings;
 mod chapter_list;
 mod font;
 mod dialogs;
+mod history;
 
 const MODIFIER_NONE: ModifierType = ModifierType::empty();
 
@@ -1229,8 +1231,7 @@ fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
 			});
 	}
 
-	gc.history_popover.set_parent(button);
-	button.insert_action_group("history", Some(&gc.action_group));
+	gc.history_list.setup(button, &gc);
 	{
 		let gc = gc.clone();
 		create_action(&section, &action_group, i18n,
@@ -1429,9 +1430,7 @@ struct GuiContextInner {
 	dm: Rc<RefCell<DictionaryManager>>,
 	opener: Rc<RefCell<Opener>>,
 	window: ApplicationWindow,
-	history_menu: Menu,
-	history_popover: PopoverMenu,
-	action_group: SimpleActionGroup,
+	history_list: HistoryList,
 	status_bar: Label,
 	paned: Paned,
 	sidebar_stack: Stack,
@@ -1483,49 +1482,6 @@ impl GuiContext {
 		dark_colors: Colors, bright_colors: Colors, css_provider: CssProvider)
 		-> (Self, gtk4::Box)
 	{
-		#[inline]
-		fn create_history_menu(view: &GuiView) -> (SimpleActionGroup, Menu, PopoverMenu)
-		{
-			let action_group = SimpleActionGroup::new();
-			let history_menu = Menu::new();
-			let history_popover = PopoverMenu::builder()
-				.menu_model(&history_menu)
-				.has_arrow(false)
-				.build();
-			let view = view.clone();
-			history_popover.connect_visible_notify(move |p| {
-				if !p.get_visible() {
-					view.grab_focus();
-				}
-			});
-			let key_event = EventControllerKey::new();
-			key_event.connect_key_pressed(move |ev, key, _, modifier| {
-				let (key, modifier) = ignore_cap(key, modifier);
-				match (key, modifier) {
-					(Key::j, MODIFIER_NONE) => {
-						ev.widget().emit_move_focus(DirectionType::Down);
-						glib::Propagation::Stop
-					}
-					(Key::k, MODIFIER_NONE) => {
-						ev.widget().emit_move_focus(DirectionType::Up);
-						glib::Propagation::Stop
-					}
-					(Key::h, MODIFIER_NONE) |
-					(Key::q, MODIFIER_NONE) => {
-						ev.widget().set_visible(false);
-						glib::Propagation::Stop
-					}
-					_ => {
-						// println!("view, key: {key}, modifier: {modifier}");
-						glib::Propagation::Proceed
-					}
-				}
-			});
-			history_popover.add_controller(key_event);
-
-			(action_group, history_menu, history_popover)
-		}
-
 		let window = ApplicationWindow::builder()
 			.application(app)
 			.default_width(800)
@@ -1567,7 +1523,7 @@ impl GuiContext {
 		}
 		file_dialog.set_default_filter(Some(&filter));
 
-		let (action_group, history_menu, history_popover) = create_history_menu(controller.render.as_ref());
+		let history_list = HistoryList::new(controller.render.as_ref());
 		let menu_btn = create_button("menu.svg", Some(&i18n.msg("menu")), &icons, false);
 
 		let inner = GuiContextInner {
@@ -1578,9 +1534,7 @@ impl GuiContext {
 			dm,
 			opener: Rc::new(RefCell::new(Default::default())),
 			window,
-			history_menu,
-			history_popover,
-			action_group,
+			history_list,
 			status_bar,
 			paned,
 			sidebar_stack,
@@ -1661,8 +1615,22 @@ impl GuiContext {
 	#[inline]
 	fn show_history(&self)
 	{
-		self.reload_history();
-		self.history_popover.popup();
+		match self.cfg().history(self.current.as_ref(), None) {
+			Ok(infos) => self.history_list.popup(infos),
+			Err(err) => self.error(&err.to_string()),
+		}
+	}
+
+	#[inline]
+	fn filter_history(&self, filter_pattern: Option<&String>) -> Option<Vec<ReadingInfo>>
+	{
+		match self.cfg().history(self.current.as_ref(), filter_pattern) {
+			Ok(infos) => Some(infos),
+			Err(err) => {
+				self.error(&err.to_string());
+				None
+			}
+		}
 	}
 
 	fn open_dialog(&self)
@@ -1685,26 +1653,6 @@ impl GuiContext {
 					app_open(&app, filepath);
 				}
 			}
-		}
-	}
-
-	fn reload_history(&self)
-	{
-		for a in self.action_group.list_actions() {
-			self.action_group.remove_action(&a);
-		}
-		let menu = &self.history_menu;
-		menu.remove_all();
-		match self.cfg().history(self.current.as_ref()) {
-			Ok(infos) => {
-				for (idx, ri) in infos.iter().enumerate() {
-					if idx == 20 {
-						break;
-					}
-					self.add_history_entry(idx, &ri.filename, menu);
-				}
-			}
-			Err(err) => self.error(&err.to_string()),
 		}
 	}
 
@@ -1781,26 +1729,6 @@ impl GuiContext {
 		popover.add_controller(key_event);
 		popover.popup();
 		Ok(())
-	}
-
-	#[inline]
-	fn add_history_entry(&self, idx: usize, path_str: &String, menu: &Menu)
-	{
-		let path = PathBuf::from(&path_str);
-		if !path.exists() || !path.is_file() {
-			return;
-		}
-		let action_name = format!("a{}", idx);
-		let action = SimpleAction::new(&action_name, None);
-		{
-			let gc = self.clone();
-			action.connect_activate(move |_, _| {
-				gc.open_file(&path);
-			});
-		}
-		self.action_group.add_action(&action);
-		let menu_action_name = format!("history.{}", action_name);
-		menu.append(Some(&path_str), Some(&menu_action_name));
 	}
 
 	fn toggle_sidebar(&self)
