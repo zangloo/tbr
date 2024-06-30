@@ -3,8 +3,11 @@
 use std::fmt::{Display, Formatter};
 #[cfg(feature = "gui")]
 use gtk4::cairo::Context as CairoContext;
+#[cfg(feature = "gui")]
+use gtk4::gdk::RGBA;
+use serde_derive::{Serialize, Deserialize};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Color32(pub(crate) [u8; 4]);
 
 #[allow(unused)]
@@ -133,6 +136,32 @@ impl Color32 {
 	}
 }
 
+#[cfg(feature = "gui")]
+impl Into<RGBA> for Color32 {
+	fn into(self) -> RGBA
+	{
+		RGBA::new(
+			self.r() as f32 / 255.,
+			self.g() as f32 / 255.,
+			self.b() as f32 / 255.,
+			self.a() as f32 / 255.,
+		)
+	}
+}
+
+#[cfg(feature = "gui")]
+impl From<RGBA> for Color32 {
+	fn from(rgba: RGBA) -> Self
+	{
+		Color32::from_rgba_premultiplied(
+			(rgba.red() * 255.) as u8,
+			(rgba.green() * 255.) as u8,
+			(rgba.blue() * 255.) as u8,
+			(rgba.alpha() * 255.) as u8,
+		)
+	}
+}
+
 impl Display for Color32 {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result
 	{
@@ -168,4 +197,37 @@ fn fast_round(r: f32) -> u8 {
 #[inline(always)]
 pub fn linear_f32_from_linear_u8(a: u8) -> f32 {
 	a as f32 / 255.0
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct Colors
+{
+	pub color: Color32,
+	pub background: Color32,
+	pub highlight: Color32,
+	pub highlight_background: Color32,
+	pub link: Color32,
+	pub matched_color: Color32,
+	pub matched_background: Color32,
+}
+
+impl Colors {
+	pub const DEFAULT_DARK: Colors = Colors {
+		color: Color32::LIGHT_GREEN,
+		background: Color32::BLACK,
+		highlight: Color32::WHITE,
+		highlight_background: Color32::LIGHT_GREEN,
+		link: Color32::BLUE,
+		matched_color: Color32::BLACK,
+		matched_background: Color32::LIGHT_GRAY,
+	};
+	pub const DEFAULT_BRIGHT: Colors = Colors {
+		color: Color32::BLACK,
+		background: Color32::WHITE,
+		highlight: Color32::BLACK,
+		highlight_background: Color32::LIGHT_GRAY,
+		link: Color32::BLUE,
+		matched_color: Color32::BLACK,
+		matched_background: Color32::LIGHT_GRAY,
+	};
 }

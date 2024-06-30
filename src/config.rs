@@ -1,16 +1,17 @@
 use std::fs;
-use anyhow::{anyhow, Result};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use cursive::theme::{Error, load_theme_file, load_toml, Theme};
+
+use anyhow::Result;
 #[cfg(feature = "gui")]
 use gtk4::Orientation;
 use rusqlite::{Connection, Row};
 use serde_derive::{Deserialize, Serialize};
+
+use crate::color::Colors;
 #[cfg(feature = "i18n")]
 use crate::i18n;
-use crate::Asset;
 use crate::terminal::Listable;
 
 #[derive(Clone)]
@@ -229,6 +230,8 @@ impl SidebarPosition {
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 #[cfg(feature = "gui")]
 pub struct GuiConfiguration {
+	#[serde(default)]
+	pub themes: Themes,
 	pub fonts: Vec<PathConfig>,
 	#[serde(default = "default_font_size")]
 	pub default_font_size: u8,
@@ -254,6 +257,7 @@ impl Default for GuiConfiguration
 {
 	fn default() -> Self {
 		GuiConfiguration {
+			themes: Themes::default(),
 			fonts: vec![],
 			default_font_size: default_font_size(),
 			dict_font_size: default_font_size(),
@@ -266,6 +270,27 @@ impl Default for GuiConfiguration
 			ignore_font_weight: false,
 			scroll_for_page: false,
 			select_by_dictionary: false,
+		}
+	}
+}
+
+#[cfg(feature = "gui")]
+impl GuiConfiguration {
+	pub fn curr_colors(&self, dark: bool) -> &Colors
+	{
+		if dark {
+			&self.themes.dark
+		} else {
+			&self.themes.bright
+		}
+	}
+
+	pub fn curr_colors_mut(&mut self, dark: bool) -> &mut Colors
+	{
+		if dark {
+			&mut self.themes.dark
+		} else {
+			&mut self.themes.bright
 		}
 	}
 }
@@ -297,6 +322,15 @@ impl Configuration {
 			fs::write(&self.config_file, text)?;
 		}
 		Ok(())
+	}
+
+	pub fn curr_theme(&self) -> &Colors
+	{
+		if self.dark_theme {
+			&self.gui.themes.dark
+		} else {
+			&self.gui.themes.bright
+		}
 	}
 
 	fn map(row: &Row) -> rusqlite::Result<ReadingInfo>
@@ -416,27 +450,26 @@ where row_id = ?
 	}
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Themes {
-	bright: Theme,
-	dark: Theme,
+	bright: Colors,
+	dark: Colors,
 }
 
-impl Themes {
-	pub fn get(&self, dark: bool) -> &Theme
+impl Default for Themes {
+	fn default() -> Self
 	{
-		if dark {
-			&self.dark
-		} else {
-			&self.bright
+		Self {
+			dark: Colors::DEFAULT_DARK,
+			bright: Colors::DEFAULT_BRIGHT,
 		}
 	}
 }
 
 pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config_dir: &PathBuf,
-	cache_dir: &PathBuf) -> Result<(Option<String>, Configuration, Themes)>
+	cache_dir: &PathBuf) -> Result<(Option<String>, Configuration)>
 {
-	let (current, configuration, themes) =
+	let (current, configuration) =
 		if config_file.as_path().is_file() {
 			let string = fs::read_to_string(&config_file)?;
 			let raw_config: RawConfig = toml::from_str(&string)?;
@@ -451,11 +484,6 @@ pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config
 					current = Some(latest_reading.filename);
 				}
 			}
-			let theme_file = config_dir.join("dark.toml");
-			let dark = process_theme_result(load_theme_file(theme_file))?;
-			let theme_file = config_dir.join("bright.toml");
-			let bright = process_theme_result(load_theme_file(theme_file))?;
-			let themes = Themes { dark, bright };
 			let orig = raw_config.clone();
 			let configuration = Configuration {
 				render_han: raw_config.render_han,
@@ -467,9 +495,9 @@ pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config
 				history_db,
 				orig,
 			};
-			(current, configuration, themes)
+			(current, configuration)
 		} else {
-			let themes = create_default_theme_files(config_dir)?;
+			fs::create_dir_all(config_dir)?;
 			fs::create_dir_all(cache_dir)?;
 			let current = filename
 				.map_or(None, |filename| file_path(&filename));
@@ -494,38 +522,9 @@ pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config
 				config_file,
 				history_db,
 				orig,
-			}, themes)
+			})
 		};
-	return Ok((current, configuration, themes));
-}
-
-fn process_theme_result(result: Result<Theme, Error>) -> Result<Theme> {
-	match result {
-		Ok(theme) => Ok(theme),
-		Err(e) => Err(anyhow!(match e {
-					Error::Io(e) => e.to_string(),
-					Error::Parse(e) => e.to_string(),
-				}))
-	}
-}
-
-fn create_default_theme_files(themes_dir: &PathBuf) -> Result<Themes>
-{
-	fs::create_dir_all(themes_dir)?;
-
-	let utf8 = Asset::get("dark.toml").unwrap();
-	let str = std::str::from_utf8(utf8.data.as_ref())?;
-	let dark = process_theme_result(load_toml(str))?;
-	let theme_file = themes_dir.join("dark.toml");
-	fs::write(theme_file, str)?;
-
-	let utf8 = Asset::get("bright.toml").unwrap();
-	let str = std::str::from_utf8(utf8.data.as_ref())?;
-	let bright = process_theme_result(load_toml(str))?;
-	let theme_file = themes_dir.join("bright.toml");
-	fs::write(theme_file, str)?;
-
-	Ok(Themes { dark, bright })
+	return Ok((current, configuration));
 }
 
 fn file_path(filename: &str) -> Option<String> {

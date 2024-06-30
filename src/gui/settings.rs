@@ -1,17 +1,20 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
-use gtk4::{AlertDialog, Align, ApplicationWindow, Button, CheckButton, DropDown, Entry, EventControllerKey, FileDialog, FileFilter, glib, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode, Separator, StringList, Window};
+
+use gtk4::{AlertDialog, Align, ApplicationWindow, Button, CheckButton, ColorDialog, ColorDialogButton, DropDown, Entry, EventControllerKey, FileDialog, FileFilter, glib, Label, ListBox, ListBoxRow, Orientation, PolicyType, ScrolledWindow, SelectionMode, Separator, StringList, Window};
 use gtk4::gdk::Key;
 use gtk4::gio::{Cancellable, File, ListStore};
 use gtk4::glib::Object;
 use gtk4::glib::prelude::Cast;
 use gtk4::prelude::{BoxExt, ButtonExt, CheckButtonExt, EditableExt, FileExt, GtkWindowExt, ListBoxRowExt, ListModelExt, WidgetExt};
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
+use crate::color::Color32;
+
 use crate::config::{Configuration, PathConfig, SidebarPosition};
-use crate::I18n;
-use crate::gui::{create_button, DICT_FILE_EXTENSIONS, FONT_FILE_EXTENSIONS, MODIFIER_NONE, IconMap, MIN_FONT_SIZE, MAX_FONT_SIZE, alert, GuiContext, set_sidebar_position, sidebar_updated, font};
+use crate::gui::{alert, create_button, DICT_FILE_EXTENSIONS, font, FONT_FILE_EXTENSIONS, GuiContext, IconMap, MAX_FONT_SIZE, MIN_FONT_SIZE, MODIFIER_NONE, set_sidebar_position, sidebar_updated};
 use crate::gui::font::UserFonts;
+use crate::I18n;
 
 const SIDEBAR_POSITIONS: [SidebarPosition; 2] = [
 	SidebarPosition::Left,
@@ -52,17 +55,42 @@ struct SettingsParam<'a> {
 	default_font_size: u8,
 	sidebar_position: &'a SidebarPosition,
 	select_by_dictionary: bool,
+	color_color: Color32,
+	color_background: Color32,
+	color_highlight: Color32,
+	color_highlight_background: Color32,
+	color_link: Color32,
+	color_matched: Color32,
+	color_matched_background: Color32,
 }
 
 #[inline]
-fn append_checkbox(title: &str, checked: bool, main_box: &gtk4::Box) -> CheckButton
+fn append_checkbox(title: &str, checked: bool, settings: &gtk4::Box) -> CheckButton
 {
 	let cb = CheckButton::builder()
 		.label(title)
 		.active(checked)
 		.build();
-	main_box.append(&cb);
+	settings.append(&cb);
 	cb
+}
+
+fn append_color_btn(title: &str, color: Color32, color_dialog: &ColorDialog,
+	settings: &gtk4::Box, i18n: &I18n) -> ColorDialogButton
+{
+	let rgba = color.into();
+	let btn = ColorDialogButton::builder()
+		.dialog(color_dialog)
+		.rgba(&rgba)
+		.build();
+
+	let mc_box = gtk4::Box::new(Orientation::Horizontal, 10);
+
+	mc_box.append(&title_label(&i18n.msg(title)));
+	mc_box.append(&btn);
+
+	settings.append(&mc_box);
+	btn
 }
 
 fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
@@ -78,12 +106,18 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 		.modal(true)
 		.build();
 
-	let main = gtk4::Box::new(Orientation::Vertical, 10);
-	main.set_margin_top(10);
-	main.set_margin_bottom(10);
-	main.set_margin_start(10);
-	main.set_margin_end(10);
-	dialog.set_child(Some(&main));
+	let settings = gtk4::Box::new(Orientation::Vertical, 10);
+	settings.set_margin_top(10);
+	settings.set_margin_bottom(10);
+	settings.set_margin_start(10);
+	settings.set_margin_end(10);
+	let dialog_box = gtk4::Box::new(Orientation::Vertical, 0);
+	dialog_box.append(&ScrolledWindow::builder()
+		.child(&settings)
+		.hscrollbar_policy(PolicyType::Never)
+		.vexpand(true)
+		.build());
+	dialog.set_child(Some(&dialog_box));
 
 	let configuration = cfg.borrow();
 
@@ -106,7 +140,7 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 		locale_box.append(&title_label(&i18n.msg("lang")));
 		locale_box.append(&locale_dropdown);
 		locale_box.append(&Label::new(Some(&i18n.msg("need-restart"))));
-		main.append(&locale_box);
+		settings.append(&locale_box);
 		locale_dropdown
 	};
 
@@ -123,22 +157,22 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 			!han,
 			&b);
 		xi_cb.set_group(Some(&han_cb));
-		main.append(&b);
+		settings.append(&b);
 		han_cb
 	};
 
 	let ignore_font_weight_cb = append_checkbox(
 		&i18n.msg("ignore-font-weight"),
 		configuration.gui.ignore_font_weight,
-		&main);
+		&settings);
 	let strip_empty_lines_cb = append_checkbox(
 		&i18n.msg("strip-empty-lines"),
 		configuration.gui.strip_empty_lines,
-		&main);
+		&settings);
 	let scroll_for_page_cb = append_checkbox(
 		&i18n.msg("scroll-for-page"),
 		configuration.gui.scroll_for_page,
-		&main);
+		&settings);
 
 	let sidebar_position_dropdown = {
 		let sidebar_position_box = gtk4::Box::new(Orientation::Horizontal, 0);
@@ -158,8 +192,8 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 
 		sidebar_position_box.append(&title_label(&i18n.msg("sidebar-position")));
 		sidebar_position_box.append(&sidebar_position_dropdown);
-		main.append(&sidebar_position_box);
-		main.append(&sidebar_position_dropdown);
+		settings.append(&sidebar_position_box);
+		settings.append(&sidebar_position_dropdown);
 		sidebar_position_dropdown
 	};
 
@@ -175,9 +209,55 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 			.label(&format!("({} - {})", MIN_FONT_SIZE, MAX_FONT_SIZE))
 			.build());
 
-		main.append(&fs_box);
+		settings.append(&fs_box);
 		entry
 	};
+
+	let colors = configuration.gui.
+		curr_colors(configuration.dark_theme);
+	let color_dialog = ColorDialog::new();
+	let color_color_btn = append_color_btn(
+		"color-color",
+		colors.color.clone(),
+		&color_dialog,
+		&settings,
+		i18n);
+	let color_background_btn = append_color_btn(
+		"color-background",
+		colors.background.clone(),
+		&color_dialog,
+		&settings,
+		i18n);
+	let color_highlight_btn = append_color_btn(
+		"color-highlight",
+		colors.highlight.clone(),
+		&color_dialog,
+		&settings,
+		i18n);
+	let color_highlight_background_btn = append_color_btn(
+		"color-highlight-background",
+		colors.highlight_background.clone(),
+		&color_dialog,
+		&settings,
+		i18n);
+	let color_link_btn = append_color_btn(
+		"color-link",
+		colors.link.clone(),
+		&color_dialog,
+		&settings,
+		i18n);
+	let color_matched_btn = append_color_btn(
+		"color-matched",
+		colors.matched_color.clone(),
+		&color_dialog,
+		&settings,
+		i18n);
+	let color_matched_background_btn = append_color_btn(
+		"color-matched-background",
+		colors.matched_background.clone(),
+		&color_dialog,
+		&settings,
+		i18n);
 
 	let font_list = {
 		let title = i18n.msg("font-files");
@@ -215,8 +295,8 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 				});
 			});
 		}
-		main.append(&label);
-		main.append(&view);
+		settings.append(&label);
+		settings.append(&view);
 		font_list
 	};
 
@@ -267,21 +347,21 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 				});
 			});
 		}
-		main.append(&label);
-		main.append(&view);
+		settings.append(&label);
+		settings.append(&view);
 		dict_list
 	};
 
 	let cache_dict_cb = append_checkbox(
 		&i18n.msg("cache-dictionary"),
 		configuration.gui.cache_dict,
-		&main);
+		&settings);
 
 	let disable_select_by_dictionary = dict_list.n_items() == 0;
 	let select_by_dictionary_cb = append_checkbox(
 		&i18n.msg("select-by-dictionary"),
 		if disable_select_by_dictionary { false } else { configuration.gui.select_by_dictionary },
-		&main);
+		&settings);
 	if disable_select_by_dictionary {
 		select_by_dictionary_cb.set_sensitive(false);
 	}
@@ -362,6 +442,13 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 			} else {
 				None
 			};
+			let color_color = Color32::from(color_color_btn.rgba());
+			let color_background = Color32::from(color_background_btn.rgba());
+			let color_highlight = Color32::from(color_highlight_btn.rgba());
+			let color_highlight_background = Color32::from(color_highlight_background_btn.rgba());
+			let color_link = Color32::from(color_link_btn.rgba());
+			let color_matched = Color32::from(color_matched_btn.rgba());
+			let color_matched_background = Color32::from(color_matched_background_btn.rgba());
 			let params = SettingsParam {
 				render_han,
 				locale,
@@ -374,6 +461,13 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 				default_font_size,
 				sidebar_position,
 				select_by_dictionary,
+				color_color,
+				color_background,
+				color_highlight,
+				color_highlight_background,
+				color_link,
+				color_matched,
+				color_matched_background,
 			};
 			apply(params, new_fonts);
 			dialog.close();
@@ -394,7 +488,6 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 	let bottom_box = gtk4::Box::builder()
 		.orientation(Orientation::Vertical)
 		.spacing(0)
-		.vexpand(true)
 		.valign(Align::End)
 		.build();
 	bottom_box.append(&Separator::builder()
@@ -403,7 +496,7 @@ fn show<F>(cfg: &Rc<RefCell<Configuration>>, window: &ApplicationWindow,
 		.margin_bottom(10)
 		.build());
 	bottom_box.append(&button_box);
-	main.append(&bottom_box);
+	dialog_box.append(&bottom_box);
 
 	let key_event = EventControllerKey::new();
 	{
@@ -612,6 +705,11 @@ fn apply_settings(gcs: &Rc<RefCell<Vec<GuiContext>>>, params: SettingsParam,
 		redraw = true;
 	}
 
+	let colors_changed = apply_colors(&mut configuration, &params, gc);
+	if colors_changed {
+		redraw = true;
+	}
+
 	let lookup_for_reload = if paths_modified(&configuration.gui.dictionaries, &params.dictionaries)
 		|| configuration.gui.cache_dict != params.cache_dict {
 		configuration.gui.dictionaries = params.dictionaries;
@@ -646,11 +744,59 @@ fn apply_settings(gcs: &Rc<RefCell<Vec<GuiContext>>>, params: SettingsParam,
 				gc.dm_mut().set_fonts(fonts_data.clone());
 				controller.render.set_fonts(controller.book.custom_fonts(), fonts_data.clone(), &mut render_context);
 			}
+			if colors_changed {
+				render_context.colors = configuration.gui.curr_colors(configuration.dark_theme).clone();
+			}
 			render_context.ignore_font_weight = params.ignore_font_weight;
 			render_context.strip_empty_lines = params.strip_empty_lines;
 			controller.redraw(&mut render_context);
 		}
 	}
+}
+
+#[inline]
+fn apply_colors(configuration: &mut Configuration, params: &SettingsParam,
+	gc: &GuiContext) -> bool
+{
+	let mut redraw = false;
+	let dark = configuration.dark_theme;
+	let colors = configuration.gui.curr_colors_mut(dark);
+	if colors.color != params.color_color {
+		colors.color = params.color_color.clone();
+		redraw = true;
+	};
+	if colors.background != params.color_background {
+		colors.background = params.color_background.clone();
+		redraw = true;
+	};
+	if colors.highlight != params.color_highlight {
+		colors.highlight = params.color_highlight.clone();
+		redraw = true;
+	};
+	if colors.highlight_background != params.color_highlight_background {
+		colors.highlight_background = params.color_highlight_background.clone();
+		redraw = true;
+	};
+	if colors.link != params.color_link {
+		colors.link = params.color_link.clone();
+		redraw = true;
+	};
+	let mut matched_color_changed = false;
+	if colors.matched_color != params.color_matched {
+		colors.matched_color = params.color_matched.clone();
+		matched_color_changed = true;
+	};
+	if colors.matched_background != params.color_matched_background {
+		colors.matched_background = params.color_matched_background.clone();
+		matched_color_changed = true;
+	};
+	if matched_color_changed {
+		gc.history_list.set_matched_colors(
+			colors.matched_color.clone(),
+			colors.matched_background.clone());
+	}
+
+	redraw
 }
 
 glib::wrapper! {
@@ -671,8 +817,10 @@ impl PathConfigEntry {
 
 mod imp {
 	use std::cell::RefCell;
+
 	use gtk4::glib;
 	use gtk4::subclass::prelude::*;
+
 	use crate::config::PathConfig;
 
 	#[derive(Default)]

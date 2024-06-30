@@ -17,6 +17,7 @@ use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
 #[cfg(feature = "gui")]
 use crate::color::Color32;
+use crate::color::Colors;
 use crate::common::{char_index_for_byte, Position};
 use crate::common::TraceInfo;
 use crate::config::{BookLoadingInfo, ReadingInfo};
@@ -179,30 +180,6 @@ pub struct CharStyle<'a> {
 	pub link: Option<(usize, &'a Range<usize>)>,
 	pub image: Option<&'a String>,
 	pub title: Option<&'a String>,
-}
-
-#[derive(Clone)]
-#[cfg(feature = "gui")]
-pub struct Colors
-{
-	pub color: Color32,
-	pub background: Color32,
-	pub highlight: Color32,
-	pub highlight_background: Color32,
-	pub link: Color32,
-}
-
-#[cfg(feature = "gui")]
-impl Default for Colors {
-	fn default() -> Self {
-		Colors {
-			color: Color32::BLACK,
-			background: Color32::WHITE,
-			highlight: Color32::LIGHT_RED,
-			highlight_background: Color32::LIGHT_GREEN,
-			link: Color32::BLUE,
-		}
-	}
 }
 
 pub struct Line {

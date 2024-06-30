@@ -11,8 +11,8 @@ use gtk4::pango::ffi::PANGO_SCALE;
 use gtk4::prelude::GdkCairoContextExt;
 use indexmap::IndexSet;
 
-use crate::book::{Book, CharStyle, Colors, Line};
-use crate::color::Color32;
+use crate::book::{Book, CharStyle, Line};
+use crate::color::{Color32, Colors};
 use crate::common::{overlap_range, Position};
 use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::font::{Fonts, HtmlFonts, UserFonts};

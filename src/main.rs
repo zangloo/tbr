@@ -94,21 +94,20 @@ fn main() -> Result<()> {
 			}),
 			|name| Some(name));
 	#[allow(unused_mut)]
-		let (mut current, mut configuration, mut themes) = load_config(
+		let (mut current, mut configuration) = load_config(
 		filename,
 		config_file,
 		&config_dir,
 		&cache_dir)?;
 	#[cfg(feature = "gui")]
 	if !cli.terminal {
-		if let Some((curr, c, t)) = gui::start(current, configuration, themes)? {
+		if let Some((curr, c)) = gui::start(current, configuration)? {
 			current = curr;
 			configuration = c;
-			themes = t;
 		} else {
 			return Ok(());
 		}
 	}
-	terminal::start(current, configuration, themes)?;
+	terminal::start(current, configuration, config_dir)?;
 	Ok(())
 }

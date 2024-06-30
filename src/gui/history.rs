@@ -9,8 +9,9 @@ use gtk4::gdk::Key;
 use gtk4::glib::markup_escape_text;
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::{BoxExt, Cast, EditableExt, IsA, ListBoxRowExt, ListModelExt, PopoverExt, WidgetExt};
+use crate::color::Color32;
 
-use crate::config::{match_filename, ReadingInfo};
+use crate::config::{Configuration, match_filename, ReadingInfo};
 use crate::gui::{GuiContext, ignore_cap, MODIFIER_NONE};
 use crate::gui::view::GuiView;
 
@@ -21,11 +22,12 @@ pub(super) struct HistoryList {
 	popover: Popover,
 
 	filter_pattern: Rc<RefCell<Option<String>>>,
+	match_tag_header: Rc<RefCell<String>>,
 }
 
 impl HistoryList {
 	#[inline]
-	pub fn new(view: &GuiView) -> Self
+	pub fn new(view: &GuiView, cfg: &Rc<RefCell<Configuration>>) -> Self
 	{
 		let container = gtk4::Box::new(Orientation::Vertical, 10);
 		let search = SearchEntry::builder()
@@ -35,13 +37,23 @@ impl HistoryList {
 			.selection_mode(SelectionMode::Single)
 			.build();
 		let list = StringList::new(&[]);
+		let match_tag_header = {
+			let configuration = cfg.borrow();
+			let gui = &configuration.gui;
+			let dark = configuration.dark_theme;
+			let colors = gui.curr_colors(dark);
+			make_matched_tag_header(&colors.matched_color, &colors.matched_background)
+		};
+		let match_tag_header = Rc::new(RefCell::new(match_tag_header));
 		{
 			let pattern = filter_pattern.clone();
+			let match_tag_header = match_tag_header.clone();
 			list_box.bind_model(Some(&list), move |obj| {
 				let obj = obj.downcast_ref::<StringObject>().unwrap();
 				gtk4::Widget::from(create_history_entry(
 					obj.string().as_str(),
 					pattern.borrow().as_ref().map(|s: &String| s.as_str()),
+					&match_tag_header.borrow(),
 				))
 			});
 		}
@@ -118,8 +130,10 @@ impl HistoryList {
 			list,
 			popover,
 			filter_pattern,
+			match_tag_header,
 		}
 	}
+
 	#[inline]
 	pub fn setup(&self, parent: &impl IsA<Widget>, gc: &GuiContext)
 	{
@@ -185,13 +199,21 @@ impl HistoryList {
 		update_history(infos, &self.list, &self.list_box);
 		self.popover.popup();
 	}
+
+	#[inline]
+	pub fn set_matched_colors(&self, color: Color32, background: Color32)
+	{
+		let header = make_matched_tag_header(&color, &background);
+		*self.match_tag_header.borrow_mut() = header;
+	}
 }
 
 #[inline]
-fn create_history_entry(path_str: &str, pattern: Option<&str>) -> Label
+fn create_history_entry(path_str: &str, pattern: Option<&str>,
+	matched_tag_header: &str) -> Label
 {
 	if let Some(pattern) = pattern {
-		let markup = path_markup(path_str, pattern);
+		let markup = path_markup(path_str, pattern, matched_tag_header);
 		let str = markup.as_ref();
 		Label::builder()
 			.use_markup(true)
@@ -211,7 +233,7 @@ fn create_history_entry(path_str: &str, pattern: Option<&str>) -> Label
 }
 
 #[inline]
-fn path_markup<'a>(path: &'a str, pattern: &str) -> Cow<'a, str>
+fn path_markup<'a>(path: &'a str, pattern: &str, matched_tag_header: &str) -> Cow<'a, str>
 {
 	if let Some(indexes) = match_filename(path, pattern) {
 		let mut index_iter = indexes.into_iter();
@@ -221,7 +243,7 @@ fn path_markup<'a>(path: &'a str, pattern: &str) -> Cow<'a, str>
 			for (fi, fc) in path.chars().enumerate() {
 				if fi == matched_index {
 					if !found_matched {
-						text.push_str(r#"<span color="white" background="lightgray">"#);
+						text.push_str(matched_tag_header);
 						found_matched = true;
 					}
 					matched_index = index_iter.next().unwrap_or(usize::MAX);
@@ -249,4 +271,10 @@ fn update_history(infos: Vec<ReadingInfo>, list: &StringList, list_box: &ListBox
 	}
 	list.splice(0, list.n_items(), &vec);
 	list_box.select_row(list_box.row_at_index(0).as_ref());
+}
+
+#[inline]
+fn make_matched_tag_header(color: &Color32, background: &Color32) -> String
+{
+	format!(r#"<span color="{}" background="{}">"#, color, background)
 }

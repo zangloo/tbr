@@ -1,16 +1,21 @@
+use std::fs;
+use std::path::PathBuf;
+
 use anyhow::{anyhow, Result};
 use cursive::Cursive;
 use cursive::CursiveExt;
 use cursive::event::{Callback, Event};
 use cursive::event::Key::Esc;
+use cursive::theme::{Error, load_theme_file, load_toml, Theme};
 use cursive::traits::Resizable;
 use cursive::view::{Nameable, SizeConstraint};
 use cursive::views::{EditView, LinearLayout, OnEventView, TextView, ViewRef};
 
-use crate::{version_string, description, version};
-use crate::list::{list_dialog, ListIterator};
-use crate::config::{BookLoadingInfo, Configuration, Themes};
 use view::ReadingView;
+
+use crate::{Asset, description, version, version_string};
+use crate::config::{BookLoadingInfo, Configuration};
+use crate::list::{list_dialog, ListIterator};
 use crate::terminal::input_method::{InputMethod, setup_im};
 
 pub mod view;
@@ -23,6 +28,22 @@ const INPUT_VIEW_NAME: &str = "input";
 const INPUT_LAYOUT_NAME: &str = "input_layout";
 const SEARCH_LABEL_TEXT: &str = "Search: ";
 const GOTO_LABEL_TEXT: &str = "Goto line: ";
+
+struct Themes {
+	bright: Theme,
+	dark: Theme,
+}
+
+impl Themes {
+	pub fn get(&self, dark: bool) -> &Theme
+	{
+		if dark {
+			&self.dark
+		} else {
+			&self.bright
+		}
+	}
+}
 
 struct TerminalContext {
 	current: String,
@@ -51,12 +72,13 @@ impl<'a> Listable for (&'a str, usize) {
 }
 
 pub fn start(current: Option<String>, mut configuration: Configuration,
-	themes: Themes) -> Result<()>
+	config_dir: PathBuf) -> Result<()>
 {
 	let current = current.ok_or(anyhow!("No file to open."))?;
 	println!("Loading {} ...", current);
 	let loading = configuration.reading(&current)?;
 	let mut app = Cursive::new();
+	let themes = load_themes(&config_dir)?;
 	let theme = themes.get(configuration.dark_theme);
 	app.set_theme(theme.clone());
 	let reading_view = ReadingView::new(configuration.render_han, loading)?;
@@ -302,4 +324,35 @@ fn setup_input_view<F, C>(app: &mut Cursive, prefix: &str, preset: &str, submit:
 		.resized(SizeConstraint::Fixed(prefix.len() + 20), SizeConstraint::Fixed(1)));
 	drop(status_layout);
 	app.focus_name(INPUT_VIEW_NAME).unwrap();
+}
+
+fn load_themes(config_dir: &PathBuf) -> Result<Themes>
+{
+	let dark = load_theme(config_dir, "dark.toml")?;
+	let bright = load_theme(config_dir, "bright.toml")?;
+	Ok(Themes { dark, bright })
+}
+
+fn load_theme(config_dir: &PathBuf, file: &str) -> Result<Theme>
+{
+	fn process_theme_result(result: Result<Theme, Error>) -> Result<Theme> {
+		match result {
+			Ok(theme) => Ok(theme),
+			Err(e) => Err(anyhow!(match e {
+					Error::Io(e) => e.to_string(),
+					Error::Parse(e) => e.to_string(),
+				}))
+		}
+	}
+
+	let theme_file = config_dir.join(file);
+	if theme_file.exists() {
+		process_theme_result(load_theme_file(theme_file))
+	} else {
+		let utf8 = Asset::get(file).unwrap();
+		let str = std::str::from_utf8(utf8.data.as_ref())?;
+		let theme = process_theme_result(load_toml(str))?;
+		fs::write(theme_file, str)?;
+		Ok(theme)
+	}
 }

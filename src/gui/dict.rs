@@ -13,9 +13,9 @@ use gtk4::glib;
 use gtk4::prelude::{BoxExt, ButtonExt, DrawingAreaExt, EditableExt, ObjectExt, WidgetExt};
 use indexmap::IndexSet;
 use stardict::{StarDict, WordDefinition};
-use crate::book::{Book, Colors, ImageData, Line, TEXT_SELECTION_SPLITTER};
+use crate::book::{Book, ImageData, Line, TEXT_SELECTION_SPLITTER};
 use crate::{html_parser, package_name};
-use crate::color::Color32;
+use crate::color::{Color32, Colors};
 use crate::common::Position;
 use crate::config::PathConfig;
 use crate::controller::{highlight_selection, HighlightInfo, Render};
@@ -538,6 +538,8 @@ fn create_colors() -> Colors
 		highlight: Color32::BLUE,
 		highlight_background: Color32::YELLOW,
 		link: Color32::BLUE,
+		matched_color: Color32::BLACK,
+		matched_background: Color32::LIGHT_GRAY,
 	}
 }
 

@@ -1,5 +1,12 @@
+use std::cell::{Ref, RefCell, RefMut};
+use std::collections::HashMap;
+use std::env;
+use std::ops::{Deref, DerefMut};
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::str::FromStr;
+
 use anyhow::{bail, Result};
-use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use gtk4::{AlertDialog, Align, Application, ApplicationWindow, Button, CssProvider, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, Popover, PopoverMenu, PositionType, SearchEntry, Separator, Stack, ToggleButton, Widget, Window};
 use gtk4::gdk::{Display, DragAction, Key, ModifierType, Rectangle, Texture};
 use gtk4::gdk_pixbuf::Pixbuf;
@@ -12,19 +19,11 @@ use gtk4::prelude::{ActionExt, ActionMapExt, ApplicationExt, ApplicationExtManua
 use pangocairo::glib::Propagation;
 use pangocairo::pango::EllipsizeMode;
 use resvg::{tiny_skia, usvg};
-use std::cell::{Ref, RefCell, RefMut};
-use std::collections::HashMap;
-use std::env;
-use std::ops::{Deref, DerefMut, Index};
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::str::FromStr;
 
 use crate::{Asset, I18n, package_name};
-use crate::book::{Book, Colors, Line};
-use crate::color::Color32;
+use crate::book::{Book, Line};
 use crate::common::{Position, txt_lines};
-use crate::config::{BookLoadingInfo, Configuration, ReadingInfo, SidebarPosition, Themes};
+use crate::config::{BookLoadingInfo, Configuration, ReadingInfo, SidebarPosition};
 use crate::container::{BookContent, BookName, Container, load_book, load_container};
 use crate::controller::Controller;
 use crate::gui::chapter_list::ChapterList;
@@ -139,39 +138,6 @@ impl Book for ReadmeBook
 	}
 }
 
-fn convert_colors(theme: &Theme) -> Colors
-{
-	fn convert_base(base_color: &BaseColor) -> Color32
-	{
-		match base_color {
-			BaseColor::Black => Color32::BLACK,
-			BaseColor::Red => Color32::RED,
-			BaseColor::Green => Color32::GREEN,
-			BaseColor::Yellow => Color32::YELLOW,
-			BaseColor::Blue => Color32::BLUE,
-			BaseColor::Magenta => Color32::from_rgb(255, 0, 255),
-			BaseColor::Cyan => Color32::from_rgb(0, 255, 255),
-			BaseColor::White => Color32::WHITE,
-		}
-	}
-	fn convert(color: &Color) -> Color32
-	{
-		match color {
-			Color::TerminalDefault => Color32::BLACK,
-			Color::Dark(base_color)
-			| Color::Light(base_color) => convert_base(base_color),
-			Color::Rgb(r, g, b)
-			| Color::RgbLowRes(r, g, b) => Color32::from_rgb(*r, *g, *b),
-		}
-	}
-	let color = convert(theme.palette.index(PaletteColor::Primary));
-	let background = convert(theme.palette.index(PaletteColor::Background));
-	let highlight = convert(theme.palette.index(PaletteColor::HighlightText));
-	let highlight_background = convert(theme.palette.index(PaletteColor::Highlight));
-	let link = convert(theme.palette.index(PaletteColor::Secondary));
-	Colors { color, background, highlight, highlight_background, link }
-}
-
 fn load_image(bytes: &[u8]) -> Option<Pixbuf>
 {
 	let bytes = Bytes::from(bytes);
@@ -202,8 +168,8 @@ fn custom_settings(book: &dyn Book, reading: &ReadingInfo)
 }
 
 fn build_ui(app: &Application, current: Option<String>,
-	cfg: Rc<RefCell<Configuration>>, themes: &Rc<Themes>,
-	gcs: &Rc<RefCell<Vec<GuiContext>>>) -> Result<Option<GuiContext>>
+	cfg: Rc<RefCell<Configuration>>, gcs: &Rc<RefCell<Vec<GuiContext>>>)
+	-> Result<Option<GuiContext>>
 {
 	let configuration = cfg.borrow_mut();
 	let mut gui_contexts = gcs.borrow_mut();
@@ -226,14 +192,7 @@ fn build_ui(app: &Application, current: Option<String>,
 		}
 	};
 
-	let dark_colors = convert_colors(themes.get(true));
-	let bright_colors = convert_colors(themes.get(false));
-	let colors = if configuration.dark_theme {
-		dark_colors.clone()
-	} else {
-		bright_colors.clone()
-	};
-
+	let colors = configuration.curr_theme().clone();
 	let (i18n, icons, fonts, db, css_provider) = if let Some(gc) = gui_contexts.get(0) {
 		(gc.i18n.clone(), gc.icons.clone(), gc.fonts.clone(), gc.db.clone(), gc.css_provider.clone())
 	} else {
@@ -245,7 +204,10 @@ fn build_ui(app: &Application, current: Option<String>,
 		let fonts = Rc::new(fonts);
 		let db = DictionaryBook::load(&configuration.gui.dictionaries, configuration.gui.cache_dict);
 		let db = Rc::new(RefCell::new(db));
-		let css_provider = view::init_css("main", &colors.background);
+		let css_provider = view::init_css(
+			"main",
+			&colors.background,
+		);
 		(i18n, icons, fonts, db, css_provider)
 	};
 
@@ -302,8 +264,7 @@ fn build_ui(app: &Application, current: Option<String>,
 	let settings = Settings::new(gcs.clone());
 	let (gc, chapter_list_view) = GuiContext::new(app, settings,
 		current, &cfg, &ctrl, &ctx, db, dm,
-		icons, i18n.clone(), fonts,
-		dark_colors, bright_colors, css_provider);
+		icons, i18n.clone(), fonts, css_provider);
 
 	// now setup ui
 	setup_sidebar(&gc, &view, &dict_view, chapter_list_view);
@@ -1444,8 +1405,6 @@ struct GuiContextInner {
 	icons: Rc<IconMap>,
 	i18n: Rc<I18n>,
 	fonts: Rc<Option<UserFonts>>,
-	dark_colors: Colors,
-	bright_colors: Colors,
 	css_provider: CssProvider,
 	file_dialog: FileDialog,
 	settings: Settings,
@@ -1479,8 +1438,7 @@ impl GuiContext {
 		ctx: &Rc<RefCell<RenderContext>>, db: Rc<RefCell<DictionaryBook>>,
 		dm: Rc<RefCell<DictionaryManager>>,
 		icons: Rc<IconMap>, i18n: Rc<I18n>, fonts: Rc<Option<UserFonts>>,
-		dark_colors: Colors, bright_colors: Colors, css_provider: CssProvider)
-		-> (Self, gtk4::Box)
+		css_provider: CssProvider) -> (Self, gtk4::Box)
 	{
 		let window = ApplicationWindow::builder()
 			.application(app)
@@ -1523,7 +1481,7 @@ impl GuiContext {
 		}
 		file_dialog.set_default_filter(Some(&filter));
 
-		let history_list = HistoryList::new(controller.render.as_ref());
+		let history_list = HistoryList::new(controller.render.as_ref(), &cfg);
 		let menu_btn = create_button("menu.svg", Some(&i18n.msg("menu")), &icons, false);
 
 		let inner = GuiContextInner {
@@ -1548,8 +1506,6 @@ impl GuiContext {
 			icons,
 			i18n,
 			fonts,
-			dark_colors,
-			bright_colors,
 			css_provider,
 			file_dialog,
 			settings,
@@ -1750,11 +1706,7 @@ impl GuiContext {
 		self.theme_action.set_state(&dark_theme.to_variant());
 		configuration.dark_theme = dark_theme;
 		let mut render_context = self.ctx_mut();
-		render_context.colors = if dark_theme {
-			self.dark_colors.clone()
-		} else {
-			self.bright_colors.clone()
-		};
+		render_context.colors = configuration.curr_theme().clone();
 		let mut controller = self.ctrl_mut();
 		controller.redraw(&mut render_context);
 		view::update_css(&self.css_provider, "main", &render_context.colors.background);
@@ -1862,10 +1814,9 @@ fn update_status(error: bool, msg: &str, status_bar: &Label)
 }
 
 fn show(app: &Application, current: Option<String>,
-	cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>,
-	gcs: &Rc<RefCell<Vec<GuiContext>>>)
+	cfg: &Rc<RefCell<Configuration>>, gcs: &Rc<RefCell<Vec<GuiContext>>>)
 {
-	match build_ui(app, current, cfg.clone(), &themes, gcs) {
+	match build_ui(app, current, cfg.clone(), gcs) {
 		Ok(Some(gc)) => {
 			// clean temp files
 			app.connect_shutdown(move |_| gc.opener().cleanup());
@@ -1911,12 +1862,12 @@ fn ignore_cap(key: Key, modifier: ModifierType) -> (Key, ModifierType)
 	}
 }
 
-pub fn start(current: Option<String>, configuration: Configuration, themes: Themes)
-	-> Result<Option<(Option<String>, Configuration, Themes)>>
+pub fn start(current: Option<String>, configuration: Configuration)
+	-> Result<Option<(Option<String>, Configuration)>>
 {
 	#[cfg(unix)]
 	if !setup_env()? {
-		return Ok(Some((current, configuration, themes)));
+		return Ok(Some((current, configuration)));
 	};
 
 	let app = Application::builder()
@@ -1934,11 +1885,9 @@ pub fn start(current: Option<String>, configuration: Configuration, themes: Them
 	};
 
 	let cfg = Rc::new(RefCell::new(configuration));
-	let themes = Rc::new(themes);
 	let gcs = Rc::new(RefCell::new(vec![]));
 	{
 		let cfg = cfg.clone();
-		let themes = themes.clone();
 		let gcs = gcs.clone();
 		app.connect_startup(move |app| {
 			let css_provider = CssProvider::new();
@@ -1956,7 +1905,7 @@ pub fn start(current: Option<String>, configuration: Configuration, themes: Them
 				handle_signal(15, app.clone());
 			}
 			if start_without_file {
-				show(app, None, &cfg, &themes, &gcs);
+				show(app, None, &cfg, &gcs);
 			}
 		});
 	}
@@ -1967,7 +1916,7 @@ pub fn start(current: Option<String>, configuration: Configuration, themes: Them
 				if let Some(path) = files[0].path() {
 					if let Some(path) = path.to_str() {
 						let current = Some(path.to_owned());
-						show(app, current, &cfg, &themes, &gcs);
+						show(app, current, &cfg, &gcs);
 						let mut gui_contexts = gcs.borrow_mut();
 						if let Ok(idx) = get_gc(gui_contexts.as_ref(), README_TEXT_FILENAME) {
 							let gc = gui_contexts.remove(idx);
