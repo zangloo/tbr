@@ -57,7 +57,11 @@ macro_rules! package_name {
 #[clap(author, version, about, long_about = None)]
 struct Cli {
 	#[cfg(feature = "gui")]
-	#[clap(short, long, help = "Using terminal to read e-book, by default if gui exists, tbr will using gui view.")]
+	#[clap(
+		short,
+		long,
+		help = "Using terminal to read e-book, by default if gui exists, tbr will using gui view."
+	)]
 	terminal: bool,
 	filename: Option<String>,
 }
@@ -90,20 +94,21 @@ fn main() -> Result<()> {
 			}),
 			|name| Some(name));
 	#[allow(unused_mut)]
-		let (mut configuration, mut themes) = load_config(
+		let (mut current, mut configuration, mut themes) = load_config(
 		filename,
 		config_file,
 		&config_dir,
 		&cache_dir)?;
 	#[cfg(feature = "gui")]
 	if !cli.terminal {
-		if let Some((c, t)) = gui::start(configuration, themes)? {
+		if let Some((curr, c, t)) = gui::start(current, configuration, themes)? {
+			current = curr;
 			configuration = c;
 			themes = t;
 		} else {
 			return Ok(());
 		}
 	}
-	terminal::start(configuration, themes)?;
+	terminal::start(current, configuration, themes)?;
 	Ok(())
 }

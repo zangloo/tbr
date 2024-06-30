@@ -1,10 +1,3 @@
-use std::env;
-use std::cell::{Ref, RefCell, RefMut};
-use std::collections::HashMap;
-use std::ops::{Deref, DerefMut, Index};
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::str::FromStr;
 use anyhow::{bail, Result};
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
 use gtk4::{AlertDialog, Align, Application, ApplicationWindow, Button, CssProvider, DirectionType, DropTarget, EventControllerKey, FileDialog, FileFilter, gdk, GestureClick, HeaderBar, Image, Label, Orientation, Paned, Popover, PopoverMenu, PositionType, SearchEntry, Separator, Stack, ToggleButton, Widget, Window};
@@ -19,6 +12,13 @@ use gtk4::prelude::{ActionExt, ActionGroupExt, ActionMapExt, ApplicationExt, App
 use pangocairo::glib::Propagation;
 use pangocairo::pango::EllipsizeMode;
 use resvg::{tiny_skia, usvg};
+use std::cell::{Ref, RefCell, RefMut};
+use std::collections::HashMap;
+use std::env;
+use std::ops::{Deref, DerefMut, Index};
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::str::FromStr;
 
 use crate::{Asset, I18n, package_name};
 use crate::book::{Book, Colors, Line};
@@ -199,13 +199,13 @@ fn custom_settings(book: &dyn Book, reading: &ReadingInfo)
 	(custom_color, custom_font, custom_style)
 }
 
-fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>,
-	themes: &Rc<Themes>, gcs: &Rc<RefCell<Vec<GuiContext>>>)
-	-> Result<Option<GuiContext>>
+fn build_ui(app: &Application, current: Option<String>,
+	cfg: Rc<RefCell<Configuration>>, themes: &Rc<Themes>,
+	gcs: &Rc<RefCell<Vec<GuiContext>>>) -> Result<Option<GuiContext>>
 {
 	let configuration = cfg.borrow_mut();
 	let mut gui_contexts = gcs.borrow_mut();
-	let (loading, gc_idx) = if let Some(current) = &configuration.current {
+	let (loading, gc_idx) = if let Some(current) = &current {
 		let current = configuration.reading(current)?;
 		let filename = current.filename();
 		match get_gc(&gui_contexts, filename) {
@@ -299,7 +299,7 @@ fn build_ui(app: &Application, cfg: Rc<RefCell<Configuration>>,
 	let ctrl = Rc::new(RefCell::new(controller));
 	let settings = Settings::new(gcs.clone());
 	let (gc, chapter_list_view) = GuiContext::new(app, settings,
-		&cfg, &ctrl, &ctx, db, dm,
+		current, &cfg, &ctrl, &ctx, db, dm,
 		icons, i18n.clone(), fonts,
 		dark_colors, bright_colors, css_provider);
 
@@ -1231,7 +1231,6 @@ fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
 
 	gc.history_popover.set_parent(button);
 	button.insert_action_group("history", Some(&gc.action_group));
-	gc.reload_history();
 	{
 		let gc = gc.clone();
 		create_action(&section, &action_group, i18n,
@@ -1423,6 +1422,7 @@ fn setup_env() -> Result<bool>
 }
 
 struct GuiContextInner {
+	current: Option<String>,
 	cfg: Rc<RefCell<Configuration>>,
 	ctrl: Rc<RefCell<GuiController>>,
 	ctx: Rc<RefCell<RenderContext>>,
@@ -1475,7 +1475,7 @@ impl Deref for GuiContext {
 }
 
 impl GuiContext {
-	fn new(app: &Application, settings: Settings,
+	fn new(app: &Application, settings: Settings, current: Option<String>,
 		cfg: &Rc<RefCell<Configuration>>, ctrl: &Rc<RefCell<GuiController>>,
 		ctx: &Rc<RefCell<RenderContext>>, db: Rc<RefCell<DictionaryBook>>,
 		dm: Rc<RefCell<DictionaryManager>>,
@@ -1571,6 +1571,7 @@ impl GuiContext {
 		let menu_btn = create_button("menu.svg", Some(&i18n.msg("menu")), &icons, false);
 
 		let inner = GuiContextInner {
+			current,
 			cfg: cfg.clone(),
 			ctrl: ctrl.clone(),
 			ctx: ctx.clone(),
@@ -1660,6 +1661,7 @@ impl GuiContext {
 	#[inline]
 	fn show_history(&self)
 	{
+		self.reload_history();
 		self.history_popover.popup();
 	}
 
@@ -1693,7 +1695,7 @@ impl GuiContext {
 		}
 		let menu = &self.history_menu;
 		menu.remove_all();
-		match self.cfg().history() {
+		match self.cfg().history(self.current.as_ref()) {
 			Ok(infos) => {
 				for (idx, ri) in infos.iter().enumerate() {
 					if idx == 20 {
@@ -1931,10 +1933,11 @@ fn update_status(error: bool, msg: &str, status_bar: &Label)
 	status_bar.set_tooltip_text(Some(msg));
 }
 
-fn show(app: &Application, cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>,
+fn show(app: &Application, current: Option<String>,
+	cfg: &Rc<RefCell<Configuration>>, themes: &Rc<Themes>,
 	gcs: &Rc<RefCell<Vec<GuiContext>>>)
 {
-	match build_ui(app, cfg.clone(), &themes, gcs) {
+	match build_ui(app, current, cfg.clone(), &themes, gcs) {
 		Ok(Some(gc)) => {
 			// clean temp files
 			app.connect_shutdown(move |_| gc.opener().cleanup());
@@ -1980,12 +1983,12 @@ fn ignore_cap(key: Key, modifier: ModifierType) -> (Key, ModifierType)
 	}
 }
 
-pub fn start(configuration: Configuration, themes: Themes)
-	-> Result<Option<(Configuration, Themes)>>
+pub fn start(current: Option<String>, configuration: Configuration, themes: Themes)
+	-> Result<Option<(Option<String>, Configuration, Themes)>>
 {
 	#[cfg(unix)]
 	if !setup_env()? {
-		return Ok(Some((configuration, themes)));
+		return Ok(Some((current, configuration, themes)));
 	};
 
 	let app = Application::builder()
@@ -1993,7 +1996,6 @@ pub fn start(configuration: Configuration, themes: Themes)
 		.application_id(APP_ID)
 		.build();
 
-	let current = configuration.current.clone();
 	let mut args = env::args().collect::<Vec<_>>();
 	args.drain(1..);
 	let start_without_file = if let Some(filename) = current {
@@ -2026,7 +2028,7 @@ pub fn start(configuration: Configuration, themes: Themes)
 				handle_signal(15, app.clone());
 			}
 			if start_without_file {
-				show(app, &cfg, &themes, &gcs);
+				show(app, None, &cfg, &themes, &gcs);
 			}
 		});
 	}
@@ -2036,8 +2038,8 @@ pub fn start(configuration: Configuration, themes: Themes)
 			if !files.is_empty() {
 				if let Some(path) = files[0].path() {
 					if let Some(path) = path.to_str() {
-						cfg.borrow_mut().current = Some(path.to_owned());
-						show(app, &cfg, &themes, &gcs);
+						let current = Some(path.to_owned());
+						show(app, current, &cfg, &themes, &gcs);
 						let mut gui_contexts = gcs.borrow_mut();
 						if let Ok(idx) = get_gc(gui_contexts.as_ref(), README_TEXT_FILENAME) {
 							let gc = gui_contexts.remove(idx);

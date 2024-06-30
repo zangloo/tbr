@@ -277,7 +277,6 @@ pub struct Configuration {
 	#[cfg(feature = "gui")]
 	pub gui: GuiConfiguration,
 
-	pub current: Option<String>,
 	config_file: PathBuf,
 	history_db: Connection,
 	orig: RawConfig,
@@ -318,9 +317,9 @@ impl Configuration {
 		})
 	}
 
-	pub fn history(&self) -> Result<Vec<ReadingInfo>>
+	pub fn history(&self, current: Option<&String>) -> Result<Vec<ReadingInfo>>
 	{
-		Ok(query(&self.history_db, 20, &self.current)?)
+		Ok(query(&self.history_db, 20, current)?)
 	}
 
 	pub fn reading<'a>(&self, filename: &'a str) -> Result<BookLoadingInfo<'a>>
@@ -434,9 +433,9 @@ impl Themes {
 }
 
 pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config_dir: &PathBuf,
-	cache_dir: &PathBuf) -> Result<(Configuration, Themes)>
+	cache_dir: &PathBuf) -> Result<(Option<String>, Configuration, Themes)>
 {
-	let (configuration, themes) =
+	let (current, configuration, themes) =
 		if config_file.as_path().is_file() {
 			let string = fs::read_to_string(&config_file)?;
 			let raw_config: RawConfig = toml::from_str(&string)?;
@@ -447,7 +446,7 @@ pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config
 			};
 			let history_db = load_history_db(&raw_config.history)?;
 			if current.is_none() {
-				if let Some(latest_reading) = query(&history_db, 1, &None)?.pop() {
+				if let Some(latest_reading) = query(&history_db, 1, None)?.pop() {
 					current = Some(latest_reading.filename);
 				}
 			}
@@ -463,12 +462,11 @@ pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config
 				history: raw_config.history,
 				#[cfg(feature = "gui")]
 				gui: raw_config.gui,
-				current,
 				config_file,
 				history_db,
 				orig,
 			};
-			(configuration, themes)
+			(current, configuration, themes)
 		} else {
 			let themes = create_default_theme_files(config_dir)?;
 			fs::create_dir_all(cache_dir)?;
@@ -485,20 +483,19 @@ pub(super) fn load_config(filename: Option<String>, config_file: PathBuf, config
 			};
 			let text = toml::to_string(&orig)?;
 			fs::write(&config_file, text)?;
-			(Configuration {
+			(current, Configuration {
 				render_han: false,
 				dark_theme: false,
 				history,
 				#[cfg(feature = "gui")]
 				gui: Default::default(),
 
-				current,
 				config_file,
 				history_db,
 				orig,
 			}, themes)
 		};
-	return Ok((configuration, themes));
+	return Ok((current, configuration, themes));
 }
 
 fn process_theme_result(result: Result<Theme, Error>) -> Result<Theme> {
@@ -620,7 +617,7 @@ fn upgrade_db(connection: &Connection) -> Result<()>
 	Ok(())
 }
 
-fn query(conn: &Connection, limit: usize, exclude: &Option<String>) -> Result<Vec<ReadingInfo>>
+fn query(conn: &Connection, limit: usize, exclude: Option<&String>) -> Result<Vec<ReadingInfo>>
 {
 	let mut stmt = conn.prepare("
 select row_id,

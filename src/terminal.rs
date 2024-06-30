@@ -25,6 +25,7 @@ const SEARCH_LABEL_TEXT: &str = "Search: ";
 const GOTO_LABEL_TEXT: &str = "Goto line: ";
 
 struct TerminalContext {
+	current: String,
 	configuration: Configuration,
 	themes: Themes,
 	im: Option<Box<dyn InputMethod>>,
@@ -49,20 +50,19 @@ impl<'a> Listable for (&'a str, usize) {
 	}
 }
 
-pub fn start(mut configuration: Configuration, themes: Themes) -> Result<()> {
-	if configuration.current.is_none() {
-		return Err(anyhow!("No file to open."));
-	}
-	let current = configuration.current.as_ref().unwrap();
+pub fn start(current: Option<String>, mut configuration: Configuration,
+	themes: Themes) -> Result<()>
+{
+	let current = current.ok_or(anyhow!("No file to open."))?;
 	println!("Loading {} ...", current);
-	let loading = configuration.reading(current)?;
+	let loading = configuration.reading(&current)?;
 	let mut app = Cursive::new();
 	let theme = themes.get(configuration.dark_theme);
 	app.set_theme(theme.clone());
 	let reading_view = ReadingView::new(configuration.render_han, loading)?;
 	// turn off ime at start
 	let im = setup_im();
-	app.set_user_data(TerminalContext { configuration, themes, im });
+	app.set_user_data(TerminalContext { current, configuration, themes, im });
 	let status_view = LinearLayout::horizontal()
 		.child(TextView::new(&reading_view.status_msg())
 			.no_wrap()
@@ -107,7 +107,6 @@ pub fn start(mut configuration: Configuration, themes: Themes) -> Result<()> {
 	let mut reading_now = reading_view.reading_info();
 	let controller_context: TerminalContext = app.take_user_data().unwrap();
 	configuration = controller_context.configuration;
-	configuration.current = Some(reading_now.filename.clone());
 	configuration.save_reading(&mut reading_now)?;
 	configuration.save()?;
 	Ok(())
@@ -164,7 +163,7 @@ fn select_history(s: &mut Cursive)
 
 	let option = s.with_user_data(|controller_context: &mut TerminalContext| {
 		let configuration = &mut controller_context.configuration;
-		let history = match configuration.history() {
+		let history = match configuration.history(Some(&controller_context.current)) {
 			Ok(history) => history,
 			Err(_) => {
 				// update_status(s, &err.to_string());
@@ -183,7 +182,7 @@ fn select_history(s: &mut Cursive)
 				chk(configuration.reading_by_id(selected as i64), |reading| {
 					let loading = BookLoadingInfo::History(reading);
 					chk(reading_view.switch_container(loading), |msg| {
-						configuration.current = Some(reading_view.reading_info().filename);
+						controller_context.current = reading_view.reading_info().filename;
 						chk(configuration.save_reading(&mut reading_now), |()|
 							msg)
 					})
@@ -234,7 +233,7 @@ fn setup_search_view(app: &mut Cursive) {
 	{
 		s.with_user_data(|context: &mut TerminalContext| {
 			if let Some(im) = &mut context.im {
-				 im.set_active(active, update_restore);
+				im.set_active(active, update_restore);
 			}
 		});
 	}
