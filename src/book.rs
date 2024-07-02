@@ -16,8 +16,7 @@ use crate::book::haodoo::HaodooLoader;
 use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
 #[cfg(feature = "gui")]
-use crate::color::Color32;
-use crate::color::Colors;
+use crate::color::{Color32, Colors};
 use crate::common::{char_index_for_byte, Position};
 use crate::common::TraceInfo;
 use crate::config::{BookLoadingInfo, ReadingInfo};

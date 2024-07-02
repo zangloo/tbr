@@ -324,6 +324,7 @@ impl Configuration {
 		Ok(())
 	}
 
+	#[cfg(feature = "gui")]
 	pub fn curr_theme(&self) -> &Colors
 	{
 		if self.dark_theme {
