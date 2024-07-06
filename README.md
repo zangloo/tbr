@@ -50,3 +50,14 @@ generated if not exists.
 ## License
 
 GPLv2
+
+## Screenshots
+
+### In terminal:
+![Screenshot_2022-05-25_21-05-44](https://user-images.githubusercontent.com/10681694/170268007-6959b9d4-34d8-49fa-9af4-a4e904f6223a.png)
+
+### In Gui(Xi)
+![Screenshot_2024-07-06_11-13-08](https://github.com/zangloo/tbr/assets/10681694/04727e86-f7fe-446e-b727-bdaaf789d373)
+
+### In Gui(Han)
+![Screenshot_2024-07-06_11-14-24](https://github.com/zangloo/tbr/assets/10681694/ddd26bdd-aec1-445f-b0a6-c2b2ac948604)
