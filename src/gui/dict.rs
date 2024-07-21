@@ -217,7 +217,7 @@ pub fn word_at_offset(line: &Line, offset: usize,
 		exists
 	}
 
-	if dictionaries.is_empty() {
+	if dictionaries.is_empty() || line.char_at(offset).unwrap_or(' ').is_ascii_alphanumeric() {
 		return line.word_at_offset(offset);
 	}
 	let len = line.len();
