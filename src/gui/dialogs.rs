@@ -1,8 +1,10 @@
-use anyhow::Result;
 use std::borrow::Cow;
-use gtk4::{Align, Button, Entry, EventControllerKey, glib, Orientation, Separator, TextBuffer, TextView, Widget, Window};
+
+use anyhow::Result;
+use gtk4::{Align, Button, Entry, EventControllerKey, glib, Orientation, ScrolledWindow, Separator, TextBuffer, TextView, Widget, Window};
 use gtk4::gdk::Key;
 use gtk4::prelude::{BoxExt, ButtonExt, EditableExt, EntryExt, GtkWindowExt, IsA, TextBufferExt, WidgetExt};
+
 use crate::gui::{alert, GuiContext, MODIFIER_NONE};
 use crate::html_parser;
 
@@ -22,8 +24,14 @@ pub(crate) fn custom_styles<F>(style: &Option<String>, gc: &GuiContext,
 		.height_request(450)
 		.width_request(450)
 		.build();
+	let scroll_view = ScrolledWindow::builder()
+		.child(&text)
+		.width_request(500)
+		.height_request(500)
+		.hexpand(true)
+		.build();
 	let gc2 = gc.clone();
-	input_dialog(&text, "custom-style-dialog-title", gc, main_win, move |_, _| {
+	input_dialog(&scroll_view, "custom-style-dialog-title", gc, main_win, move |_, _| {
 		let (start, end) = buf.bounds();
 		let text = buf.text(&start, &end, true);
 		html_parser::parse_stylesheet(&text, true)
