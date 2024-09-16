@@ -438,9 +438,9 @@ impl GuiRender for GuiXiRender
 		let (color, padding) = match &draw_char.cell {
 			RenderCell::Image(_) =>
 				if let Some(color) = &decoration.color {
-					(color.clone(), 0.0)
+					(color.clone(), context.default_font_measure.x / 4.0)
 				} else {
-					(context.colors.color.clone(), 0.0)
+					(context.colors.color.clone(), context.default_font_measure.x / 4.0)
 				},
 			RenderCell::Char(CharCell { cell_size, .. }) =>
 				if let Some(color) = &decoration.color {
