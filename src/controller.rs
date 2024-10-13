@@ -474,7 +474,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		let mut position = start_position;
 		for idx in start_line..lines.len() {
 			let line = &lines[idx];
-			if let Some(range) = line.search_pattern(&regex, Some(position), None, false) {
+			if let Some(range) = line.search_pattern_once(&regex, Some(position), None, false) {
 				self.highlight = Some(HighlightInfo {
 					line: idx,
 					start: range.start,
@@ -497,10 +497,10 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 				if start_position == 0 {
 					continue;
 				} else {
-					lines[idx].search_pattern(&regex, None, Some(start_position), true)
+					lines[idx].search_pattern_once(&regex, None, Some(start_position), true)
 				}
 			} else {
-				lines[idx].search_pattern(&regex, None, None, true)
+				lines[idx].search_pattern_once(&regex, None, None, true)
 			};
 			if let Some(range) = range {
 				self.highlight = Some(HighlightInfo {

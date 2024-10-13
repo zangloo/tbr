@@ -11,7 +11,7 @@ use gtk4::glib::{ControlFlow, idle_add_local};
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::{BoxExt, EditableExt, ListBoxRowExt, WidgetExt};
 
-use crate::common::{byte_index_for_char, find_pattern, TraceInfo};
+use crate::common::TraceInfo;
 use crate::config::BookLoadingInfo;
 use crate::container::{load_book, load_container};
 use crate::i18n::I18n;
@@ -159,33 +159,20 @@ fn find(regex: Regex, filename: String, inner_book: usize,
 		if let Ok(mut container) = load_container(&container_manager, &filename) {
 			if let Ok((mut book, _)) = load_book(&container_manager, &mut container,
 				BookLoadingInfo::NewReading(&filename, inner_book, 0, 16)) {
-				// let mut entries = vec![];
 				let mut chapter = 0;
 				loop {
 					let chapter_title = book.title(0, 0);
 					for (idx, line) in book.lines().iter().enumerate() {
-						let text = line.to_string();
-						let mut start = 0;
-						let mut slice = text.as_str();
-						while let Some(range) = find_pattern(slice, &regex, start, false) {
-							start = range.end + 1;
-							let offset = range.start;
-							if let Err(_) = tx.send(FoundEntry {
+						line.search_pattern(&regex, |range| {
+							tx.send(FoundEntry {
 								inner_book,
 								chapter,
 								chapter_title: chapter_title.map(|t| t.to_owned()),
-								toc_title: book.title(idx, offset).map(|t| t.to_owned()),
+								toc_title: book.title(idx, range.start).map(|t| t.to_owned()),
 								line: idx,
-								offset,
-							}) {
-								return;
-							}
-							if let Some(byte_index) = byte_index_for_char(&text, start) {
-								slice = &text[byte_index..];
-							} else {
-								break;
-							}
-						}
+								offset: range.start,
+							}).is_ok()
+						})
 					}
 					match book.next_chapter() {
 						Ok(Some(c)) => chapter = c,

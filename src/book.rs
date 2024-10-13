@@ -17,7 +17,7 @@ use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
 #[cfg(feature = "gui")]
 use crate::color::{Color32, Colors};
-use crate::common::{find_pattern, Position};
+use crate::common::{byte_index_for_char, char_index_for_byte, Position};
 use crate::common::TraceInfo;
 use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::container::BookContent;
@@ -295,7 +295,7 @@ impl Line {
 		self.chars.iter()
 	}
 
-	pub fn search_pattern(&self, regex: &Regex, start: Option<usize>, stop: Option<usize>, rev: bool) -> Option<Range<usize>>
+	pub fn search_pattern_once(&self, regex: &Regex, start: Option<usize>, stop: Option<usize>, rev: bool) -> Option<Range<usize>>
 	{
 		let mut line = String::new();
 		let start = start.unwrap_or(0);
@@ -304,6 +304,26 @@ impl Line {
 			line.push(self.chars[index])
 		}
 		find_pattern(&line, regex, start, rev)
+	}
+
+	/// F: (range: Range<usize>)
+	pub fn search_pattern<F>(&self, regex: &Regex, f: F)
+		where F: Fn(Range<usize>) -> bool
+	{
+		let text = self.to_string();
+		let mut start = 0;
+		let mut slice = text.as_str();
+		while let Some(range) = find_pattern(slice, &regex, start, false) {
+			start = range.end;
+			if !f(range) {
+				return;
+			}
+			if let Some(byte_index) = byte_index_for_char(&text, start) {
+				slice = &text[byte_index..];
+			} else {
+				break;
+			}
+		}
 	}
 
 	pub fn link_iter<F, T>(&self, forward: bool, f: F) -> Option<T>
@@ -772,4 +792,16 @@ impl ChapterError
 	{
 		anyhow::Error::new(ChapterError::new(msg))
 	}
+}
+
+fn find_pattern(line: &str, regex: &Regex, start_offset: usize, rev: bool) -> Option<Range<usize>>
+{
+	let m = if rev {
+		regex.find_iter(line).last()?.ok()?
+	} else {
+		regex.find_from_pos(line, 0).ok()??
+	};
+	let match_start = char_index_for_byte(&line, m.start()).unwrap();
+	let match_end = char_index_for_byte(&line, m.end()).unwrap();
+	Some(Range { start: match_start + start_offset, end: match_end + start_offset })
 }

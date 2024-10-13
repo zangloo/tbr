@@ -3,7 +3,6 @@ use chardetng::EncodingDetector;
 use encoding_rs::{Encoding, UTF_8};
 use std::borrow::Borrow;
 use std::ops::Range;
-use fancy_regex::Regex;
 use unicode_width::UnicodeWidthChar;
 
 use crate::book::Line;
@@ -163,7 +162,7 @@ pub(crate) fn byte_index_for_char(text: &str, char_index: usize) -> Option<usize
 		return Some(0);
 	}
 	let mut indices = text.char_indices();
-	for _index in 0..char_index - 1 {
+	for _index in 0..char_index {
 		indices.next();
 	}
 	match indices.next() {
@@ -172,7 +171,7 @@ pub(crate) fn byte_index_for_char(text: &str, char_index: usize) -> Option<usize
 	}
 }
 
-fn char_index_for_byte(text: &str, byte_index: usize) -> Option<usize> {
+pub fn char_index_for_byte(text: &str, byte_index: usize) -> Option<usize> {
 	if byte_index == 0 {
 		return Some(0);
 	}
@@ -274,18 +273,6 @@ pub fn han_render_char(ch: char) -> char
 		Ok(idx) => HAN_RENDER_CHARS_PAIRS[idx].1,
 		Err(_) => ch,
 	}
-}
-
-pub fn find_pattern(line: &str, regex: &Regex, start_offset: usize, rev: bool) -> Option<Range<usize>>
-{
-	let m = if rev {
-		regex.find_iter(line).last()?.ok()?
-	} else {
-		regex.find_from_pos(line, 0).ok()??
-	};
-	let match_start = char_index_for_byte(&line, m.start()).unwrap();
-	let match_end = char_index_for_byte(&line, m.end()).unwrap();
-	Some(Range { start: match_start + start_offset, end: match_end + start_offset })
 }
 
 #[cfg(test)]
