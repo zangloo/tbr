@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::cmp;
 use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display, Formatter, Write};
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::ops::Range;
@@ -17,7 +17,7 @@ use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
 #[cfg(feature = "gui")]
 use crate::color::{Color32, Colors};
-use crate::common::{char_index_for_byte, Position};
+use crate::common::{find_pattern, Position};
 use crate::common::TraceInfo;
 use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::container::BookContent;
@@ -192,6 +192,16 @@ pub struct Link<'a> {
 	pub range: &'a Range<usize>,
 }
 
+impl Display for Line {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result
+	{
+		for ch in &self.chars {
+			f.write_char(*ch)?
+		}
+		Ok(())
+	}
+}
+
 impl Line {
 	#[inline]
 	fn with_chars(chars: Vec<char>) -> Self
@@ -293,14 +303,7 @@ impl Line {
 		for index in start..stop {
 			line.push(self.chars[index])
 		}
-		let m = if rev {
-			regex.find_iter(&line).last()?.ok()?
-		} else {
-			regex.find_from_pos(&line, 0).ok()??
-		};
-		let match_start = char_index_for_byte(&line, m.start()).unwrap();
-		let match_end = char_index_for_byte(&line, m.end()).unwrap();
-		Some(Range { start: match_start + start, end: match_end + start })
+		find_pattern(&line, regex, start, rev)
 	}
 
 	pub fn link_iter<F, T>(&self, forward: bool, f: F) -> Option<T>

@@ -32,6 +32,7 @@ pub use crate::gui::font::HtmlFonts;
 use crate::gui::font::UserFonts;
 use crate::gui::history::HistoryList;
 use crate::gui::render::RenderContext;
+use crate::gui::find_list::FindList;
 use crate::gui::settings::Settings;
 use crate::gui::view::{GuiView, update_mouse_pointer};
 use crate::open::Opener;
@@ -45,6 +46,7 @@ mod chapter_list;
 mod font;
 mod dialogs;
 mod history;
+mod find_list;
 
 const MODIFIER_NONE: ModifierType = ModifierType::empty();
 
@@ -57,6 +59,7 @@ const FONT_FILE_EXTENSIONS: [&str; 3] = ["ttf", "otf", "ttc"];
 const DICT_FILE_EXTENSIONS: [&str; 1] = ["ifo"];
 const SIDEBAR_CHAPTER_LIST_NAME: &str = "chapter_list";
 const SIDEBAR_DICT_NAME: &str = "dictionary_list";
+const SIDEBAR_FIND_NAME: &str = "find_list";
 
 const OPEN_FILE_KEY: &str = "file-open";
 const HISTORY_KEY: &str = "history";
@@ -262,17 +265,18 @@ fn build_ui(app: &Application, current: Option<String>,
 	let ctx = Rc::new(RefCell::new(render_context));
 	let ctrl = Rc::new(RefCell::new(controller));
 	let settings = Settings::new(gcs.clone());
-	let (gc, chapter_list_view) = GuiContext::new(app, settings,
+	let (gc, chapter_list_view, find_list_view, find_entry) = GuiContext::new(app, settings,
 		current, &cfg, &ctrl, &ctx, db, dm,
 		icons, i18n.clone(), fonts, css_provider);
 
 	// now setup ui
-	setup_sidebar(&gc, &view, &dict_view, chapter_list_view);
+	setup_sidebar(&gc, &view, &dict_view, chapter_list_view, &find_list_view);
 	setup_view(&gc, &view);
 	setup_chapter_list(&gc);
+	setup_find_list(&gc);
 
 	let (toolbar, search_box)
-		= setup_toolbar(&gc, &view, &lookup_entry, dark_theme,
+		= setup_toolbar(&gc, &view, &lookup_entry, &find_entry, dark_theme,
 		custom_color, custom_font, custom_style);
 
 	{
@@ -417,7 +421,7 @@ fn build_ui(app: &Application, current: Option<String>,
 		view.add_controller(key_event);
 	}
 
-	setup_window(&gc, toolbar, view, search_box);
+	setup_window(&gc, toolbar, view, search_box, find_entry);
 
 	{
 		let gcs = gcs.clone();
@@ -798,7 +802,7 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 }
 
 fn setup_sidebar(gc: &GuiContext, view: &GuiView, dict_view: &gtk4::Box,
-	chapter_list_view: gtk4::Box)
+	chapter_list_view: gtk4::Box, find_list_view: &gtk4::Box)
 {
 	let i18n = &gc.i18n;
 	let stack = &gc.sidebar_stack;
@@ -808,6 +812,9 @@ fn setup_sidebar(gc: &GuiContext, view: &GuiView, dict_view: &gtk4::Box,
 	stack.add_titled(
 		dict_view,
 		Some(SIDEBAR_DICT_NAME), &i18n.msg("tab-dictionary"));
+	stack.add_titled(
+		find_list_view,
+		Some(SIDEBAR_FIND_NAME), &i18n.msg("tab-find"));
 	stack.set_visible_child(&chapter_list_view);
 
 	let sidebar_tab_switch = gtk4::StackSwitcher::builder()
@@ -859,8 +866,14 @@ fn setup_chapter_list(gc1: &GuiContext)
 			let mut controller = gc.ctrl_mut();
 			let mut render_context = gc.ctx_mut();
 			if is_book {
-				let msg = controller.switch_book(index, &mut render_context);
-				update_status(false, &msg, &gc.status_bar);
+				let (error, msg) = match controller.switch_book(index, &mut render_context) {
+					Ok(msg) => {
+						gc.find_list.set_inner_book(index);
+						(false, msg)
+					}
+					Err(e) => (true, e.to_string())
+				};
+				update_status(error, &msg, &gc.status_bar);
 			} else if let Some(msg) = controller.goto_toc(index, &mut render_context) {
 				update_status(false, &msg, &gc.status_bar);
 			}
@@ -877,6 +890,25 @@ fn setup_chapter_list(gc1: &GuiContext)
 			}
 		});
 	}
+}
+
+fn setup_find_list(gc1: &GuiContext)
+{
+	let gc = gc1.clone();
+	gc1.find_list.set_callback(move |inner_book, trace| {
+		let mut controller = gc.ctrl_mut();
+		let mut render_context = gc.ctx_mut();
+		match controller.goto(inner_book, &trace, &mut render_context) {
+			Ok(msg) => {
+				update_status(true, &msg, &gc.status_bar);
+				true
+			}
+			Err(e) => {
+				update_status(true, &e.to_string(), &gc.status_bar);
+				false
+			}
+		}
+	})
 }
 
 fn switch_stack(tab_name: &str, gc: &GuiContext, toggle: bool) -> bool
@@ -907,7 +939,7 @@ fn switch_stack(tab_name: &str, gc: &GuiContext, toggle: bool) -> bool
 
 #[inline]
 fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
-	search_box: SearchEntry)
+	search_box: SearchEntry, find_entry: SearchEntry)
 {
 	let header_bar = HeaderBar::new();
 	header_bar.set_height_request(32);
@@ -959,6 +991,12 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 				(Key::d, MODIFIER_NONE) => {
 					if switch_stack(SIDEBAR_DICT_NAME, &gc, true) {
 						lookup_selection(&gc);
+					}
+					glib::Propagation::Stop
+				}
+				(Key::s, MODIFIER_NONE) => {
+					if switch_stack(SIDEBAR_FIND_NAME, &gc, true) {
+						find_entry.grab_focus();
 					}
 					glib::Propagation::Stop
 				}
@@ -1077,6 +1115,7 @@ fn switch_render(gc: &GuiContext)
 
 #[inline]
 fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
+	find_entry: &SearchEntry,
 	dark_theme: bool, custom_color: Option<bool>, custom_font: Option<bool>,
 	custom_style: Option<Option<String>>) -> (gtk4::Box, SearchEntry)
 {
@@ -1098,6 +1137,13 @@ fn setup_toolbar(gc: &GuiContext, view: &GuiView, lookup_entry: &SearchEntry,
 	{
 		let gc = gc.clone();
 		lookup_entry.connect_stop_search(move |_| {
+			gc.toggle_sidebar();
+		});
+	}
+
+	{
+		let gc = gc.clone();
+		find_entry.connect_stop_search(move |_| {
 			gc.toggle_sidebar();
 		});
 	}
@@ -1402,6 +1448,7 @@ struct GuiContextInner {
 	custom_style_action: SimpleAction,
 	menu_btn: Button,
 	chapter_list: ChapterList,
+	find_list: FindList,
 	icons: Rc<IconMap>,
 	i18n: Rc<I18n>,
 	fonts: Rc<Option<UserFonts>>,
@@ -1438,7 +1485,7 @@ impl GuiContext {
 		ctx: &Rc<RefCell<RenderContext>>, db: Rc<RefCell<DictionaryBook>>,
 		dm: Rc<RefCell<DictionaryManager>>,
 		icons: Rc<IconMap>, i18n: Rc<I18n>, fonts: Rc<Option<UserFonts>>,
-		css_provider: CssProvider) -> (Self, gtk4::Box)
+		css_provider: CssProvider) -> (Self, gtk4::Box, gtk4::Box, SearchEntry)
 	{
 		let window = ApplicationWindow::builder()
 			.application(app)
@@ -1449,6 +1496,7 @@ impl GuiContext {
 			.build();
 
 		let (chapter_list, chapter_list_view) = ChapterList::create(&icons, &i18n, &ctrl);
+		let (find_list, find_list_view, find_entry) = FindList::create(&current, &i18n);
 
 		let controller = ctrl.borrow();
 		let status_msg = controller.status().to_string();
@@ -1460,6 +1508,8 @@ impl GuiContext {
 			.halign(Align::End)
 			.hexpand(true)
 			.build();
+
+		find_list.set_inner_book(controller.reading.inner_book);
 
 		let paned = Paned::new(Orientation::Horizontal);
 		let sidebar_stack = Stack::builder()
@@ -1503,6 +1553,7 @@ impl GuiContext {
 			custom_style_action,
 			menu_btn,
 			chapter_list,
+			find_list,
 			icons,
 			i18n,
 			fonts,
@@ -1511,7 +1562,7 @@ impl GuiContext {
 			settings,
 			db,
 		};
-		(GuiContext { inner: Rc::new(inner) }, chapter_list_view)
+		(GuiContext { inner: Rc::new(inner) }, chapter_list_view, find_list_view, find_entry)
 	}
 
 	#[inline]

@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use fancy_regex::Regex;
 
 use crate::{ContainerManager, Position};
@@ -217,12 +217,11 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		Ok(self.status().to_string())
 	}
 
-	pub fn switch_book(&mut self, inner_book: usize, context: &mut C) -> String
+	pub fn switch_book(&mut self, inner_book: usize, context: &mut C)
+		-> Result<String>
 	{
-		match self.do_switch_book(inner_book, context) {
-			Ok(..) => self.status().to_string(),
-			Err(e) => e.to_string(),
-		}
+		self.do_switch_book(inner_book, context)
+			.map(|_| self.status().to_string())
 	}
 
 	fn do_switch_book(&mut self, inner_book: usize, context: &mut C) -> Result<()>
@@ -565,6 +564,28 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		self.highlight = None;
 		self.redraw(context);
 		Ok(())
+	}
+
+	pub fn goto(&mut self, inner_book: usize, trace: &TraceInfo,
+		context: &mut C) -> Result<String>
+	{
+		let mut chapter_change = false;
+		if inner_book != self.reading.inner_book {
+			self.switch_book(inner_book, context)?;
+			chapter_change = true;
+		}
+		if chapter_change || trace.chapter != self.reading.chapter {
+			if let Some(chapter_index) = self.book.goto_chapter(trace.chapter)? {
+				if chapter_index != trace.chapter {
+					bail!("Chapter {} not exists", trace.chapter);
+				}
+			} else {
+				bail!("Chapter {} not exists", trace.chapter);
+			}
+		}
+		self.reading.chapter = trace.chapter;
+		self.redraw_at(trace.line, trace.offset, context);
+		Ok(self.status().to_string())
 	}
 
 	pub fn switch_link_prev(&mut self, context: &mut C)

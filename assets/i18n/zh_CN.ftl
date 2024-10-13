@@ -27,6 +27,7 @@ strip-empty-lines = 隐藏空行
 scroll-for-page = 鼠标滚动页
 tab-chapter = 章节
 tab-dictionary = 字典
+tab-find = 全文查找
 default-font-size = 缺省字体大小
 color-color = 缺省颜色
 color-background = 缺省背景色
@@ -49,6 +50,9 @@ add-title = 新增
 remove-title = 删除
 invalid-path = 错误的{ $title }: { $path }
 filter-chapter = 过滤章节标题
+
+find-text = 查找文本
+found-chapter-title = 第{$index}章
 
 dictionary-no-definition = 无字典解释
 failed-load-reading = 加载文件信息失败：{ $error }

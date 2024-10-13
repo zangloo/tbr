@@ -238,6 +238,7 @@ impl ReadingView {
 	pub fn switch_book(&mut self, inner_book: usize) -> String
 	{
 		self.controller.switch_book(inner_book, &mut self.render_context)
+			.unwrap_or_else(|e|e.to_string())
 	}
 
 	#[inline]

@@ -27,6 +27,7 @@ strip-empty-lines = No empty lines
 scroll-for-page = Mouse scroll for page
 tab-chapter = Chapter
 tab-dictionary = Dictionary
+tab-find = Search in book
 default-font-size = Default font size
 color-color = Default color
 color-background = Default background
@@ -49,6 +50,9 @@ add-title = Add
 remove-title = Remove
 invalid-path = Invalid { $title }: { $path }
 filter-chapter = Filter chapters
+
+find-text = Text to find
+found-chapter-title = Chapter {$index}
 
 dictionary-no-definition = No definition in dictionary
 failed-load-reading = Failed load reading book info：{ $error }
