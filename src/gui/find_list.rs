@@ -169,7 +169,7 @@ fn find(regex: Regex, filename: String, inner_book: usize,
 						let mut start = 0;
 						let mut slice = text.as_str();
 						while let Some(range) = find_pattern(slice, &regex, start, false) {
-							start = range.end;
+							start = range.end + 1;
 							let offset = range.start;
 							if let Err(_) = tx.send(FoundEntry {
 								inner_book,

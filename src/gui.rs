@@ -900,7 +900,7 @@ fn setup_find_list(gc1: &GuiContext)
 		let mut render_context = gc.ctx_mut();
 		match controller.goto(inner_book, &trace, &mut render_context) {
 			Ok(msg) => {
-				update_status(true, &msg, &gc.status_bar);
+				update_status(false, &msg, &gc.status_bar);
 				true
 			}
 			Err(e) => {
