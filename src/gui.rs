@@ -997,7 +997,10 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 				}
 				(Key::F, MODIFIER_CTRL_SHIFT) => {
 					if switch_stack(SIDEBAR_FIND_NAME, &gc, true) {
-						find_entry.grab_focus();
+						if find_entry.is_sensitive() {
+							find_entry.select_region(0, -1);
+							find_entry.grab_focus();
+						}
 					}
 					glib::Propagation::Stop
 				}
