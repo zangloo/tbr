@@ -37,19 +37,18 @@ struct FindListInner {
 impl FindListInner {
 	fn retrieve_entries(&mut self, rx: &Receiver<FoundEntry>) -> ControlFlow
 	{
-		loop {
-			match rx.try_recv() {
-				Ok(entry) => {
-					self.list.append(&create_entry_label(&entry, &self.i18n));
-					self.rows.push(entry);
-				}
-				Err(TryRecvError::Empty) => {
-					break ControlFlow::Continue;
-				}
-				Err(TryRecvError::Disconnected) => {
-					self.input.set_sensitive(true);
-					break ControlFlow::Break;
-				}
+		match rx.try_recv() {
+			Ok(entry) => {
+				self.list.append(&create_entry_label(&entry, &self.i18n));
+				self.rows.push(entry);
+				ControlFlow::Continue
+			}
+			Err(TryRecvError::Empty) => {
+				ControlFlow::Continue
+			}
+			Err(TryRecvError::Disconnected) => {
+				self.input.set_sensitive(true);
+				ControlFlow::Break
 			}
 		}
 	}
