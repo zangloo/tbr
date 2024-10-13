@@ -49,6 +49,7 @@ mod history;
 mod find_list;
 
 const MODIFIER_NONE: ModifierType = ModifierType::empty();
+const MODIFIER_CTRL_SHIFT: ModifierType = ModifierType::CONTROL_MASK.union(ModifierType::SHIFT_MASK);
 
 const APP_ID: &str = "net.lzrj.tbr";
 const ICON_SIZE: i32 = 32;
@@ -994,7 +995,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					}
 					glib::Propagation::Stop
 				}
-				(Key::s, MODIFIER_NONE) => {
+				(Key::F, MODIFIER_CTRL_SHIFT) => {
 					if switch_stack(SIDEBAR_FIND_NAME, &gc, true) {
 						find_entry.grab_focus();
 					}
@@ -1072,7 +1073,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					glib::Propagation::Stop
 				}
 				_ => {
-					// println!("window pressed, key: {key}, modifier: {modifier}");
+					// println!("window pressed, key: {key}, modifier: {:#?}", modifier);
 					glib::Propagation::Proceed
 				}
 			}
