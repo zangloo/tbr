@@ -219,7 +219,7 @@ fn create_entry_label(entry: &FoundEntry, i18n: &I18n) -> gtk4::Box
 		.as_ref()
 		.map_or_else(|| Cow::Owned(i18n.args_msg(
 			"found-chapter-title",
-			vec![("index", entry.chapter.to_string().as_str())])),
+			vec![("index", entry.chapter + 1)])),
 			|t| Cow::Borrowed(t.as_str()));
 	let title = if let Some(toc_title) = &entry.toc_title {
 		if chapter_title.as_ref() != toc_title.as_str() {
