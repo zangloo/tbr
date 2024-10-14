@@ -12,20 +12,20 @@ use gtk4::glib::{ControlFlow, idle_add_local, markup_escape_text};
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::{BoxExt, EditableExt, ListBoxRowExt, WidgetExt};
 
-use crate::common::{byte_index_for_char, TraceInfo};
+use crate::common::byte_index_for_char;
 use crate::config::BookLoadingInfo;
 use crate::container::{load_book, load_container};
 use crate::i18n::I18n;
 
 pub struct FoundEntry {
-	inner_book: usize,
-	chapter: usize,
-	chapter_title: Option<String>,
-	toc_title: Option<String>,
-	line: usize,
-	offset: usize,
-	display_text: String,
-	highlight_display_bytes: Range<usize>,
+	pub inner_book: usize,
+	pub chapter: usize,
+	pub chapter_title: Option<String>,
+	pub toc_title: Option<String>,
+	pub line: usize,
+	pub range: Range<usize>,
+	pub display_text: String,
+	pub highlight_display_bytes: Range<usize>,
 }
 
 struct FindListInner {
@@ -129,9 +129,8 @@ impl FindList {
 		self.inner.borrow_mut().inner_book = inner_book;
 	}
 
-	/// F:(inner_book: usize, position: TraceInfo)
 	pub fn set_callback<F>(&self, f: F)
-		where F: Fn(usize, TraceInfo) -> bool + 'static
+		where F: Fn(&FoundEntry) -> bool + 'static
 	{
 		let inner = self.inner.clone();
 		self.inner.borrow().list.connect_row_activated(move |_, row| {
@@ -141,11 +140,7 @@ impl FindList {
 			}
 			if let Ok(mut inner) = inner.try_borrow_mut() {
 				if let Some(entry) = inner.rows.get(index as usize) {
-					if f(entry.inner_book, TraceInfo {
-						chapter: entry.chapter,
-						line: entry.line,
-						offset: entry.offset,
-					}) {
+					if f(entry) {
 						inner.inner_book = entry.inner_book;
 					}
 				}
@@ -175,7 +170,7 @@ fn find(regex: Regex, filename: String, inner_book: usize,
 									chapter_title: chapter_title.map(|t| t.to_owned()),
 									toc_title: book.title(idx, range.start).map(|t| t.to_owned()),
 									line: idx,
-									offset: range.start,
+									range,
 									display_text,
 									highlight_display_bytes,
 								}).is_ok()
@@ -234,7 +229,7 @@ fn create_entry_label(entry: &FoundEntry, i18n: &I18n) -> gtk4::Box
 		.build());
 	entry_label.append(&Label::builder()
 		.halign(Align::End)
-		.label(&format!("{} : {}", entry.line + 1, entry.offset + 1))
+		.label(&format!("{} : {}", entry.line + 1, entry.range.start + 1))
 		.build());
 
 	let head = markup_escape_text(&entry.display_text[..entry.highlight_display_bytes.start]);

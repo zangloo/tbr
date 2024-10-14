@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
+use std::ops::Range;
 use anyhow::{anyhow, bail, Result};
 use fancy_regex::Regex;
 
@@ -566,25 +567,42 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		Ok(())
 	}
 
-	pub fn goto(&mut self, inner_book: usize, trace: &TraceInfo,
-		context: &mut C) -> Result<String>
+	pub fn goto(&mut self, inner_book: usize, chapter: usize, line: usize,
+		offset: usize, highlight: Option<Range<usize>>, context: &mut C)
+		-> Result<String>
 	{
 		let mut chapter_change = false;
 		if inner_book != self.reading.inner_book {
 			self.switch_book(inner_book, context)?;
 			chapter_change = true;
 		}
-		if chapter_change || trace.chapter != self.reading.chapter {
-			if let Some(chapter_index) = self.book.goto_chapter(trace.chapter)? {
-				if chapter_index != trace.chapter {
-					bail!("Chapter {} not exists", trace.chapter);
+		if chapter_change || chapter != self.reading.chapter {
+			if let Some(chapter_index) = self.book.goto_chapter(chapter)? {
+				if chapter_index != chapter {
+					bail!("Chapter {} not exists", chapter);
 				}
 			} else {
-				bail!("Chapter {} not exists", trace.chapter);
+				bail!("Chapter {} not exists", chapter);
 			}
 		}
-		self.reading.chapter = trace.chapter;
-		self.redraw_at(trace.line, trace.offset, context);
+		self.reading.chapter = chapter;
+		if let Some(highlight) = highlight {
+			self.highlight = Some(HighlightInfo {
+				line,
+				start: highlight.start,
+				end: highlight.end,
+				mode: HighlightMode::Search,
+			});
+		} else {
+			self.highlight = None;
+		}
+		if offset == 0 {
+			self.redraw_at(line, 0, context);
+		} else {
+			self.reading.line = line;
+			self.reading.position = offset;
+			self.step_prev(context)?;
+		}
 		Ok(self.status().to_string())
 	}
 

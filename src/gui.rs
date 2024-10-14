@@ -893,10 +893,12 @@ fn setup_chapter_list(gc1: &GuiContext)
 fn setup_find_list(gc1: &GuiContext)
 {
 	let gc = gc1.clone();
-	gc1.find_list.set_callback(move |inner_book, trace| {
+	gc1.find_list.set_callback(move |found_entry| {
 		let mut controller = gc.ctrl_mut();
 		let mut render_context = gc.ctx_mut();
-		match controller.goto(inner_book, &trace, &mut render_context) {
+		match controller.goto(found_entry.inner_book,
+			found_entry.chapter, found_entry.line, found_entry.range.start,
+			Some(found_entry.range.clone()), &mut render_context) {
 			Ok(msg) => {
 				update_status(false, &msg, &gc.status_bar);
 				true
