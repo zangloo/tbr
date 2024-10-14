@@ -225,7 +225,7 @@ fn create_entry_label(entry: &FoundEntry, i18n: &I18n) -> gtk4::Box
 		.build());
 	entry_label.append(&Label::builder()
 		.halign(Align::End)
-		.label(&format!("{} : {}", entry.line, entry.offset))
+		.label(&format!("{} : {}", entry.line + 1, entry.offset + 1))
 		.build());
 	entry_label
 }
