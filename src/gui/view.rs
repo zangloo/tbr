@@ -1,13 +1,15 @@
 use std::rc::Rc;
-use gtk4::{CssProvider, EventControllerMotion, EventControllerScroll, EventControllerScrollFlags, gdk, GestureClick, GestureDrag, glib};
+
 use glib::Object;
-use gtk4::Scrollable;
+use gtk4::{CssProvider, EventControllerMotion, EventControllerScroll, EventControllerScrollFlags, gdk, GestureClick, GestureDrag, glib};
 use gtk4::gdk::{Display, ModifierType};
 use gtk4::pango::Layout as PangoContext;
 use gtk4::prelude::{EventControllerExt, GestureDragExt, GestureExt, ObjectExt, WidgetExt};
+use gtk4::Scrollable;
 use gtk4::subclass::prelude::ObjectSubclassIsExt;
+
 use crate::book::{Book, Line};
-use crate::color::Color32;
+use crate::color::Colors;
 use crate::common::Position;
 use crate::config::ReadingInfo;
 use crate::controller::{HighlightInfo, Render};
@@ -290,16 +292,18 @@ mod imp {
 	use std::cmp::min;
 	use std::rc::Rc;
 	use std::sync::OnceLock;
+
 	use glib::Properties;
-	use gtk4::prelude::*;
 	use gtk4::{Adjustment, glib, graphene, Scrollable, ScrollablePolicy, Snapshot};
 	use gtk4::gdk::ModifierType;
 	use gtk4::glib::prelude::StaticType;
 	use gtk4::glib::subclass::Signal;
 	use gtk4::pango::Layout as PangoContext;
+	use gtk4::prelude::*;
 	use gtk4::subclass::drawing_area::DrawingAreaImpl;
 	use gtk4::subclass::prelude::*;
 	use indexmap::IndexSet;
+
 	use crate::book::{Book, Line};
 	use crate::common::Position;
 	use crate::config::ReadingInfo;
@@ -950,10 +954,10 @@ mod imp {
 	}
 }
 
-pub fn init_css(name: &str, background: &Color32) -> CssProvider
+pub fn init_css(colors: &Colors) -> CssProvider
 {
 	let css_provider = CssProvider::new();
-	update_css(&css_provider, name, background);
+	update_css(&css_provider, colors);
 	gtk4::style_context_add_provider_for_display(
 		&Display::default().expect("Could not connect to a display."),
 		&css_provider,
@@ -963,9 +967,9 @@ pub fn init_css(name: &str, background: &Color32) -> CssProvider
 }
 
 #[inline]
-pub fn update_css(css_provider: &CssProvider, name: &str, background: &Color32)
+pub fn update_css(css_provider: &CssProvider, colors: &Colors)
 {
-	let css = format!("{}#{} {{background: {};}}", GuiView::WIDGET_NAME, name, background);
+	let css = format!("{}#main {{background: {};}}", GuiView::WIDGET_NAME, &colors.background);
 	css_provider.load_from_string(&css);
 }
 

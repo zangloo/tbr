@@ -306,16 +306,17 @@ impl Line {
 		find_pattern(&line, regex, start, rev)
 	}
 
-	/// F: (range: Range<usize>)
+	/// F: (text_slice: &str, text_chars_count: usize, found_range: Range<usize>)
 	pub fn search_pattern<F>(&self, regex: &Regex, f: F)
-		where F: Fn(Range<usize>) -> bool
+		where F: Fn(&str, usize, Range<usize>) -> bool
 	{
 		let text = self.to_string();
+		let chars = self.chars.len();
 		let mut start = 0;
 		let mut slice = text.as_str();
 		while let Some(range) = find_pattern(slice, &regex, start, false) {
 			start = range.end;
-			if !f(range) {
+			if !f(&text, chars, range) {
 				return;
 			}
 			if let Some(byte_index) = byte_index_for_char(&text, start) {

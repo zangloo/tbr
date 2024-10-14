@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::ops::Range;
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -7,11 +8,11 @@ use std::thread::spawn;
 
 use fancy_regex::Regex;
 use gtk4::{Align, Label, ListBox, Orientation, PolicyType, SearchEntry, SelectionMode};
-use gtk4::glib::{ControlFlow, idle_add_local};
+use gtk4::glib::{ControlFlow, idle_add_local, markup_escape_text};
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::{BoxExt, EditableExt, ListBoxRowExt, WidgetExt};
 
-use crate::common::TraceInfo;
+use crate::common::{byte_index_for_char, TraceInfo};
 use crate::config::BookLoadingInfo;
 use crate::container::{load_book, load_container};
 use crate::i18n::I18n;
@@ -23,6 +24,8 @@ pub struct FoundEntry {
 	toc_title: Option<String>,
 	line: usize,
 	offset: usize,
+	display_text: String,
+	highlight_display_bytes: Range<usize>,
 }
 
 struct FindListInner {
@@ -164,15 +167,21 @@ fn find(regex: Regex, filename: String, inner_book: usize,
 				loop {
 					let chapter_title = book.title(0, 0);
 					for (idx, line) in book.lines().iter().enumerate() {
-						line.search_pattern(&regex, |range| {
-							tx.send(FoundEntry {
-								inner_book,
-								chapter,
-								chapter_title: chapter_title.map(|t| t.to_owned()),
-								toc_title: book.title(idx, range.start).map(|t| t.to_owned()),
-								line: idx,
-								offset: range.start,
-							}).is_ok()
+						line.search_pattern(&regex, |text, chars, range| {
+							if let Some((display_text, highlight_display_bytes)) = make_display_text(text, chars, &range) {
+								tx.send(FoundEntry {
+									inner_book,
+									chapter,
+									chapter_title: chapter_title.map(|t| t.to_owned()),
+									toc_title: book.title(idx, range.start).map(|t| t.to_owned()),
+									line: idx,
+									offset: range.start,
+									display_text,
+									highlight_display_bytes,
+								}).is_ok()
+							} else {
+								false
+							}
 						})
 					}
 					match book.next_chapter() {
@@ -227,5 +236,48 @@ fn create_entry_label(entry: &FoundEntry, i18n: &I18n) -> gtk4::Box
 		.halign(Align::End)
 		.label(&format!("{} : {}", entry.line + 1, entry.offset + 1))
 		.build());
-	entry_label
+
+	let head = markup_escape_text(&entry.display_text[..entry.highlight_display_bytes.start]);
+	let middle = markup_escape_text(&entry.display_text[entry.highlight_display_bytes.start..entry.highlight_display_bytes.end]);
+	let tail = markup_escape_text(&entry.display_text[entry.highlight_display_bytes.end..]);
+	let display_text = format!(r#"<small>{}</small><span font="small" foreground='white' background="black">{}</span><small>{}</small>"#,
+		head, middle, tail);
+	let display_label = Label::builder()
+		.halign(Align::Start)
+		.hexpand(true)
+		.wrap(true)
+		.use_markup(true)
+		.label(&display_text)
+		.build();
+
+	let entry_box = gtk4::Box::builder()
+		.orientation(Orientation::Vertical)
+		.spacing(0)
+		.build();
+	entry_box.append(&entry_label);
+	entry_box.append(&display_label);
+	entry_box
+}
+
+const PADDING_SIZE: usize = 10;
+
+#[inline]
+fn make_display_text(text: &str, chars: usize, range: &Range<usize>) -> Option<(String, Range<usize>)>
+{
+	let start = if range.start < PADDING_SIZE {
+		0
+	} else {
+		range.start - PADDING_SIZE
+	};
+	let mut end = range.end + PADDING_SIZE;
+	if end > chars {
+		end = chars;
+	}
+	let byte_start = byte_index_for_char(text, start)?;
+	let byte_end = byte_index_for_char(text, end)?;
+	let highlight_byte_start = byte_index_for_char(text, range.start)?;
+	let highlight_byte_end = byte_index_for_char(text, range.end)?;
+	let display_text = text[byte_start..byte_end].to_owned();
+	let range = highlight_byte_start - byte_start..highlight_byte_end - byte_start;
+	Some((display_text, range))
 }

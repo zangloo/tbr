@@ -208,10 +208,7 @@ fn build_ui(app: &Application, current: Option<String>,
 		let fonts = Rc::new(fonts);
 		let db = DictionaryBook::load(&configuration.gui.dictionaries, configuration.gui.cache_dict);
 		let db = Rc::new(RefCell::new(db));
-		let css_provider = view::init_css(
-			"main",
-			&colors.background,
-		);
+		let css_provider = view::init_css(&colors);
 		(i18n, icons, fonts, db, css_provider)
 	};
 
@@ -1764,7 +1761,7 @@ impl GuiContext {
 		render_context.colors = configuration.curr_theme().clone();
 		let mut controller = self.ctrl_mut();
 		controller.redraw(&mut render_context);
-		view::update_css(&self.css_provider, "main", &render_context.colors.background);
+		view::update_css(&self.css_provider, &render_context.colors);
 	}
 
 	fn toggle_custom_color(&self)
