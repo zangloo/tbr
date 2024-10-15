@@ -287,10 +287,11 @@ fn make_display_text(line: &Line, text: &str, range: &Range<usize>) -> Option<(S
 			break;
 		}
 	}
-	let byte_start = byte_index_for_char(text, start)?;
-	let byte_end = byte_index_for_char(text, end)?;
-	let highlight_byte_start = byte_index_for_char(text, range.start)?;
-	let highlight_byte_end = byte_index_for_char(text, range.end)?;
+	let chars = line.len();
+	let byte_start = byte_index_for_char(text, chars, start)?;
+	let byte_end = byte_index_for_char(text, chars, end)?;
+	let highlight_byte_start = byte_index_for_char(text, chars, range.start)?;
+	let highlight_byte_end = byte_index_for_char(text, chars, range.end)?;
 	let display_text = text[byte_start..byte_end].to_owned();
 	let highlight_byte_range = highlight_byte_start - byte_start..highlight_byte_end - byte_start;
 	Some((display_text, highlight_byte_range))

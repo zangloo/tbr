@@ -157,9 +157,12 @@ pub(crate) fn txt_lines(txt: &str) -> Vec<Line> {
 	lines
 }
 
-pub(crate) fn byte_index_for_char(text: &str, char_index: usize) -> Option<usize> {
+pub(crate) fn byte_index_for_char(text: &str, chars: usize, char_index: usize) -> Option<usize> {
 	if char_index == 0 {
 		return Some(0);
+	}
+	if char_index == chars {
+		return Some(text.len());
 	}
 	let mut indices = text.char_indices();
 	for _index in 0..char_index {
@@ -171,12 +174,12 @@ pub(crate) fn byte_index_for_char(text: &str, char_index: usize) -> Option<usize
 	}
 }
 
-pub fn char_index_for_byte(text: &str, byte_index: usize) -> Option<usize> {
+pub fn char_index_for_byte(text: &str, chars: usize, byte_index: usize) -> Option<usize> {
 	if byte_index == 0 {
 		return Some(0);
 	}
 	if byte_index == text.len() {
-		return Some(text.chars().count());
+		return Some(chars);
 	}
 	let indices = text.char_indices();
 	let mut char_index = 0;

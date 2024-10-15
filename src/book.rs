@@ -303,7 +303,7 @@ impl Line {
 		for index in start..stop {
 			line.push(self.chars[index])
 		}
-		find_pattern(&line, regex, start, rev)
+		find_pattern(&line, stop - start, regex, start, rev)
 	}
 
 	/// F: (text: &str, found_range: Range<usize>)
@@ -313,12 +313,13 @@ impl Line {
 		let text = self.to_string();
 		let mut start = 0;
 		let mut slice = text.as_str();
-		while let Some(range) = find_pattern(slice, &regex, start, false) {
+		let chars = self.chars.len();
+		while let Some(range) = find_pattern(slice, chars, &regex, start, false) {
 			start = range.end;
 			if !f(&text, range) {
 				return;
 			}
-			if let Some(byte_index) = byte_index_for_char(&text, start) {
+			if let Some(byte_index) = byte_index_for_char(&text, chars, start) {
 				slice = &text[byte_index..];
 			} else {
 				break;
@@ -794,14 +795,14 @@ impl ChapterError
 	}
 }
 
-fn find_pattern(line: &str, regex: &Regex, start_offset: usize, rev: bool) -> Option<Range<usize>>
+fn find_pattern(line: &str, chars: usize, regex: &Regex, start_offset: usize, rev: bool) -> Option<Range<usize>>
 {
 	let m = if rev {
 		regex.find_iter(line).last()?.ok()?
 	} else {
 		regex.find_from_pos(line, 0).ok()??
 	};
-	let match_start = char_index_for_byte(&line, m.start()).unwrap();
-	let match_end = char_index_for_byte(&line, m.end()).unwrap();
+	let match_start = char_index_for_byte(&line, chars, m.start()).unwrap();
+	let match_end = char_index_for_byte(&line, chars, m.end()).unwrap();
 	Some(Range { start: match_start + start_offset, end: match_end + start_offset })
 }
