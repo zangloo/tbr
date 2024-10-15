@@ -11,8 +11,9 @@ use gtk4::{Align, Label, ListBox, Orientation, PolicyType, SearchEntry, Selectio
 use gtk4::glib::{ControlFlow, idle_add_local, markup_escape_text};
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::{BoxExt, EditableExt, ListBoxRowExt, WidgetExt};
+use crate::book::Line;
 
-use crate::common::byte_index_for_char;
+use crate::common::{byte_index_for_char, char_width};
 use crate::config::BookLoadingInfo;
 use crate::container::{load_book, load_container};
 use crate::i18n::I18n;
@@ -162,8 +163,8 @@ fn find(regex: Regex, filename: String, inner_book: usize,
 				loop {
 					let chapter_title = book.title(0, 0);
 					for (idx, line) in book.lines().iter().enumerate() {
-						line.search_pattern(&regex, |text, chars, range| {
-							if let Some((display_text, highlight_display_bytes)) = make_display_text(text, chars, &range) {
+						line.search_pattern(&regex, |text, range| {
+							if let Some((display_text, highlight_display_bytes)) = make_display_text(line, text, &range) {
 								tx.send(FoundEntry {
 									inner_book,
 									chapter,
@@ -254,25 +255,37 @@ fn create_entry_label(entry: &FoundEntry, i18n: &I18n) -> gtk4::Box
 	entry_box
 }
 
-const PADDING_SIZE: usize = 10;
+const PADDING_SIZE: usize = 20;
 
 #[inline]
-fn make_display_text(text: &str, chars: usize, range: &Range<usize>) -> Option<(String, Range<usize>)>
+fn make_display_text(line: &Line, text: &str, range: &Range<usize>) -> Option<(String, Range<usize>)>
 {
-	let start = if range.start < PADDING_SIZE {
-		0
-	} else {
-		range.start - PADDING_SIZE
-	};
-	let mut end = range.end + PADDING_SIZE;
-	if end > chars {
-		end = chars;
+	let mut padding = 0;
+	let mut start = range.start;
+	while start > 0 && padding < PADDING_SIZE {
+		let idx = start - 1;
+		if let Some(char) = line.char_at(idx) {
+			padding += char_width(char);
+		} else {
+			break;
+		}
+		start = idx;
+	}
+	padding = 0;
+	let mut end = range.end;
+	while padding < PADDING_SIZE {
+		end += 1;
+		if let Some(char) = line.char_at(end) {
+			padding += char_width(char);
+		} else {
+			break;
+		}
 	}
 	let byte_start = byte_index_for_char(text, start)?;
 	let byte_end = byte_index_for_char(text, end)?;
 	let highlight_byte_start = byte_index_for_char(text, range.start)?;
 	let highlight_byte_end = byte_index_for_char(text, range.end)?;
 	let display_text = text[byte_start..byte_end].to_owned();
-	let range = highlight_byte_start - byte_start..highlight_byte_end - byte_start;
-	Some((display_text, range))
+	let highlight_byte_range = highlight_byte_start - byte_start..highlight_byte_end - byte_start;
+	Some((display_text, highlight_byte_range))
 }
