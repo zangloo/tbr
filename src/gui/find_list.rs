@@ -38,24 +38,28 @@ struct FindListInner {
 	i18n: Rc<I18n>,
 }
 
+// create too much label in idle thread will freeze the UI
+const BATCH_CREATE_SIZE: usize = 100;
+
 impl FindListInner {
 	fn retrieve_entries(&mut self, rx: &Receiver<FoundEntry>) -> ControlFlow
 	{
-		loop {
+		for _ in 0..BATCH_CREATE_SIZE {
 			match rx.try_recv() {
 				Ok(entry) => {
 					self.list.append(&create_entry_label(&entry, &self.i18n));
 					self.rows.push(entry);
 				}
 				Err(TryRecvError::Empty) => {
-					break ControlFlow::Continue;
+					break;
 				}
 				Err(TryRecvError::Disconnected) => {
 					self.input.set_sensitive(true);
-					break ControlFlow::Break;
+					return ControlFlow::Break;
 				}
 			}
 		}
+		ControlFlow::Continue
 	}
 }
 
