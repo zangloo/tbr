@@ -584,6 +584,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 			} else {
 				bail!("Chapter {} not exists", chapter);
 			}
+			chapter_change = true;
 		}
 		self.reading.chapter = chapter;
 		if let Some(highlight) = highlight {
@@ -596,13 +597,17 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		} else {
 			self.highlight = None;
 		}
-		if offset == 0 {
-			self.redraw_at(line, 0, context);
+		if chapter_change {
+			if offset == 0 {
+				self.redraw_at(line, 0, context);
+			} else {
+				self.reading.line = line;
+				self.reading.position = offset;
+				self.step_prev(context)?;
+			}
 		} else {
-			self.reading.line = line;
-			self.reading.position = offset;
-			self.step_prev(context)?;
-		}
+			self.highlight_setup(context);
+		};
 		Ok(self.status().to_string())
 	}
 
