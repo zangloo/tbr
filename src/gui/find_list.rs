@@ -138,15 +138,17 @@ impl FindList {
 		where F: Fn(&FoundEntry) -> bool + 'static
 	{
 		let inner = self.inner.clone();
-		self.inner.borrow().list.connect_row_activated(move |_, row| {
-			let index = row.index();
-			if index < 0 {
-				return;
-			}
-			if let Ok(mut inner) = inner.try_borrow_mut() {
-				if let Some(entry) = inner.rows.get(index as usize) {
-					if f(entry) {
-						inner.inner_book = entry.inner_book;
+		self.inner.borrow().list.connect_row_selected(move |_, row| {
+			if let Some(row) = row {
+				let index = row.index();
+				if index < 0 {
+					return;
+				}
+				if let Ok(mut inner) = inner.try_borrow_mut() {
+					if let Some(entry) = inner.rows.get(index as usize) {
+						if f(entry) {
+							inner.inner_book = entry.inner_book;
+						}
 					}
 				}
 			}
