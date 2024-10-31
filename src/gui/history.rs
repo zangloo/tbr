@@ -145,9 +145,8 @@ impl HistoryList {
 			}
 			let index = index as u32;
 			if let Some(str) = list.string(index) {
-				if let Ok(path) = PathBuf::from_str(str.as_str()) {
-					gc.open_file(&path);
-				}
+				let Ok(path) = PathBuf::from_str(str.as_str());
+				gc.open_file(&path);
 			}
 			gc.history_list.popover.set_visible(false);
 		}
