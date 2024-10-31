@@ -459,7 +459,8 @@ fn lookup_selection(gc: &GuiContext)
 
 #[inline]
 fn apply<F>(gc: &GuiContext, f: F)
-	where F: FnOnce(&mut GuiController, &mut RenderContext)
+where
+	F: FnOnce(&mut GuiController, &mut RenderContext),
 {
 	let mut controller = gc.ctrl_mut();
 	let orig_inner_book = controller.reading.inner_book;
@@ -471,7 +472,8 @@ fn apply<F>(gc: &GuiContext, f: F)
 
 #[inline]
 fn handle<T, F>(gc: &GuiContext, f: F)
-	where F: FnOnce(&mut GuiController, &mut RenderContext) -> Result<T>
+where
+	F: FnOnce(&mut GuiController, &mut RenderContext) -> Result<T>,
 {
 	let (orig_inner_book, result) = {
 		let mut controller = gc.ctrl_mut();
@@ -995,7 +997,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					glib::Propagation::Stop
 				}
 				(Key::F, MODIFIER_CTRL_SHIFT) => {
-					if switch_stack(SIDEBAR_FIND_NAME, &gc, true) {
+					if switch_stack(SIDEBAR_FIND_NAME, &gc, false) {
 						if find_entry.is_sensitive() {
 							find_entry.select_region(0, -1);
 							find_entry.grab_focus();
@@ -1187,14 +1189,16 @@ fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
 	#[inline]
 	fn create_action<F>(menu: &Menu, action_group: &SimpleActionGroup,
 		i18n: &Rc<I18n>, key: &str, callback: F)
-		where F: Fn(&SimpleAction, Option<&Variant>) + 'static
+	where
+		F: Fn(&SimpleAction, Option<&Variant>) + 'static,
 	{
 		let action = SimpleAction::new(key, None);
 		append_action(menu, action_group, i18n, key, &action, callback)
 	}
 	fn append_action<F>(menu: &Menu, action_group: &SimpleActionGroup,
 		i18n: &Rc<I18n>, key: &str, action: &SimpleAction, callback: F)
-		where F: Fn(&SimpleAction, Option<&Variant>) + 'static
+	where
+		F: Fn(&SimpleAction, Option<&Variant>) + 'static,
 	{
 		action.connect_activate(callback);
 		let title = i18n.msg(key);
@@ -1207,7 +1211,8 @@ fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
 	fn append_toggle_action<F>(menu: &Menu, action_group: &SimpleActionGroup,
 		i18n: &Rc<I18n>, key: &str, action: &SimpleAction,
 		toggle: Option<bool>, callback: F)
-		where F: Fn(&SimpleAction, Option<&Variant>) + 'static
+	where
+		F: Fn(&SimpleAction, Option<&Variant>) + 'static,
 	{
 		if let Some(active) = toggle {
 			action.set_state(&active.to_variant());
