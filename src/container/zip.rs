@@ -27,7 +27,7 @@ impl ContainerLoader for ZipLoader {
 			if buf.len() > 0 {
 				buf.push(b'\n');
 			}
-			buf.extend(zip_file.name_raw().to_vec());
+			buf.extend_from_slice(zip_file.name_raw());
 		}
 		let names = plain_text(buf, true)?;
 		let names = names.split('\n');
