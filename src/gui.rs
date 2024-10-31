@@ -902,6 +902,7 @@ fn setup_find_list(gc1: &GuiContext)
 			found_entry.chapter, found_entry.line, found_entry.range.start,
 			Some(found_entry.range.clone()), &mut render_context) {
 			Ok(msg) => {
+				update_title(&gc.window, &controller);
 				update_status(false, &msg, &gc.status_bar);
 				true
 			}
@@ -1504,7 +1505,7 @@ impl GuiContext {
 			.build();
 
 		let (chapter_list, chapter_list_view) = ChapterList::create(&icons, &i18n, &ctrl);
-		let (find_list, find_list_view, find_entry) = FindList::create(&current, &i18n);
+		let (find_list, find_list_view, find_entry) = FindList::create(&current, &i18n, &icons);
 
 		let controller = ctrl.borrow();
 		let status_msg = controller.status().to_string();

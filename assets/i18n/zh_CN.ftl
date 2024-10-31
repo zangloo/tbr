@@ -52,6 +52,9 @@ invalid-path = 错误的{ $title }: { $path }
 filter-chapter = 过滤章节标题
 
 find-text = 查找文本
+find-all-book = 所有书籍
+find-all-book-tooltip = 在所有书籍中查找
+find-toggle-tooltip = 查找 / 停止
 found-chapter-title = 第{$index}章
 
 dictionary-no-definition = 无字典解释

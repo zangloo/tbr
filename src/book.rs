@@ -186,6 +186,22 @@ pub struct Line {
 	styles: Vec<(TextStyle, Range<usize>)>,
 }
 
+pub enum SearchError {
+	Canceled,
+	Custom(Cow<'static, str>),
+}
+
+impl Display for SearchError {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result
+	{
+		match self {
+			SearchError::Canceled => f.write_str("Find canceled")?,
+			SearchError::Custom(msg) => f.write_str(&msg)?,
+		}
+		Ok(())
+	}
+}
+
 pub struct Link<'a> {
 	pub index: usize,
 	pub target: &'a str,
@@ -307,8 +323,9 @@ impl Line {
 	}
 
 	/// F: (text: &str, found_range: Range<usize>)
-	pub fn search_pattern<F>(&self, regex: &Regex, f: F)
-		where F: Fn(&str, Range<usize>) -> bool
+	pub fn search_pattern<F>(&self, regex: &Regex, f: F) -> Result<(), SearchError>
+	where
+		F: Fn(&str, Range<usize>) -> Result<(), SearchError>,
 	{
 		let text = self.to_string();
 		let mut start = 0;
@@ -316,19 +333,19 @@ impl Line {
 		let chars = self.chars.len();
 		while let Some(range) = find_pattern(slice, chars, &regex, start, false) {
 			start = range.end;
-			if !f(&text, range) {
-				return;
-			}
+			f(&text, range)?;
 			if let Some(byte_index) = byte_index_for_char(&text, chars, start) {
 				slice = &text[byte_index..];
 			} else {
 				break;
 			}
 		}
+		Ok(())
 	}
 
 	pub fn link_iter<F, T>(&self, forward: bool, f: F) -> Option<T>
-		where F: Fn(Link) -> (bool, Option<T>),
+	where
+		F: Fn(Link) -> (bool, Option<T>),
 	{
 		let range = 0..self.styles.len();
 		let indeies: Vec<usize> = if forward {
@@ -384,9 +401,10 @@ impl Line {
 	#[cfg(feature = "gui")]
 	pub fn decoration_iter<D, B, L, P>(&self, param: &mut P,
 		decoration: D, border: B, link: L)
-		where D: Fn(&Range<usize>, &TextDecoration, &mut P),
-		      B: Fn(&Range<usize>, BorderLines, Option<Color32>, &mut P),
-		      L: Fn(&Range<usize>, &mut P),
+	where
+		D: Fn(&Range<usize>, &TextDecoration, &mut P),
+		B: Fn(&Range<usize>, BorderLines, Option<Color32>, &mut P),
+		L: Fn(&Range<usize>, &mut P),
 	{
 		for (style, range) in self.styles.iter().rev() {
 			match style {

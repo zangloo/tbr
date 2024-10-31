@@ -52,6 +52,9 @@ invalid-path = Invalid { $title }: { $path }
 filter-chapter = Filter chapters
 
 find-text = Text to find
+find-all-book = All books
+find-all-book-tooltip = Find in all books
+find-toggle-tooltip = Start / Stop find
 found-chapter-title = Chapter {$index}
 
 dictionary-no-definition = No definition in dictionary
