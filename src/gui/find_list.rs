@@ -370,13 +370,12 @@ fn make_display_text(line: &Line, text: &str, range: &Range<usize>) -> Option<(S
 	}
 	padding = 0;
 	let mut end = range.end;
-	while padding < PADDING_SIZE {
-		end += 1;
-		if let Some(char) = line.char_at(end) {
-			padding += char_width(char);
-		} else {
+	while let Some(char) = line.char_at(end) {
+		padding += char_width(char);
+		if padding >= PADDING_SIZE {
 			break;
 		}
+		end += 1;
 	}
 	let chars = line.len();
 	let byte_start = byte_index_for_char(text, chars, start)?;
