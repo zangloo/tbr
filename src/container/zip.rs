@@ -5,9 +5,9 @@ use anyhow::Result;
 use lexical_sort::{natural_lexical_cmp, StringSort};
 use zip::ZipArchive;
 
-use crate::BookLoader;
 use crate::common::plain_text;
-use crate::container::{BookContent, BookName, Container, ContainerLoader, title_for_filename};
+use crate::container::{BookContent, BookName, Container, ContainerLoader};
+use crate::BookLoader;
 
 pub(crate) struct ZipLoader {}
 
@@ -69,15 +69,5 @@ impl Container for ZipContainer {
 		let mut content = vec![];
 		zip_file.read_to_end(&mut content)?;
 		Ok(BookContent::Buf(content))
-	}
-
-	#[inline]
-	fn book_name(&self, inner_index: usize) -> &str
-	{
-		self.files
-			.get(inner_index)
-			.map_or_else(
-				|| title_for_filename(&self.filename),
-				|bn| &bn.name)
 	}
 }

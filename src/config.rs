@@ -533,9 +533,6 @@ fn file_path(filename: &str) -> Option<String> {
 	if !filepath.exists() {
 		return None;
 	}
-	if !filepath.is_file() {
-		return None;
-	}
 	if let Ok(filepath) = fs::canonicalize(filepath) {
 		let filename = filepath.as_os_str().to_str().unwrap().to_string();
 		Some(filename)

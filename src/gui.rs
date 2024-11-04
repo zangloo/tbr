@@ -63,6 +63,7 @@ const SIDEBAR_DICT_NAME: &str = "dictionary_list";
 const SIDEBAR_FIND_NAME: &str = "find_list";
 
 const OPEN_FILE_KEY: &str = "file-open";
+const OPEN_FOLDER_KEY: &str = "folder-open";
 const HISTORY_KEY: &str = "history";
 const RELOAD_KEY: &str = "reload";
 const BOOK_INFO_KEY: &str = "book-info";
@@ -200,7 +201,7 @@ fn build_ui(app: &Application, current: Option<String>,
 	let (i18n, icons, fonts, db, css_provider) = if let Some(gc) = gui_contexts.get(0) {
 		(gc.i18n.clone(), gc.icons.clone(), gc.fonts.clone(), gc.db.clone(), gc.css_provider.clone())
 	} else {
-		let i18n = I18n::new(&configuration.gui.lang).unwrap();
+		let i18n = I18n::new(&configuration.gui.lang)?;
 		let i18n = Rc::new(i18n);
 		let icons = load_icons();
 		let icons = Rc::new(icons);
@@ -301,77 +302,77 @@ fn build_ui(app: &Application, current: Option<String>,
 				(Key::space | Key::Page_Down, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.next_page(render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::space, ModifierType::SHIFT_MASK) | (Key::Page_Up, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.prev_page(render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::Home, MODIFIER_NONE) => {
 					apply(&gc, |controller, render_context|
 						controller.redraw_at(0, 0, render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::End, MODIFIER_NONE) => {
 					apply(&gc, |controller, render_context|
 						controller.goto_end(render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::Down, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.step_next(render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::Up, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.step_prev(render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::n, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.search_again(true, render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::N, ModifierType::SHIFT_MASK) => {
 					handle(&gc, |controller, render_context|
 						controller.search_again(false, render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::d, ModifierType::CONTROL_MASK) => {
 					handle(&gc, |controller, render_context|
 						controller.switch_toc(true, render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::b, ModifierType::CONTROL_MASK) => {
 					handle(&gc, |controller, render_context|
 						controller.switch_toc(false, render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::Right, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.goto_trace(false, render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::Left, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.goto_trace(true, render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::Tab, MODIFIER_NONE) => {
 					apply(&gc, |controller, render_context|
 						controller.switch_link_next(render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::Tab, ModifierType::SHIFT_MASK) => {
 					apply(&gc, |controller, render_context|
 						controller.switch_link_prev(render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::Return, MODIFIER_NONE) => {
 					handle(&gc, |controller, render_context|
 						controller.try_goto_link(render_context));
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::equal, ModifierType::CONTROL_MASK) => {
 					apply(&gc, |controller, render_context| {
@@ -385,7 +386,7 @@ fn build_ui(app: &Application, current: Option<String>,
 							controller.redraw(render_context);
 						}
 					});
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::minus, ModifierType::CONTROL_MASK) => {
 					apply(&gc, |controller, render_context| {
@@ -399,20 +400,20 @@ fn build_ui(app: &Application, current: Option<String>,
 							controller.redraw(render_context);
 						}
 					});
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::c, ModifierType::CONTROL_MASK) => {
 					copy_selection(&ctrl.borrow());
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::k, ModifierType::CONTROL_MASK) => {
 					switch_stack(SIDEBAR_DICT_NAME, &gc, false);
 					gc.dm().focus_lookup();
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				_ => {
 					// println!("view, key: {key}, modifier: {modifier}");
-					glib::Propagation::Proceed
+					Propagation::Proceed
 				}
 			}
 		});
@@ -873,6 +874,7 @@ fn setup_chapter_list(gc1: &GuiContext)
 					}
 					Err(e) => (true, e.to_string())
 				};
+				update_title(&gc.window, &controller);
 				update_status(error, &msg, &gc.status_bar);
 			} else if let Some(msg) = controller.goto_toc(index, &mut render_context) {
 				update_status(false, &msg, &gc.status_bar);
@@ -981,7 +983,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 					if let Some((x, y)) = mouse_pointer(view.as_ref()) {
 						update_mouse_pointer(&view, x, y, ModifierType::CONTROL_MASK);
 					}
-					glib::Propagation::Proceed
+					Propagation::Proceed
 				}
 				(Key::c, MODIFIER_NONE) => {
 					gc.chapter_list.block_reactive(true);
@@ -989,13 +991,13 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 						gc.chapter_list.scroll_to_current();
 					}
 					gc.chapter_list.block_reactive(false);
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::d, MODIFIER_NONE) => {
 					if switch_stack(SIDEBAR_DICT_NAME, &gc, true) {
 						lookup_selection(&gc);
 					}
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::F, MODIFIER_CTRL_SHIFT) => {
 					if switch_stack(SIDEBAR_FIND_NAME, &gc, false) {
@@ -1004,7 +1006,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 							find_entry.grab_focus();
 						}
 					}
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::slash, MODIFIER_NONE) | (Key::f, ModifierType::CONTROL_MASK) => {
 					search_box.grab_focus();
@@ -1012,74 +1014,78 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 						search_box.set_text(pattern)
 					}
 					search_box.select_region(0, -1);
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::g, ModifierType::CONTROL_MASK) => {
 					gc.goto();
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::Escape, MODIFIER_NONE) => {
 					if gc.paned.position() != 0 {
 						gc.toggle_sidebar();
-						glib::Propagation::Stop
+						Propagation::Stop
 					} else {
-						glib::Propagation::Proceed
+						Propagation::Proceed
 					}
 				}
 				(Key::x, ModifierType::CONTROL_MASK) => {
 					switch_render(&gc);
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::r, ModifierType::CONTROL_MASK) => {
 					gc.reload_book();
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::o, ModifierType::CONTROL_MASK) => {
 					gc.open_dialog();
-					glib::Propagation::Stop
+					Propagation::Stop
+				}
+				(Key::O, MODIFIER_CTRL_SHIFT) => {
+					gc.open_folder_dialog();
+					Propagation::Stop
 				}
 				(Key::h, MODIFIER_NONE) => {
 					gc.show_history();
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::t, MODIFIER_NONE) => {
 					gc.switch_theme();
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::T, ModifierType::SHIFT_MASK) => {
 					gc.custom_color_action.activate(None);
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::F, ModifierType::SHIFT_MASK) => {
 					gc.custom_font_action.activate(None);
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::S, ModifierType::SHIFT_MASK) => {
 					gc.custom_style_dialog();
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::s, ModifierType::CONTROL_MASK) => {
 					gc.show_settings();
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::w, ModifierType::CONTROL_MASK) => {
 					gc.window.close();
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::i, MODIFIER_NONE) => {
 					if let Err(err) = gc.book_info() {
 						gc.error(&err.to_string());
 					}
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::F11, MODIFIER_NONE) => {
 					let win = &gc.window;
 					win.set_fullscreened(!win.is_fullscreened());
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				_ => {
 					// println!("window pressed, key: {key}, modifier: {:#?}", modifier);
-					glib::Propagation::Proceed
+					Propagation::Proceed
 				}
 			}
 		});
@@ -1101,7 +1107,7 @@ fn setup_window(gc: &GuiContext, toolbar: gtk4::Box, view: GuiView,
 			if let Err(e) = configuration.save() {
 				eprintln!("Failed save configuration: {}", e.to_string());
 			}
-			glib::Propagation::Proceed
+			Propagation::Proceed
 		});
 	}
 
@@ -1244,6 +1250,14 @@ fn setup_main_menu(gc: &GuiContext, view: &GuiView, dark_theme: bool,
 		create_action(&section, &action_group, i18n,
 			OPEN_FILE_KEY, move |_, _| {
 				gc.open_dialog();
+			});
+	}
+
+	{
+		let gc = gc.clone();
+		create_action(&section, &action_group, i18n,
+			OPEN_FOLDER_KEY, move |_, _| {
+				gc.open_folder_dialog();
 			});
 	}
 
@@ -1672,6 +1686,24 @@ impl GuiContext {
 		}
 	}
 
+	fn open_folder_dialog(&self)
+	{
+		let dialog = FileDialog::new();
+		dialog.set_title(&self.i18n.msg("folder-open-title"));
+		dialog.set_modal(true);
+
+		let gc = self.clone();
+		dialog.select_folder(Some(&self.window), None::<&Cancellable>, move |result| {
+			if let Ok(file) = result {
+				if let Some(path) = file.path() {
+					if path.is_dir() {
+						gc.open_file(&path);
+					}
+				}
+			}
+		});
+	}
+
 	fn reload_book(&self)
 	{
 		let mut controller = self.ctrl_mut();
@@ -1730,15 +1762,15 @@ impl GuiContext {
 				(Key::i, MODIFIER_NONE) |
 				(Key::q, MODIFIER_NONE) => {
 					ev.widget().set_visible(false);
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				(Key::c, ModifierType::CONTROL_MASK) => {
 					copy_to_clipboard(&text);
-					glib::Propagation::Stop
+					Propagation::Stop
 				}
 				_ => {
 					// println!("view, key: {key}, modifier: {modifier}");
-					glib::Propagation::Proceed
+					Propagation::Proceed
 				}
 			}
 		});
@@ -2020,7 +2052,7 @@ fn alert(title: &str, msg: &str, parent: &impl IsA<Window>)
 #[inline]
 fn app_open(app: &Application, filepath: &str)
 {
-	app.open(&vec![gtk4::gio::File::for_commandline_arg(filepath)], "");
+	app.open(&vec![File::for_commandline_arg(filepath)], "");
 }
 
 #[inline]

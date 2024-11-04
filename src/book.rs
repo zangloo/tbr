@@ -21,7 +21,7 @@ use crate::common::{byte_index_for_char, char_index_for_byte, Position};
 use crate::common::TraceInfo;
 use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::container::BookContent;
-use crate::container::BookContent::{Buf, File};
+use crate::container::BookContent::{Buf, File, Path};
 use crate::controller::{HighlightInfo, HighlightMode};
 #[cfg(feature = "gui")]
 use crate::gui::HtmlFonts;
@@ -745,6 +745,10 @@ impl BookLoader {
 			if loader.support(filename) {
 				let (book, mut reading) = match content {
 					File(filepath) => {
+						let file = OpenOptions::new().read(true).open(filepath)?;
+						loader.load_file(filename, file, loading_chapter, loading)?
+					}
+					Path(filepath) => {
 						let file = OpenOptions::new().read(true).open(filepath)?;
 						loader.load_file(filename, file, loading_chapter, loading)?
 					}

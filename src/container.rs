@@ -1,31 +1,43 @@
+use std::path::PathBuf;
 use anyhow::{anyhow, Result};
 
 use crate::book::{Book, LoadingChapter, EMPTY_CHAPTER_CONTENT};
 use crate::BookLoader;
 use crate::config::{BookLoadingInfo, ReadingInfo};
+use crate::container::folder::FolderLoader;
 use crate::container::zip::ZipLoader;
 
+mod folder;
 mod zip;
 
 pub struct ContainerManager {
 	pub book_loader: BookLoader,
-	zip_loader: ZipLoader,
+	loaders: Vec<Box<dyn ContainerLoader>>,
 }
 
 impl Default for ContainerManager {
-	fn default() -> Self {
-		ContainerManager { zip_loader: ZipLoader {}, book_loader: Default::default() }
+	fn default() -> Self
+	{
+		ContainerManager {
+			book_loader: Default::default(),
+			loaders: vec![
+				Box::new(ZipLoader {}),
+				Box::new(FolderLoader {})
+			],
+		}
 	}
 }
 
 impl ContainerManager {
 	pub fn open(&self, filename: &str) -> Result<Box<dyn Container>>
 	{
-		if self.zip_loader.accept(filename) {
-			self.zip_loader.open(filename, &self.book_loader)
-		} else {
-			Ok(Box::new(DummyContainer::new(&filename)))
+		for loader in &self.loaders {
+			if loader.accept(filename) {
+				let book = loader.open(filename, &self.book_loader)?;
+				return Ok(book);
+			}
 		}
+		Ok(Box::new(DummyContainer::new(&filename)))
 	}
 
 	pub fn load_book(&self, container: &mut Box<dyn Container>, loading: BookLoadingInfo)
@@ -74,7 +86,17 @@ pub trait Container {
 	fn filename(&self) -> &str;
 	fn inner_book_names(&self) -> Option<&Vec<BookName>>;
 	fn book_content(&mut self, inner_index: usize) -> Result<BookContent>;
-	fn book_name(&self, inner_index: usize) -> &str;
+	fn book_name(&self, inner_index: usize) -> &str
+	{
+		let filename = match self.inner_book_names() {
+			None => self.filename(),
+			Some(names) => match names.get(inner_index) {
+				None => self.filename(),
+				Some(bn) => &bn.name,
+			}
+		};
+		title_for_filename(filename)
+	}
 }
 
 pub struct BookName {
@@ -123,12 +145,6 @@ impl Container for DummyContainer {
 	{
 		Ok(BookContent::File(self.filename.clone()))
 	}
-
-	#[inline]
-	fn book_name(&self, _inner_index: usize) -> &str
-	{
-		title_for_filename(&self.filename)
-	}
 }
 
 impl DummyContainer {
@@ -155,6 +171,7 @@ pub fn title_for_filename(filename: &str) -> &str
 
 pub enum BookContent {
 	File(String),
+	Path(PathBuf),
 	Buf(Vec<u8>),
 }
 
