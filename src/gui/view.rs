@@ -850,7 +850,7 @@ mod imp {
 		#[inline]
 		pub(super) fn pointer_info<F, T>(&self, mut pointer_position: Pos2, f: F) -> Option<T>
 		where
-			F: FnOnce(&RenderLine, &RenderChar) -> Option<T>,
+			F: FnOnce(Option<(&RenderLine, &RenderChar)>) -> Option<T>,
 		{
 			let data = self.data.borrow();
 			let render_lines = &data.render_lines;
@@ -861,16 +861,17 @@ mod imp {
 				.pointer_pos(&pointer_position, render_lines, render_rect) {
 				let render_line = render_lines.get(line)?;
 				let dc = render_line.char_at_index(offset);
-				f(render_line, dc)
+				f(Some((render_line, dc)))
 			} else {
-				None
+				f(None)
 			}
 		}
 
 		#[inline]
 		pub fn resolve_click(&self, mouse_position: Pos2, state: ModifierType) -> ClickTarget
 		{
-			self.pointer_info(mouse_position, |line, dc| {
+			self.pointer_info(mouse_position, |info| {
+				let (line, dc) = info?;
 				let target = match dc.cell {
 					RenderCell::Link(_, link_index) =>
 						if state.eq(&(ModifierType::CONTROL_MASK)) {
@@ -898,13 +899,14 @@ mod imp {
 		{
 			let name = match dc.cell {
 				RenderCell::Char(_) => None,
-				RenderCell::Image(_, None) => if state.eq(&ModifierType::CONTROL_MASK) {
+				RenderCell::Image(_, link_index) => if state.eq(&ModifierType::CONTROL_MASK) {
 					Some("zoom-in")
+				} else if link_index.is_some() {
+					Some("pointer")
 				} else {
 					None
 				}
-				RenderCell::Link(_, _) |
-				RenderCell::Image(_, Some(_)) => Some("pointer"),
+				RenderCell::Link(_, _) => Some("pointer"),
 			};
 			name.unwrap_or_else(|| {
 				if self.render_han.get() {
@@ -983,12 +985,17 @@ pub fn update_mouse_pointer(view: &GuiView, x: f32, y: f32, state: ModifierType)
 {
 	let pos = pos2(x, y);
 	let imp = view.imp();
-	let title_info = imp.pointer_info(pos, |render_line, render_char| {
-		let cursor_name = imp.pointer_cursor(render_char, state);
-		view.set_cursor_from_name(Some(cursor_name));
-		if render_char.has_title {
-			Some((render_line.line(), render_char.offset))
+	let title_info = imp.pointer_info(pos, |info| {
+		if let Some((render_line, render_char)) = info {
+			let cursor_name = imp.pointer_cursor(render_char, state);
+			view.set_cursor_from_name(Some(cursor_name));
+			if render_char.has_title {
+				Some((render_line.line(), render_char.offset))
+			} else {
+				None
+			}
 		} else {
+			view.set_cursor_from_name(None);
 			None
 		}
 	});
