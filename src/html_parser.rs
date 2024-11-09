@@ -767,6 +767,12 @@ impl<'a> HtmlParser<'a> {
 					}
 					local_name!("a") => {
 						if let Some(href) = element.attr("href") {
+							let a = TextDecoration {
+								line: TextDecorationLine::Underline,
+								style: TextDecorationStyle::Solid,
+								color: None,
+							};
+							unique_and_insert_tag(&mut element_tags, ParseTag::Style(TextStyle::Decoration(a)));
 							insert_or_replace_tag(&mut element_tags, ParseTag::Style(TextStyle::Link(href.to_string())), false);
 						}
 						self.convert_node_children(node.children());

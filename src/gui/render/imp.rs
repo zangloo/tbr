@@ -1,14 +1,14 @@
+use gtk4::cairo::{Context as CairoContext, LineJoin};
+use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
+use gtk4::pango::ffi::PANGO_SCALE;
+use gtk4::pango::{FontDescription, Layout as PangoContext};
+use gtk4::prelude::GdkCairoContextExt;
+use gtk4::{cairo, pango};
+use indexmap::IndexSet;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
-use gtk4::{cairo, pango};
-use gtk4::cairo::{Context as CairoContext, LineJoin};
-use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
-use gtk4::pango::{FontDescription, Layout as PangoContext};
-use gtk4::pango::ffi::PANGO_SCALE;
-use gtk4::prelude::GdkCairoContextExt;
-use indexmap::IndexSet;
 
 use crate::book::{Book, CharStyle, Line};
 use crate::color::{Color32, Colors};
@@ -16,9 +16,9 @@ use crate::common::{overlap_range, Position};
 use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::font::{Fonts, HtmlFonts, UserFonts};
 use crate::gui::load_image;
-use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
+use crate::gui::math::{pos2, vec2, Pos2, Rect, Vec2};
 use crate::html_parser;
-use crate::html_parser::{BlockStyle, BorderLines, ElementSize, FontScale, FontWeight, ImageStyle, TextDecorationLine, TextDecorationStyle};
+use crate::html_parser::{BlockStyle, BorderLines, ElementSize, FontScale, FontWeight, ImageStyle, TextDecorationStyle};
 
 pub const HAN_CHAR: char = '漢';
 
@@ -693,21 +693,6 @@ pub trait GuiRender {
 						start,
 						end,
 						color.unwrap_or_else(|| context.colors.color.clone()));
-				},
-			|range, render_line|
-				if let Some((render_range, start, end)) = make_render_range(range, &render_range) {
-					let decoration = html_parser::TextDecoration {
-						line: TextDecorationLine::Underline,
-						style: TextDecorationStyle::Solid,
-						color: Some(context.colors.link.clone()),
-					};
-					self.setup_decoration(
-						&decoration,
-						render_range,
-						start,
-						end,
-						render_line,
-						context);
 				});
 	}
 
