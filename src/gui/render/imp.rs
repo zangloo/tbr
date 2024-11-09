@@ -2,7 +2,6 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
-
 use gtk4::{cairo, pango};
 use gtk4::cairo::{Context as CairoContext, LineJoin};
 use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
@@ -19,7 +18,7 @@ use crate::gui::font::{Fonts, HtmlFonts, UserFonts};
 use crate::gui::load_image;
 use crate::gui::math::{Pos2, pos2, Rect, Vec2, vec2};
 use crate::html_parser;
-use crate::html_parser::{BlockStyle, BorderLines, FontScale, FontWeight, TextDecorationLine, TextDecorationStyle};
+use crate::html_parser::{BlockStyle, BorderLines, ElementSize, FontScale, FontWeight, ImageStyle, TextDecorationLine, TextDecorationStyle};
 
 pub const HAN_CHAR: char = '漢';
 
@@ -193,7 +192,8 @@ impl RenderLine
 
 	#[inline]
 	pub fn find<F, T>(&self, f: F) -> Option<T>
-		where F: Fn(usize, &RenderChar) -> Option<T>
+	where
+		F: Fn(usize, &RenderChar) -> Option<T>,
 	{
 		for (index, char) in self.chars.iter().enumerate() {
 			let found = f(index, char);
@@ -447,15 +447,18 @@ impl RenderContext {
 }
 
 pub struct ImageDrawingData {
-	view_rect: Rect,
+	orig_width: i32,
+	orig_height: i32,
 	texture: Pixbuf,
 }
 
 impl ImageDrawingData {
+	/// image render size
 	#[inline]
-	pub fn size(&self) -> Vec2
+	pub fn match_size(&self, width: i32, height: i32) -> bool
 	{
-		Vec2::new(self.texture.width() as f32, self.texture.height() as f32)
+		self.texture.width() == width &&
+			self.texture.height() == height
 	}
 }
 
@@ -1039,34 +1042,41 @@ pub trait GuiRender {
 	}
 
 	fn with_image(&mut self, char_style: &CharStyle, book: &dyn Book,
-		view_rect: &Rect) -> Option<(String, Pos2)>
+		view_size: &Vec2, font_size: u8) -> Option<(String, Pos2)>
 	{
-		if let Some(href) = &char_style.image {
-			if let Some(data) = book.image(href) {
+		if let Some(image) = &char_style.image {
+			if let Some(data) = book.image(image.href()) {
 				let cache = self.image_cache_mut();
-				let (image_data, mut size) = match cache.entry(data.path_dup()) {
+				let size = match cache.entry(data.path_dup()) {
 					Entry::Occupied(o) => {
-						let data = o.into_mut();
-						let size = data.size();
-						(data, size)
+						let image_data = o.into_mut();
+						let (render_size, _) = calc_image_size(
+							image,
+							&char_style.font_scale,
+							font_size,
+							image_data.orig_width,
+							image_data.orig_height,
+							view_size);
+						if image_data.match_size(render_size.x as i32, render_size.y as i32) {
+							Some(render_size)
+						} else {
+							// font size changed
+							if let Some((data, render_size)) = load_image_and_resize(image, &char_style.font_scale, font_size, view_size, data.bytes()) {
+								*image_data = data;
+								Some(render_size)
+							} else {
+								None
+							}
+						}
 					}
 					Entry::Vacant(v) =>
-						if let Some((data, size)) = load_image_and_resize(view_rect, data.bytes()) {
-							(v.insert(data), size)
+						if let Some((data, render_size)) = load_image_and_resize(image, &char_style.font_scale, font_size, view_size, data.bytes()) {
+							v.insert(data);
+							Some(render_size)
 						} else {
 							return None;
 						}
-				};
-
-				if *view_rect != image_data.view_rect {
-					if let Some((new_image_data, new_size)) = load_image_and_resize(view_rect, data.bytes()) {
-						cache.insert(data.path_dup(), new_image_data);
-						size = new_size
-					} else {
-						return None;
-					}
-				};
-
+				}?;
 				Some((data.path(), size))
 			} else {
 				None
@@ -1216,14 +1226,40 @@ pub trait GuiRender {
 	}
 }
 
-fn load_image_and_resize(view_rect: &Rect, bytes: &[u8]) -> Option<(ImageDrawingData, Vec2)>
+/// calc image render size
+/// return
+/// 1: render size
+/// 2: raise needed
+fn calc_image_size(image_style: &ImageStyle, font_scale: &FontScale,
+	font_size: u8, orig_width: i32, orig_height: i32, view_size: &Vec2)
+	-> (Vec2, bool)
 {
-	let image = load_image(bytes)?;
-	let width = view_rect.width();
-	let height = view_rect.height();
-	let image_width = image.width() as f32;
-	let image_height = image.height() as f32;
-	let image = if image_width > width || image_height > height {
+	#[inline]
+	fn calc_length(orig_length: i32, custom_length: &Option<ElementSize>,
+		font_scale: &FontScale, font_size: f32) -> (f32, bool)
+	{
+		if let Some(length) = custom_length {
+			let px = length.to_px(font_scale, font_size);
+			(px, true)
+		} else {
+			(orig_length as f32, false)
+		}
+	}
+	let width = view_size.x;
+	let height = view_size.y;
+	let font_size = font_size as f32;
+	let (image_width, relative_with_font_size_w) = calc_length(
+		orig_width,
+		&image_style.width,
+		font_scale,
+		font_size);
+	let (image_height, relative_with_font_size_h) = calc_length(
+		orig_height,
+		&image_style.height,
+		font_scale,
+		font_size);
+	let relative_with_font_size = relative_with_font_size_w | relative_with_font_size_h;
+	if image_width > width || image_height > height {
 		let image_ratio = image_width / image_height;
 		let view_ratio = width / height;
 		let (draw_width, draw_height) = if image_ratio > view_ratio {
@@ -1237,18 +1273,38 @@ fn load_image_and_resize(view_rect: &Rect, bytes: &[u8]) -> Option<(ImageDrawing
 		} else {
 			(width, height)
 		};
-		image.scale_simple(draw_width as i32, draw_height as i32, InterpType::Nearest)?
+		(Vec2 { x: draw_width, y: draw_height }, true)
+	} else if relative_with_font_size {
+		(Vec2 { x: image_width, y: image_height }, true)
 	} else {
-		image
-	};
-	let draw_width = image.width() as f32;
-	let draw_height = image.height() as f32;
+		(Vec2 { x: image_width, y: image_height }, false)
+	}
+}
+
+fn load_image_and_resize(image_style: &ImageStyle, font_scale: &FontScale,
+	font_size: u8, view_size: &Vec2, bytes: &[u8])
+	-> Option<(ImageDrawingData, Vec2)>
+{
+	let mut image = load_image(bytes)?;
+	let orig_width = image.width();
+	let orig_height = image.width();
+	let (render_size, resize) = calc_image_size(
+		image_style,
+		font_scale,
+		font_size,
+		orig_width,
+		orig_height,
+		view_size);
+	if resize {
+		image = image.scale_simple(render_size.x as i32, render_size.y as i32, InterpType::Nearest)?
+	}
 	Some((
 		ImageDrawingData {
-			view_rect: view_rect.clone(),
+			orig_width,
+			orig_height,
 			texture: image,
 		},
-		Pos2::new(draw_width, draw_height)
+		render_size,
 	))
 }
 
@@ -1298,7 +1354,8 @@ fn load_font_weight<'a>(font_weight: &'a FontWeight, render_context: &RenderCont
 #[inline]
 fn draw_double_line<D>(cairo: &CairoContext, stroke_width: f32,
 	middle: f64, draw: D)
-	where D: Fn(&CairoContext, f64),
+where
+	D: Fn(&CairoContext, f64),
 {
 	let width = stroke_width as f64 / 2.;
 	let delta = width / 0.75;
@@ -1311,7 +1368,8 @@ fn draw_double_line<D>(cairo: &CairoContext, stroke_width: f32,
 #[inline]
 fn draw_dotted_line<D>(cairo: &CairoContext, stroke_width: f32,
 	mut start: f64, stop: f64, draw: D)
-	where D: Fn(&CairoContext, f64, f64),
+where
+	D: Fn(&CairoContext, f64, f64),
 {
 	let size = stroke_width as f64;
 	let step = size * 2.;
@@ -1325,7 +1383,8 @@ fn draw_dotted_line<D>(cairo: &CairoContext, stroke_width: f32,
 #[inline]
 fn draw_dashed_line<F>(cairo: &CairoContext, stroke_width: f32,
 	mut start: f64, stop: f64, draw: F)
-	where F: Fn(&CairoContext, f64, f64)
+where
+	F: Fn(&CairoContext, f64, f64),
 {
 	let width = stroke_width as f64;
 	let line_size = width * 4.;
@@ -1349,8 +1408,9 @@ fn draw_dashed_line<F>(cairo: &CairoContext, stroke_width: f32,
 fn draw_wavy_line<I, D>(cairo: &CairoContext, stroke_width: f32,
 	wave_start: f64, mut line_start: f64, line_stop: f64,
 	init: I, draw: D)
-	where I: Fn(&CairoContext, f64, f64),
-	      D: Fn(&CairoContext, f64, f64)
+where
+	I: Fn(&CairoContext, f64, f64),
+	D: Fn(&CairoContext, f64, f64),
 {
 	let width = stroke_width as f64;
 	let size = width * 2.;

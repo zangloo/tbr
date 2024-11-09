@@ -123,9 +123,11 @@ impl GuiRender for GuiXiRender
 
 		let mut left = context.render_rect.min.x;
 		let max_left = context.render_rect.max.x;
+		let view_rect = &context.render_rect;
+		let view_size = view_rect.size();
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, context.custom_color, &context.colors);
-			let (cell, mut rect, is_blank_char, can_break) = if let Some((path, size)) = self.with_image(&char_style, book, &context.render_rect) {
+			let (cell, mut rect, is_blank_char, can_break) = if let Some((path, size)) = self.with_image(&char_style, book, &view_size, context.font_size) {
 				let bottom = self.baseline + size.y;
 				let right = left + size.x;
 				let rect = Rect::from_min_max(

@@ -85,9 +85,11 @@ impl GuiRender for GuiHanRender
 		let mut line_space = 0.0;
 		let default_size = context.default_font_measure.x;
 
+		let view_rect = &context.render_rect;
+		let view_size = view_rect.size();
 		for i in start_offset..end_offset {
 			let char_style = text.char_style_at(i, context.custom_color, &context.colors);
-			let (cell, mut rect) = if let Some((path, size)) = self.with_image(&char_style, book, &context.render_rect) {
+			let (cell, mut rect) = if let Some((path, size)) = self.with_image(&char_style, book, &view_size, context.font_size) {
 				let left = self.baseline - size.x;
 				let bottom = top + size.y;
 				let rect = Rect::from_min_max(

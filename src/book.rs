@@ -17,8 +17,8 @@ use crate::book::html::HtmlLoader;
 use crate::book::txt::TxtLoader;
 #[cfg(feature = "gui")]
 use crate::color::{Color32, Colors};
-use crate::common::{byte_index_for_char, char_index_for_byte, Position};
 use crate::common::TraceInfo;
+use crate::common::{byte_index_for_char, char_index_for_byte, Position};
 use crate::config::{BookLoadingInfo, ReadingInfo};
 use crate::container::BookContent;
 use crate::container::BookContent::{Buf, File, Path};
@@ -27,7 +27,7 @@ use crate::controller::{HighlightInfo, HighlightMode};
 use crate::gui::HtmlFonts;
 #[cfg(feature = "gui")]
 use crate::html_parser::{BlockStyle, BorderLines, FontScale, FontWeight, TextDecoration};
-use crate::html_parser::{TextStyle};
+use crate::html_parser::{ImageStyle, TextStyle};
 use crate::terminal::Listable;
 
 mod epub;
@@ -177,7 +177,7 @@ pub struct CharStyle<'a> {
 	pub background: Option<Color32>,
 	pub border: Option<(&'a Range<usize>, TextStyle)>,
 	pub link: Option<(usize, &'a Range<usize>)>,
-	pub image: Option<&'a String>,
+	pub image: Option<&'a ImageStyle>,
 	pub title: Option<&'a String>,
 }
 
@@ -386,12 +386,12 @@ impl Line {
 	}
 
 	#[allow(unused)]
-	pub fn image_at(&self, char_offset: usize) -> Option<&str>
+	pub fn image_at(&self, char_offset: usize) -> Option<&ImageStyle>
 	{
 		for style in self.styles.iter().rev() {
-			if let (TextStyle::Image(url), range) = style {
+			if let (TextStyle::Image(image), range) = style {
 				if range.contains(&char_offset) {
-					return Some(url);
+					return Some(image);
 				}
 			}
 		}
@@ -417,7 +417,7 @@ impl Line {
 				TextStyle::FontSize { .. } |
 				TextStyle::FontWeight(..) |
 				TextStyle::FontFamily(..) |
-				TextStyle::Image(..) |
+				TextStyle::Image { .. } |
 				TextStyle::Color(..) |
 				TextStyle::BackgroundColor(..) |
 				TextStyle::Title(..) => {}
@@ -444,12 +444,12 @@ impl Line {
 		for (index, (style, range)) in self.styles.iter().enumerate().rev() {
 			if range.contains(&char_index) {
 				match style {
-					TextStyle::FontSize { scale, relative } =>
-						char_style.font_scale.update(scale, *relative),
+					TextStyle::FontSize(size) =>
+						char_style.font_scale.update(size.scale(), size.relative()),
 					TextStyle::FontWeight(weight) =>
 						char_style.font_weight.update(weight),
 					TextStyle::FontFamily(families) => char_style.font_family = Some(families.clone()),
-					TextStyle::Image(href) => char_style.image = Some(&href),
+					TextStyle::Image(image) => char_style.image = Some(&image),
 					TextStyle::Link(_) => {
 						char_style.link = Some((index, &range));
 						if new_color.is_none() {

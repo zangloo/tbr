@@ -585,9 +585,10 @@ fn setup_view(gc: &GuiContext, view: &GuiView)
 		opener: &mut Opener) -> Result<()>
 	{
 		if let Some(line) = controller.book.lines().get(line) {
-			if let Some(url) = line.image_at(offset) {
-				if let Some(image_data) = controller.book.image(url) {
-					opener.open_image(url, image_data.bytes())?;
+			if let Some(image) = line.image_at(offset) {
+				let href = image.href();
+				if let Some(image_data) = controller.book.image(href) {
+					opener.open_image(href, image_data.bytes())?;
 				}
 			}
 		}

@@ -14,6 +14,7 @@ use lightningcss::properties::{border, font, Property};
 use lightningcss::properties::border::{Border, BorderSideWidth};
 use lightningcss::properties::display::{Display, DisplayKeyword, DisplayOutside, DisplayPair};
 use lightningcss::properties::font::{AbsoluteFontWeight, FontFamily, FontSize, FontWeight as CssFontWeight};
+use lightningcss::properties::size::Size;
 use lightningcss::properties::text::{TextDecoration as CssTextDecoration, TextDecorationLine as CssTextDecorationLine, TextDecorationStyle as CssTextDecorationStyle};
 use lightningcss::rules::{CssRule, font_face};
 use lightningcss::rules::font_face::FontFaceProperty;
@@ -178,13 +179,71 @@ impl TextDecoration {
 }
 
 #[derive(Clone, Debug)]
+pub struct ElementSize {
+	/// root font size based
+	scale: FontScale,
+	relative: bool,
+}
+
+impl ElementSize {
+	#[inline]
+	fn new(scale: FontScale, relative: bool) -> Self
+	{
+		Self { scale, relative }
+	}
+	#[inline]
+	pub fn scale(&self) -> &FontScale
+	{
+		&self.scale
+	}
+	#[inline]
+	pub fn relative(&self) -> bool
+	{
+		self.relative
+	}
+	#[inline]
+	pub fn to_px(&self, font_scale: &FontScale, font_size: f32) -> f32
+	{
+		let scale = if self.relative {
+			font_scale.0 * self.scale.0
+		} else {
+			self.scale.0
+		};
+		scale * font_size
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct ImageStyle {
+	pub href: String,
+	pub width: Option<ElementSize>,
+	pub height: Option<ElementSize>,
+}
+impl ImageStyle {
+	#[inline]
+	fn new(href: &str, width: Option<ElementSize>, height: Option<ElementSize>) -> Self
+	{
+		Self {
+			href: href.to_owned(),
+			width,
+			height,
+		}
+	}
+	#[inline]
+	pub fn href(&self) -> &str
+	{
+		&self.href
+	}
+}
+
+#[derive(Clone, Debug)]
 pub enum TextStyle {
 	Decoration(TextDecoration),
 	Border(BorderLines, Option<Color32>),
-	FontSize { scale: FontScale, relative: bool },
+	FontSize(ElementSize),
 	FontWeight(FontWeightValue),
 	FontFamily(u16),
-	Image(String),
+	Image(ImageStyle),
 	Link(String),
 	Color(Color32),
 	BackgroundColor(Color32),
@@ -201,7 +260,7 @@ impl TextStyle {
 			TextStyle::FontSize { .. } => 3,
 			TextStyle::FontWeight(_) => 4,
 			TextStyle::FontFamily(_) => 5,
-			TextStyle::Image(_) => 6,
+			TextStyle::Image { .. } => 6,
 			TextStyle::Link(_) => 7,
 			TextStyle::Color(_) => 8,
 			TextStyle::BackgroundColor(_) => 9,
@@ -213,6 +272,8 @@ impl TextStyle {
 #[derive(Clone, Debug)]
 enum ParseTag {
 	Style(TextStyle),
+	Width(ElementSize),
+	Height(ElementSize),
 	Paragraph,
 	Hidden,
 }
@@ -224,7 +285,9 @@ impl ParseTag {
 		match self {
 			ParseTag::Style(style) => style.id(),
 			ParseTag::Paragraph => 1000,
-			ParseTag::Hidden => 1001,
+			ParseTag::Width(_) => 1001,
+			ParseTag::Height(_) => 1002,
+			ParseTag::Hidden => 9999,
 		}
 	}
 
@@ -710,7 +773,7 @@ impl<'a> HtmlParser<'a> {
 					}
 					local_name!("img") => {
 						if let Some(href) = element.attr("src") {
-							self.add_image(href);
+							self.add_image(href, &element_tags);
 						}
 					}
 					local_name!("image") => {
@@ -720,7 +783,7 @@ impl<'a> HtmlParser<'a> {
 							LocalName::from("href"));
 						let href = element.attrs.get(&name).map(Deref::deref);
 						if let Some(href) = href {
-							self.add_image(href);
+							self.add_image(href, &element_tags);
 						}
 					}
 					_ => self.convert_node_children(node.children()),
@@ -781,12 +844,23 @@ impl<'a> HtmlParser<'a> {
 		element_tags
 	}
 
-	fn add_image(&mut self, href: &str)
+	fn add_image(&mut self, href: &str, element_tags: &LeveledParseTagSet)
 	{
+		let mut width = None;
+		let mut height = None;
+		for tag in element_tags {
+			match &tag.0 {
+				ParseTag::Width(size) if width.is_none() =>
+					width = Some(size.clone()),
+				ParseTag::Height(size) if height.is_none() =>
+					height = Some(size.clone()),
+				_ => {}
+			}
+		}
 		let line = self.lines.last_mut().unwrap();
 		let start = line.len();
 		line.push(IMAGE_CHAR);
-		line.push_style(TextStyle::Image(href.to_string()), start..start + 1);
+		line.push_style(TextStyle::Image(ImageStyle::new(href, width, height)), start..start + 1);
 	}
 
 	fn newline_for_class(&mut self, element: &Element)
@@ -873,6 +947,8 @@ impl<'a> HtmlParser<'a> {
 			Property::Background(bg) => Some(ParseTag::Style(TextStyle::BackgroundColor(self.css_color(&bg[0].color)?))),
 			Property::Display(Display::Pair(DisplayPair { outside: DisplayOutside::Block, .. })) => Some(ParseTag::Paragraph),
 			Property::Display(Display::Keyword(DisplayKeyword::None)) => Some(ParseTag::Hidden),
+			Property::Width(size) => Some(ParseTag::Width(image_size(size)?)),
+			Property::Height(size) => Some(ParseTag::Height(image_size(size)?)),
 			_ => None,
 		}
 	}
@@ -1078,25 +1154,31 @@ fn font_size_level(level: u8, relative: bool) -> TextStyle
 		_ => 1.0 // no other level
 	};
 	let scale = FontScale(scale);
-	TextStyle::FontSize { scale, relative }
+	TextStyle::FontSize(ElementSize::new(scale, relative))
+}
+
+#[inline]
+fn length_percentage(percentage: &LengthPercentage) -> ElementSize
+{
+	match percentage {
+		LengthPercentage::Dimension(lv) => {
+			let (scale, relative) = length_value(lv, DEFAULT_FONT_SIZE);
+			ElementSize::new(FontScale(scale), relative)
+		}
+		LengthPercentage::Percentage(percentage::Percentage(p)) =>
+			ElementSize::new(FontScale(*p), true),
+		LengthPercentage::Calc(_) => // 视而不见
+			ElementSize::new(Default::default(), false),
+	}
 }
 
 fn font_size(size: &FontSize) -> ParseTag
 {
 	let style = match size {
-		FontSize::Length(lp) => match lp {
-			LengthPercentage::Dimension(lv) => {
-				let (scale, relative) = length_value(lv, DEFAULT_FONT_SIZE);
-				TextStyle::FontSize { scale: FontScale(scale), relative }
-			}
-			LengthPercentage::Percentage(percentage::Percentage(p)) =>
-				TextStyle::FontSize { scale: FontScale(*p), relative: true },
-			LengthPercentage::Calc(_) => // 视而不见
-				TextStyle::FontSize { scale: Default::default(), relative: false }
-		}
+		FontSize::Length(lp) => TextStyle::FontSize(length_percentage(lp)),
 		FontSize::Absolute(size) => match size {
 			font::AbsoluteFontSize::XXSmall => font_size_level(1, false),
-			font::AbsoluteFontSize::XSmall => TextStyle::FontSize { scale: FontScale(3.0 / 4.0), relative: false },
+			font::AbsoluteFontSize::XSmall => TextStyle::FontSize(ElementSize::new(FontScale(3.0 / 4.0), false)),
 			font::AbsoluteFontSize::Small => font_size_level(2, false),
 			font::AbsoluteFontSize::Medium => font_size_level(3, false),
 			font::AbsoluteFontSize::Large => font_size_level(4, false),
@@ -1110,6 +1192,21 @@ fn font_size(size: &FontSize) -> ParseTag
 		}
 	};
 	ParseTag::Style(style)
+}
+
+fn image_size(size: &Size) -> Option<ElementSize>
+{
+	let es = match size {
+		Size::LengthPercentage(percentage) |
+		Size::FitContentFunction(percentage) => length_percentage(percentage),
+		Size::Auto |
+		Size::MinContent(_) |
+		Size::MaxContent(_) |
+		Size::FitContent(_) |
+		Size::Stretch(_) |
+		Size::Contain => return None,
+	};
+	Some(es)
 }
 
 #[inline]
@@ -1137,16 +1234,16 @@ fn length_value(value: &LengthValue, default_size: f32) -> (f32, bool)
 {
 	match value {
 		LengthValue::Px(v) => (v / default_size, false),
+		LengthValue::In(v) => (v / default_size * 96., false),
+		LengthValue::Cm(v) => (v / default_size * 96. / 2.54, false),
+		LengthValue::Mm(v) => (v / default_size * 96. / 2.54 / 10., false),
+		LengthValue::Q(v) => (v / default_size * 96. / 2.54 / 40., false),
+		LengthValue::Pt(v) => (v / default_size * 96. / 72., false),
+		LengthValue::Pc(v) => (v / default_size * 96. / 6., false),
 		LengthValue::Em(v) => (*v, true),
 		LengthValue::Rem(v) => (*v, false),
-		// 没见过，无视之
-		LengthValue::In(_)
-		| LengthValue::Cm(_)
-		| LengthValue::Mm(_)
-		| LengthValue::Q(_)
-		| LengthValue::Pt(_)
-		| LengthValue::Pc(_)
-		| LengthValue::Ex(_)
+
+		LengthValue::Ex(_)
 		| LengthValue::Rex(_)
 		| LengthValue::Ch(_)
 		| LengthValue::Rch(_)
