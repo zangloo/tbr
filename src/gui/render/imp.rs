@@ -1272,7 +1272,7 @@ fn load_image_and_resize(image_style: &ImageStyle, font_scale: &FontScale,
 {
 	let mut image = load_image(bytes)?;
 	let orig_width = image.width();
-	let orig_height = image.width();
+	let orig_height = image.height();
 	let (render_size, resize) = calc_image_size(
 		image_style,
 		font_scale,
