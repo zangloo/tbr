@@ -830,6 +830,11 @@ impl<'a> HtmlParser<'a> {
 						insert_or_replace_tag(&mut element_tags, tag, false);
 					}
 				}
+				for property in &declaration.important_declarations {
+					if let Some(tag) = self.convert_style(property) {
+						insert_or_replace_tag(&mut element_tags, tag, false);
+					}
+				}
 			}
 		}
 		if let Some(tags) = self.element_tags.remove(&node_id) {
