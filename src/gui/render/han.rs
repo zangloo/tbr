@@ -96,7 +96,8 @@ impl GuiRender for GuiHanRender
 					Pos2::new(left, top),
 					Pos2::new(self.baseline, bottom),
 				);
-				(RenderCell::Image(path), rect)
+				let link_index = char_style.link.map(|(i, _)| i);
+				(RenderCell::Image(path, link_index), rect)
 			} else {
 				if i == 0 && with_leading(text) {
 					top = context.render_rect.min.y + context.leading_space;
@@ -189,7 +190,7 @@ impl GuiRender for GuiHanRender
 			let rect_width = rect.width();
 			if line_size < rect_width {
 				line_size = rect_width;
-				if matches!(cell, RenderCell::Image(_)) {
+				if matches!(cell, RenderCell::Image(_, _)) {
 					let default_space = default_size / 2.0;
 					if line_space < default_space {
 						line_space = default_space;
@@ -417,7 +418,7 @@ impl GuiRender for GuiHanRender
 		let mut right = rect.max.x;
 		let top = min.y;
 		let (color, padding) = match &draw_char.cell {
-			RenderCell::Image(_) =>
+			RenderCell::Image(_, _) =>
 				if let Some(color) = &decoration.color {
 					(color.clone(), context.default_font_measure.y / 4.0)
 				} else {
@@ -498,7 +499,7 @@ impl GuiRender for GuiHanRender
 		let min = &rect.min;
 		let top = min.y;
 		let padding = match &draw_char.cell {
-			RenderCell::Image(_) => 0.0,
+			RenderCell::Image(_, _) => 0.0,
 			RenderCell::Char(CharCell { cell_size, .. })
 			| RenderCell::Link(CharCell { cell_size, .. }, _)
 			=> cell_size.y / 4.0,

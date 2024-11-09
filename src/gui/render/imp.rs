@@ -100,7 +100,7 @@ pub struct CharCell {
 #[derive(Clone, Debug)]
 pub enum RenderCell {
 	Char(CharCell),
-	Image(String),
+	Image(String, Option<usize>),
 	/// usize for link_index
 	Link(CharCell, usize),
 }
@@ -906,7 +906,7 @@ pub trait GuiRender {
 		for render_line in render_lines {
 			for dc in &render_line.chars {
 				match &dc.cell {
-					RenderCell::Image(name) => {
+					RenderCell::Image(name, _) => {
 						self.draw_image(name, &dc.rect, cairo);
 					}
 					RenderCell::Char(cell)

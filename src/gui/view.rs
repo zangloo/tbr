@@ -367,7 +367,7 @@ mod imp {
 		const NAME: &'static str = "BookView";
 		type Type = super::GuiView;
 		type ParentType = gtk4::DrawingArea;
-		type Interfaces = (Scrollable, );
+		type Interfaces = (Scrollable,);
 
 		fn class_init(clazz: &mut Self::Class) {
 			clazz.set_css_name(super::GuiView::WIDGET_NAME);
@@ -518,7 +518,8 @@ mod imp {
 
 		#[inline]
 		fn adjustment<F, T>(&self, f: F) -> T
-			where F: FnOnce(&Adjustment) -> T
+		where
+			F: FnOnce(&Adjustment) -> T,
 		{
 			assert!(self.scrollable.get());
 			let adjustment = if self.render_han.get() {
@@ -848,7 +849,8 @@ mod imp {
 
 		#[inline]
 		pub(super) fn pointer_info<F, T>(&self, mut pointer_position: Pos2, f: F) -> Option<T>
-			where F: FnOnce(&RenderLine, &RenderChar) -> Option<T>
+		where
+			F: FnOnce(&RenderLine, &RenderChar) -> Option<T>,
 		{
 			let data = self.data.borrow();
 			let render_lines = &data.render_lines;
@@ -876,9 +878,11 @@ mod imp {
 						} else {
 							ClickTarget::Link(line.line(), link_index)
 						},
-					RenderCell::Image(_) =>
+					RenderCell::Image(_, link_index) =>
 						if state.eq(&(ModifierType::CONTROL_MASK)) {
 							ClickTarget::Image(line.line(), dc.offset)
+						} else if let Some(link_index) = link_index {
+							ClickTarget::Link(line.line(), link_index)
 						} else {
 							return None;
 						}
@@ -894,12 +898,13 @@ mod imp {
 		{
 			let name = match dc.cell {
 				RenderCell::Char(_) => None,
-				RenderCell::Image(_) => if state.eq(&ModifierType::CONTROL_MASK) {
+				RenderCell::Image(_, None) => if state.eq(&ModifierType::CONTROL_MASK) {
 					Some("zoom-in")
 				} else {
 					None
 				}
-				RenderCell::Link(_, _) => Some("pointer"),
+				RenderCell::Link(_, _) |
+				RenderCell::Image(_, Some(_)) => Some("pointer"),
 			};
 			name.unwrap_or_else(|| {
 				if self.render_han.get() {
@@ -915,12 +920,13 @@ mod imp {
 		{
 			let name = match dc.cell {
 				RenderCell::Char(_) => None,
-				RenderCell::Image(_) => if state.eq(&ModifierType::CONTROL_MASK) {
+				RenderCell::Image(_, None) => if state.eq(&ModifierType::CONTROL_MASK) {
 					Some("pointer")
 				} else {
 					None
 				}
-				RenderCell::Link(_, _) => Some("pointer"),
+				RenderCell::Link(_, _) |
+				RenderCell::Image(_, Some(_)) => Some("pointer"),
 			};
 			name.unwrap_or("default")
 		}

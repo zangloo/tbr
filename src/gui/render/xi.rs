@@ -40,7 +40,7 @@ impl GuiXiRender
 			let this_height = dc.rect.height();
 			if this_height > line_size {
 				line_size = this_height;
-				if matches!(dc.cell, RenderCell::Image(_)) {
+				if matches!(dc.cell, RenderCell::Image(_, _)) {
 					let default_space = default_size / 2.0;
 					if line_space < default_space {
 						line_space = default_space;
@@ -134,7 +134,8 @@ impl GuiRender for GuiXiRender
 					Pos2::new(left, self.baseline),
 					Pos2::new(right, bottom),
 				);
-				(RenderCell::Image(path), rect, false, true)
+				let link_index = char_style.link.map(|(i, _)| i);
+				(RenderCell::Image(path, link_index), rect, false, true)
 			} else {
 				if i == 0 && with_leading(text) {
 					left += context.leading_space;
@@ -438,7 +439,7 @@ impl GuiRender for GuiXiRender
 		let left = min.x;
 		let mut top = min.y;
 		let (color, padding) = match &draw_char.cell {
-			RenderCell::Image(_) =>
+			RenderCell::Image(_, _) =>
 				if let Some(color) = &decoration.color {
 					(color.clone(), context.default_font_measure.x / 4.0)
 				} else {
@@ -512,7 +513,7 @@ impl GuiRender for GuiXiRender
 		let min = &rect.min;
 		let left = min.x;
 		let padding = match &draw_char.cell {
-			RenderCell::Image(_) => 0.0,
+			RenderCell::Image(_, _) => 0.0,
 			RenderCell::Char(CharCell { cell_size, .. })
 			| RenderCell::Link(CharCell { cell_size, .. }, _)
 			=> cell_size.x / 4.0,
