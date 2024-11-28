@@ -1786,6 +1786,7 @@ impl GuiContext {
 		let (on, position) = if paned.position() == 0 {
 			(true, self.cfg().gui.sidebar_size as i32)
 		} else {
+			self.ctrl().render.grab_focus();
 			(false, 0)
 		};
 		self.sidebar_btn.set_active(on);
