@@ -792,6 +792,8 @@ impl<'a> HtmlParser<'a> {
 							self.add_image(href, &element_tags);
 						}
 					}
+					local_name!("noscript") |
+					local_name!("script") => {}
 					_ => self.convert_node_children(node.children()),
 				}
 				if force_paragraph {
