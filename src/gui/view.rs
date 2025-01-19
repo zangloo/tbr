@@ -130,6 +130,7 @@ impl GuiView {
 		drag_gesture.connect_update(move |drag, seq| {
 			if let Some(bp) = drag.start_point() {
 				if let Some(ep) = drag.point(seq) {
+					drag.set_state(gtk4::EventSequenceState::Claimed);
 					let from = pos2(bp.0 as f32, bp.1 as f32);
 					let to = pos2(ep.0 as f32, ep.1 as f32);
 					if let Some((from, to)) = view.calc_selection(from, to) {
@@ -169,7 +170,7 @@ impl GuiView {
 
 		let gesture = GestureClick::new();
 		let view = self.clone();
-		gesture.connect_pressed(move |gesture, n_press, x, y| {
+		gesture.connect_released(move |gesture, n_press, x, y| {
 			if n_press == 1 {
 				gesture.set_state(gtk4::EventSequenceState::Claimed);
 				let pos = pos2(x as f32, y as f32);
