@@ -148,9 +148,9 @@ impl GuiView {
 		});
 		let view = self.clone();
 		drag_gesture.connect_end(move |drag, seq| {
+			view.grab_focus();
 			if let Some(bp) = drag.start_point() {
 				if let Some(ep) = drag.point(seq) {
-					view.grab_focus();
 					if bp != ep {
 						let from = pos2(bp.0 as f32, bp.1 as f32);
 						let to = pos2(ep.0 as f32, ep.1 as f32);
