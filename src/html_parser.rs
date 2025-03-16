@@ -46,7 +46,7 @@ pub struct HtmlParseOptions<'a> {
 
 impl<'a> HtmlParseOptions<'a> {
 	#[inline]
-	pub fn new(html: &'a str) -> HtmlParseOptions
+	pub fn new(html: &'a str) -> HtmlParseOptions<'a>
 	{
 		HtmlParseOptions {
 			html,
