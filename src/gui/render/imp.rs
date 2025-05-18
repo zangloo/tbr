@@ -18,7 +18,7 @@ use crate::gui::font::{Fonts, HtmlFonts, UserFonts};
 use crate::gui::load_image;
 use crate::gui::math::{pos2, vec2, Pos2, Rect, Vec2};
 use crate::html_parser;
-use crate::html_parser::{BlockStyle, BorderLines, ElementSize, FontScale, FontWeight, ImageStyle, TextDecorationStyle};
+use crate::html_parser::{BlockStyle, BorderLines, FontScale, FontWeight, ImageLength, ImageStyle, TextDecorationStyle};
 
 pub const HAN_CHAR: char = '漢';
 
@@ -1214,35 +1214,58 @@ pub trait GuiRender {
 /// calc image render size
 /// return
 /// 1: render size
-/// 2: raise needed
+/// 2: rerender needed on size or font changed
 fn calc_image_size(image_style: &ImageStyle, font_scale: &FontScale,
 	font_size: u8, orig_width: i32, orig_height: i32, view_size: &Vec2)
 	-> (Vec2, bool)
 {
 	#[inline]
-	fn calc_length(orig_length: i32, custom_length: &Option<ElementSize>,
-		font_scale: &FontScale, font_size: f32) -> (f32, bool)
+	fn calc_length(length: &ImageLength,
+		font_scale: &FontScale, font_size: f32, full_size: f32) -> (f32, bool)
 	{
-		if let Some(length) = custom_length {
-			let px = length.to_px(font_scale, font_size);
-			(px, true)
-		} else {
-			(orig_length as f32, false)
+		match length {
+			ImageLength::ElementSize(l) => (l.to_px(font_scale, font_size), true),
+			ImageLength::Percent(p) => (p * full_size, true),
 		}
 	}
+
 	let width = view_size.x;
 	let height = view_size.y;
 	let font_size = font_size as f32;
-	let (image_width, relative_with_font_size_w) = calc_length(
-		orig_width,
-		&image_style.width,
-		font_scale,
-		font_size);
-	let (image_height, relative_with_font_size_h) = calc_length(
-		orig_height,
-		&image_style.height,
-		font_scale,
-		font_size);
+	let (image_width, relative_with_font_size_w, image_height, relative_with_font_size_h) = match (&image_style.width, &image_style.height) {
+		(Some(w), Some(h)) => {
+			let (image_width, relative_with_font_size_w) = calc_length(
+				w,
+				font_scale,
+				font_size,
+				width);
+			let (image_height, relative_with_font_size_h) = calc_length(
+				h,
+				font_scale,
+				font_size,
+				height);
+			(image_width, relative_with_font_size_w, image_height, relative_with_font_size_h)
+		}
+		(None, None) => (orig_width as f32, false, orig_height as f32, false),
+		(Some(w), None) => {
+			let (image_width, relative_with_font_size_w) = calc_length(
+				w,
+				font_scale,
+				font_size,
+				width);
+			let image_height = orig_height as f32 * image_width / orig_width as f32;
+			(image_width, relative_with_font_size_w, image_height, relative_with_font_size_w)
+		}
+		(None, Some(h)) => {
+			let (image_height, relative_with_font_size_h) = calc_length(
+				h,
+				font_scale,
+				font_size,
+				height);
+			let image_width = orig_width as f32 * image_height / orig_height as f32;
+			(image_width, relative_with_font_size_h, image_height, relative_with_font_size_h)
+		}
+	};
 	let relative_with_font_size = relative_with_font_size_w | relative_with_font_size_h;
 	if image_width > width || image_height > height {
 		let image_ratio = image_width / image_height;
@@ -1259,10 +1282,8 @@ fn calc_image_size(image_style: &ImageStyle, font_scale: &FontScale,
 			(width, height)
 		};
 		(Vec2 { x: draw_width, y: draw_height }, true)
-	} else if relative_with_font_size {
-		(Vec2 { x: image_width, y: image_height }, true)
 	} else {
-		(Vec2 { x: image_width, y: image_height }, false)
+		(Vec2 { x: image_width, y: image_height }, relative_with_font_size)
 	}
 }
 

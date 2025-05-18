@@ -214,14 +214,20 @@ impl ElementSize {
 }
 
 #[derive(Clone, Debug)]
+pub enum ImageLength {
+	ElementSize(ElementSize),
+	Percent(f32),
+}
+
+#[derive(Clone, Debug)]
 pub struct ImageStyle {
 	pub href: String,
-	pub width: Option<ElementSize>,
-	pub height: Option<ElementSize>,
+	pub width: Option<ImageLength>,
+	pub height: Option<ImageLength>,
 }
 impl ImageStyle {
 	#[inline]
-	fn new(href: &str, width: Option<ElementSize>, height: Option<ElementSize>) -> Self
+	fn new(href: &str, width: Option<ImageLength>, height: Option<ImageLength>) -> Self
 	{
 		Self {
 			href: href.to_owned(),
@@ -272,8 +278,8 @@ impl TextStyle {
 #[derive(Clone, Debug)]
 enum ParseTag {
 	Style(TextStyle),
-	Width(ElementSize),
-	Height(ElementSize),
+	Width(ImageLength),
+	Height(ImageLength),
 	Paragraph,
 	Hidden,
 }
@@ -1207,11 +1213,19 @@ fn font_size(size: &FontSize) -> ParseTag
 	ParseTag::Style(style)
 }
 
-fn image_size(size: &Size) -> Option<ElementSize>
+fn image_size(size: &Size) -> Option<ImageLength>
 {
-	let es = match size {
+	let size = match size {
 		Size::LengthPercentage(percentage) |
-		Size::FitContentFunction(percentage) => length_percentage(percentage),
+		Size::FitContentFunction(percentage) => match percentage {
+			LengthPercentage::Dimension(lv) => {
+				let (scale, relative) = length_value(lv, DEFAULT_FONT_SIZE);
+				ImageLength::ElementSize(ElementSize::new(FontScale(scale), relative))
+			}
+			LengthPercentage::Percentage(percentage::Percentage(p)) =>
+				ImageLength::Percent(*p),
+			LengthPercentage::Calc(_) => return None,
+		},
 		Size::Auto |
 		Size::MinContent(_) |
 		Size::MaxContent(_) |
@@ -1219,7 +1233,7 @@ fn image_size(size: &Size) -> Option<ElementSize>
 		Size::Stretch(_) |
 		Size::Contain => return None,
 	};
-	Some(es)
+	Some(size)
 }
 
 #[inline]
