@@ -1,5 +1,6 @@
-use anyhow::{anyhow, Result};
-use roxmltree::{Children, Document, Node, NodeType, ParsingOptions};
+use anyhow::Result;
+use quick_xml::events::{BytesStart, Event};
+use quick_xml::Reader;
 
 /// referenced to xhtml_entities.md
 /// token from https://www.webstandards.org/learn/reference/charts/entities/named_entities/index.html
@@ -137,127 +138,94 @@ fn preprocess(xhtml: &str) -> String
 pub fn xhtml_to_html(xhtml: &str) -> Result<String>
 {
 	let text = preprocess(xhtml);
-	let options = ParsingOptions {
-		allow_dtd: true,
-		nodes_limit: u32::MAX,
-	};
-	let doc = Document::parse_with_options(&text, options)?;
-
-
-	let root = doc.root_element();
-	let html_node = if root.has_tag_name("html") {
-		root
-	} else {
-		root.children()
-			.find(|node| node.has_tag_name("html"))
-			.ok_or(anyhow!("xhtml with no html node"))?
-	};
+	let mut reader = quick_xml::Reader::from_str(&text);
+	reader.config_mut().trim_text(true);
 	let mut html = String::with_capacity(xhtml.len());
-	let mut stack = vec![];
-	if let Some((mut iter, mut child, _)) = write_node(html_node, &mut html) {
-		'main_loop:
-		loop {
-			if let Some((next_iter, next_child, tag_name)) = write_node(child, &mut html) {
-				stack.push((iter, tag_name));
-				iter = next_iter;
-				child = next_child;
-				continue;
+	let mut found = false;
+	loop {
+		match reader.read_event()? {
+			Event::Start(e) => if found {
+				write_start(&e, &mut html, &mut reader)?;
+			} else if e.name().as_ref() == b"html" {
+				found = true;
+				write_start(&e, &mut html, &mut reader)?;
 			}
-			loop {
-				if let Some(next_child) = iter.next() {
-					child = next_child;
-					continue 'main_loop;
-				}
-				if let Some((prev_iter, tag_name)) = stack.pop() {
-					write_tail(tag_name, &mut html);
-					iter = prev_iter;
-				} else {
-					break 'main_loop;
+			Event::End(e) => if found {
+				write_end(e.name().as_ref(), &mut html);
+			} else if e.name().as_ref() == b"html" {
+				html.push_str("</html>");
+				break;
+			}
+			Event::Empty(e) => if found {
+				write_start(&e, &mut html, &mut reader)?;
+				write_end(e.name().as_ref(), &mut html);
+			}
+			Event::Text(e) => if found {
+				let cow = e.into_inner();
+				let text = String::from_utf8_lossy(cow.as_ref());
+				if text.len() > 0 {
+					html.push_str(&text);
 				}
 			}
+			Event::CData(_) => {}
+			Event::Comment(_) => {}
+			Event::Decl(_) => {}
+			Event::PI(_) => {}
+			Event::DocType(_) => {}
+			Event::GeneralRef(_) => {}
+			Event::Eof => break,
 		}
-		html.push_str("</html>");
 	}
 	Ok(html)
 }
 
-#[inline(always)]
-fn write_tail(tag_name: &str, html: &mut String)
+#[inline]
+fn is_void_element(name: &[u8]) -> bool
 {
+	const VOID_ELEMENTS: [&[u8]; 16] = [b"area", b"base", b"br", b"col", b"command", b"embed", b"hr", b"img", b"input", b"keygen", b"link", b"meta", b"param", b"source", b"track", b"wbr"];
+	VOID_ELEMENTS.binary_search(&name).is_ok()
+}
+
+fn write_start(start: &BytesStart, html: &mut String, reader: &mut Reader<&[u8]>) -> Result<()>
+{
+	let tag_name = String::from_utf8_lossy(start.as_ref());
+	html.push('<');
+	html.push_str(&tag_name);
+	write_attrs(start, html, reader)?;
+	html.push('>');
+	Ok(())
+}
+
+fn write_end(name: &[u8], html: &mut String)
+{
+	if is_void_element(name) {
+		return;
+	}
 	html.push_str("</");
-	html.push_str(tag_name);
+	html.push_str(&String::from_utf8_lossy(name));
 	html.push('>');
 }
 
 #[inline(always)]
-fn write_node<'a, 'i>(node: Node<'a, 'i>, html: &mut String)
-	-> Option<(Children<'a, 'i>, Node<'a, 'i>, &'a str)>
+fn write_attrs(start: &BytesStart, html: &mut String, reader: &mut Reader<&[u8]>) -> Result<()>
 {
-	match node.node_type() {
-		NodeType::Element => {
-			let tag_name = node.tag_name().name();
-			html.push('<');
-			html.push_str(tag_name);
-			write_attrs(&node, html);
-			html.push('>');
-			if is_void_element(tag_name) {
-				return None;
-			}
-			let mut children = node.children();
-			if let Some(child) = children.next() {
-				Some((children, child, tag_name))
-			} else {
-				write_tail(tag_name, html);
-				None
-			}
-		}
-		NodeType::Text => {
-			if let Some(text) = node.text() {
-				let text = text.trim();
-				if !text.is_empty() {
-					html.push_str(text)
-				}
-			}
-			None
-		}
-		NodeType::Root |
-		NodeType::Comment |
-		NodeType::PI => None,
-	}
-}
-
-#[inline(always)]
-fn write_attrs(node: &Node, html: &mut String)
-{
-	const DOUBLE_QUOTA_ESCAPE: &str = "&quot;";
-
-	for attr in node.attributes() {
+	for attr in start.attributes() {
+		let attr = attr?;
 		html.push(' ');
-		if let Some(namespace) = attr.namespace() {
-			let prefix = if let Some(prefix) = node.lookup_prefix(namespace) {
-				prefix
-			} else {
-				namespace
-			};
-			html.push_str(prefix);
+
+		// concat name
+		let name = attr.key;
+		if let Some(prefix) = name.prefix() {
+			let prefix = String::from_utf8_lossy(prefix.as_ref());
+			html.push_str(&prefix);
 			html.push(':');
 		}
-		html.push_str(attr.name());
+		html.push_str(&String::from_utf8_lossy(name.local_name().as_ref()));
+
+		// concat value
 		html.push_str(r#"=""#);
-		for char in attr.value().chars() {
-			if char == '"' {
-				html.push_str(DOUBLE_QUOTA_ESCAPE);
-			} else {
-				html.push(char);
-			}
-		}
+		html.push_str(&String::from_utf8_lossy(&attr.value));
 		html.push('"');
 	}
-}
-
-#[inline(always)]
-fn is_void_element(name: &str) -> bool
-{
-	const VOID_ELEMENTS: [&str; 16] = ["area", "base", "br", "col", "command", "embed", "hr", "img", "input", "keygen", "link", "meta", "param", "source", "track", "wbr"];
-	VOID_ELEMENTS.binary_search(&name).is_ok()
+	Ok(())
 }
