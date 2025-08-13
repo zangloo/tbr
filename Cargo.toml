@@ -48,11 +48,12 @@ serde_derive = "1.0"
 toml = "0.8"
 rust-embed = { version = "8.0", features = ["include-exclude"] }
 roxmltree = "0.19"
+quick-xml = { version = "0.38", features = ["serialize", "overlapped-lists"] }
 unicode-width = "0.1"
 fancy-regex = "0.13"
 chardetng = "0.1"
 encoding_rs = "0.8"
-zip = "1.1.1"
+zip = "4.3"
 lexical-sort = "0.3"
 elsa = "1.8"
 bitflags = "2.5"

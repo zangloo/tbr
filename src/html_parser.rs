@@ -25,7 +25,6 @@ use lightningcss::values::color::CssColor;
 use lightningcss::values::length::{Length, LengthPercentage, LengthValue};
 use lightningcss::values::percentage;
 use markup5ever::{LocalName, Namespace, Prefix, QualName};
-use roxmltree::{Document, ParsingOptions};
 use scraper::{Html, Node, Selector};
 use scraper::node::Element;
 
@@ -1361,16 +1360,6 @@ fn load_stylesheets<'d>(document: &'d Html, resolver: Option<&'d dyn HtmlResolve
 	}
 
 	stylesheets
-}
-
-#[inline]
-pub fn parse_xml(xml: &str) -> Result<Document>
-{
-	let options = ParsingOptions {
-		allow_dtd: true,
-		nodes_limit: u32::MAX,
-	};
-	Ok(Document::parse_with_options(xml, options)?)
 }
 
 #[inline]

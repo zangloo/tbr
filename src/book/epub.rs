@@ -1,3 +1,7 @@
+use anyhow::{anyhow, bail, Result};
+use elsa::FrozenMap;
+use indexmap::IndexSet;
+use serde_derive::Deserialize;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
@@ -8,23 +12,19 @@ use std::io::Read;
 use std::io::Seek;
 use std::path::PathBuf;
 use std::str::FromStr;
-use anyhow::{anyhow, bail, Result};
-use elsa::FrozenMap;
-use indexmap::IndexSet;
-use roxmltree::{Children, ExpandedName, Node};
 use zip::ZipArchive;
 
-use crate::book::{Book, LoadingChapter, ChapterError, Line, Loader, TocInfo, ImageData};
-#[cfg(feature = "gui")]
-use crate::html_parser::BlockStyle;
-use crate::html_parser::{HtmlContent, HtmlParseOptions, HtmlResolver, parse_xml};
-use crate::list::ListIterator;
+use crate::book::{Book, ChapterError, ImageData, Line, Loader, LoadingChapter, TocInfo};
 use crate::common::TraceInfo;
 use crate::config::{BookLoadingInfo, ReadingInfo};
-use crate::{frozen_map_get, html_parser};
 #[cfg(feature = "gui")]
 use crate::gui::HtmlFonts;
+#[cfg(feature = "gui")]
+use crate::html_parser::BlockStyle;
+use crate::html_parser::{HtmlContent, HtmlParseOptions, HtmlResolver};
+use crate::list::ListIterator;
 use crate::xhtml::xhtml_to_html;
+use crate::{frozen_map_get, html_parser};
 
 struct ManifestItem {
 	#[allow(unused)]
@@ -216,7 +216,7 @@ impl Loader for EpubLoader {
 	}
 
 	#[inline]
-	fn load_file(&self, filename: &str, file: std::fs::File,
+	fn load_file(&self, filename: &str, file: fs::File,
 		loading_chapter: LoadingChapter, loading: BookLoadingInfo)
 		-> Result<(Box<dyn Book>, ReadingInfo)>
 	{
@@ -488,6 +488,151 @@ impl<'a> HtmlResolver for EpubResolver<'a>
 	}
 }
 
+/// epub container.xml
+#[derive(Deserialize)]
+struct RootFile<'a> {
+	#[serde(rename = "@full-path")]
+	full_path: Cow<'a, str>,
+	#[allow(unused)]
+	#[serde(borrow, rename = "@media-type")]
+	media_type: Cow<'a, str>,
+}
+#[derive(Deserialize)]
+struct RootFiles<'a> {
+	#[serde(borrow)]
+	rootfile: Vec<RootFile<'a>>,
+}
+#[derive(Deserialize)]
+struct EpubContainer<'a> {
+	#[serde(borrow)]
+	rootfiles: RootFiles<'a>,
+}
+
+/// epub content.opf
+#[derive(Deserialize)]
+struct EpubContentOpfMetadata<'a> {
+	#[serde(borrow, default, rename = "title")]
+	title: Vec<Cow<'a, str>>,
+	#[serde(borrow, default, rename = "creator")]
+	creator: Vec<Cow<'a, str>>,
+	#[serde(borrow, rename = "language")]
+	language: Option<Cow<'a, str>>,
+}
+#[derive(Deserialize)]
+struct EpubContentOpfManifestItem<'a> {
+	#[serde(borrow, rename = "@id")]
+	id: Cow<'a, str>,
+	#[serde(borrow, rename = "@media-type")]
+	media_type: Cow<'a, str>,
+	#[serde(borrow, rename = "@href")]
+	href: Cow<'a, str>,
+	#[serde(borrow, rename = "@properties")]
+	properties: Option<Cow<'a, str>>,
+}
+#[derive(Deserialize)]
+struct EpubContentOpfManifest<'a> {
+	#[serde(borrow, rename = "item")]
+	items: Vec<EpubContentOpfManifestItem<'a>>,
+}
+#[derive(Deserialize)]
+struct EpubContentOpfSpineItem<'a> {
+	#[serde(borrow, rename = "@idref")]
+	idref: Cow<'a, str>,
+}
+#[derive(Deserialize)]
+struct EpubContentOpfSpine<'a> {
+	#[serde(borrow, rename = "@toc")]
+	toc: Option<Cow<'a, str>>,
+	#[serde(borrow, rename = "itemref")]
+	itemrefs: Vec<EpubContentOpfSpineItem<'a>>,
+}
+#[derive(Deserialize)]
+struct EpubContentOpf<'a> {
+	#[serde(borrow)]
+	metadata: EpubContentOpfMetadata<'a>,
+	#[serde(borrow)]
+	manifest: EpubContentOpfManifest<'a>,
+	#[serde(borrow)]
+	spine: EpubContentOpfSpine<'a>,
+}
+
+/// epub toc.ncx
+#[derive(Deserialize)]
+struct EpubContentNcxNavLabel<'a> {
+	// #[serde(borrow, rename="text")]
+	text: Cow<'a, str>,
+}
+#[derive(Deserialize)]
+struct EpubContentNcxNavContent<'a> {
+	#[serde(borrow, rename = "@src")]
+	src: Cow<'a, str>,
+}
+#[derive(Deserialize)]
+struct EpubContentNcxNavPoint<'a> {
+	#[serde(borrow, rename = "@id")]
+	id: Cow<'a, str>,
+	#[serde(rename = "@playOrder")]
+	play_order: Option<Cow<'a, str>>,
+	#[serde(rename = "navLabel")]
+	nav_label: Option<EpubContentNcxNavLabel<'a>>,
+	#[serde(borrow)]
+	content: EpubContentNcxNavContent<'a>,
+	#[serde(borrow, rename = "navPoint")]
+	nav_points: Option<Vec<EpubContentNcxNavPoint<'a>>>,
+}
+#[derive(Deserialize)]
+struct EpubContentNcxNavMap<'a> {
+	#[serde(borrow, rename = "navPoint")]
+	nav_points: Vec<EpubContentNcxNavPoint<'a>>,
+}
+#[derive(Deserialize)]
+struct EpubContentNcx<'a> {
+	#[serde(borrow, rename = "navMap")]
+	nav_map: EpubContentNcxNavMap<'a>,
+}
+
+/// epub3 navigation document
+#[derive(Deserialize)]
+struct EpubContentNcxNavA<'a> {
+	#[serde(borrow, rename = "@href")]
+	href: Option<Cow<'a, str>>,
+	#[serde(borrow, rename = "@title")]
+	title: Option<Cow<'a, str>>,
+	#[serde(rename = "$value")]
+	text: String,
+}
+#[derive(Deserialize)]
+struct EpubContentNcxNavLi<'a> {
+	#[serde(borrow)]
+	a: Option<EpubContentNcxNavA<'a>>,
+	#[serde(borrow)]
+	span: Option<EpubContentNcxNavA<'a>>,
+	#[serde(borrow, rename = "id")]
+	ol: Option<EpubContentNcxNavOl<'a>>,
+}
+#[derive(Deserialize)]
+struct EpubContentNcxNavOl<'a> {
+	#[serde(borrow, rename = "li")]
+	lis: Vec<EpubContentNcxNavLi<'a>>,
+}
+#[derive(Deserialize)]
+struct Epub3NavDocNav<'a> {
+	#[serde(borrow, rename = "@type")]
+	nav_type: Cow<'a, str>,
+	#[serde(borrow)]
+	ol: Vec<EpubContentNcxNavOl<'a>>,
+}
+#[derive(Deserialize)]
+struct Epub3NavDocBody<'a> {
+	#[serde(borrow, rename = "nav")]
+	navs: Vec<Epub3NavDocNav<'a>>,
+}
+#[derive(Deserialize)]
+struct Epub3NavDoc<'a> {
+	#[serde(borrow)]
+	body: Epub3NavDocBody<'a>,
+}
+
 impl EpubBook {
 	pub fn new(archive: Box<dyn EpubArchive>, loading_chapter: LoadingChapter,
 		custom_style: &Option<String>) -> Result<Self>
@@ -496,18 +641,22 @@ impl EpubBook {
 			return Err(anyhow!("Encrypted epub."));
 		}
 		let container_text = archive.string("META-INF/container.xml")?;
-		let doc = parse_xml(&container_text)?;
-		let root = doc.root_element();
-		let rootfiles = get_child(root, "rootfiles").ok_or(anyhow!("invalid container.xml: no rootfiles"))?;
-		let rootfile = get_child(rootfiles, "rootfile").ok_or(anyhow!("invalid container.xml: no rootfile"))?;
-		let content_opf_path = rootfile.attribute("full-path").ok_or(anyhow!("invalid container.xml: no full-path"))?;
-		let content_opf_dir = match PathBuf::from(&content_opf_path).parent() {
+		let container = quick_xml::de::from_str::<EpubContainer>(&container_text)
+			.map_err(|e| anyhow!("Malformatted container.xml file: {}", e.to_string()))?;
+		let content_opf_path = &container
+			.rootfiles
+			.rootfile
+			.get(0)
+			.ok_or(anyhow!("invalid container.xml: no rootfile"))?
+			.full_path;
+		let content_opf_dir = match PathBuf::from(content_opf_path.as_ref()).parent() {
 			Some(p) => p.to_path_buf(),
 			None => PathBuf::new(),
 		};
-		let content_opf_text = archive.string(&content_opf_path)?;
-		let content_opf = parse_content_opf(&content_opf_text, &content_opf_dir, archive.as_ref())
+		let content_opf_text = archive.string(content_opf_path)?;
+		let content_opf = quick_xml::de::from_str::<EpubContentOpf>(&content_opf_text)
 			.map_err(|e| anyhow!("Malformatted content.opf file: {}", e.to_string()))?;
+		let content_opf = setup_content_opf(content_opf, &content_opf_dir, archive.as_ref())?;
 
 		let mut toc = match content_opf.manifest.get(content_opf.toc_id.as_ref().unwrap_or(&"ncx".to_string())) {
 			Some(ManifestItem { href, .. }) => {
@@ -527,11 +676,7 @@ impl EpubBook {
 						}
 					}
 				}
-				if let Some(toc) = toc {
-					toc
-				} else {
-					return Err(anyhow!("Invalid content.opf file, no ncx or nav"));
-				}
+				toc.ok_or(anyhow!("Invalid content.opf file, no ncx or nav"))?
 			}
 		};
 
@@ -596,7 +741,7 @@ impl EpubBook {
 					custom_style: self.custom_style.as_ref().map(|s| s.as_ref()),
 				};
 				#[allow(unused)]
-					let (html_content, mut font_faces) = html_parser::parse(HtmlParseOptions::new(&html_str)
+				let (html_content, mut font_faces) = html_parser::parse(HtmlParseOptions::new(&html_str)
 					.with_font_family(&mut self.font_families)
 					.with_resolver(&mut resolve))?;
 				#[cfg(feature = "gui")]
@@ -651,23 +796,24 @@ impl EpubBook {
 	}
 }
 
-fn parse_nav_points(nav_points_element: Node, level: usize, nav_points: &mut Vec<NavPoint>, cwd: &PathBuf)
+fn setup_nav_points(nav_points_element: &Vec<EpubContentNcxNavPoint>, level: usize, nav_points: &mut Vec<NavPoint>, cwd: &PathBuf)
 {
-	fn parse_element(el: Node, level: usize, cwd: &PathBuf) -> Option<NavPoint> {
-		let id = Some(el.attribute("id")?.to_string());
-		let play_order: Option<usize> = el
-			.attribute("playOrder")
+	fn setup_point(point: &EpubContentNcxNavPoint, level: usize, cwd: &PathBuf) -> Option<NavPoint> {
+		let id = Some(point.id.to_string());
+		let label = point
+			.nav_label
+			.as_ref()
+			.map(|l| l.text.to_string());
+		let play_order = point
+			.play_order
+			.as_ref()
 			.and_then(|po| po.parse().ok());
-		let src = get_child(el, "content")?.attribute("src")?.to_string();
+		let src = point.content.src.to_string();
 		let mut src_split = src.split('#');
 		let src_file = src_split.next()?;
 		let src_file = concat_path_str(cwd.clone(), src_file)?;
 		let src_file = Some(src_file);
 		let src_anchor = src_split.next().and_then(|str| Some(String::from(str)));
-		let label = get_child(el, "navLabel")
-			.and_then(|el| get_child(el, "text"))
-			.and_then(|el| el.text())
-			.map(|s| s.to_string());
 		Some(NavPoint {
 			id,
 			label,
@@ -678,121 +824,90 @@ fn parse_nav_points(nav_points_element: Node, level: usize, nav_points: &mut Vec
 			first_chapter_index: 0,
 		})
 	}
-	nav_points_element
-		.children()
-		.filter_map(|node| {
-			if node.has_tag_name("navPoint") {
-				return Some(node);
+	for point in nav_points_element {
+		if let Some(p) = setup_point(point, level, &cwd) {
+			nav_points.push(p);
+			if let Some(points) = &point.nav_points {
+				setup_nav_points(points, level + 1, nav_points, cwd)
 			}
-			None
-		})
-		.for_each(|el| {
-			if let Some(np) = parse_element(el, level, cwd) {
-				nav_points.push(np);
-				parse_nav_points(el, level + 1, nav_points, cwd);
-			}
-		});
+		}
+	}
 }
 
 fn parse_ncx(text: &str, cwd: &PathBuf) -> Result<Vec<NavPoint>>
 {
-	let doc = parse_xml(text)
+	let ncx: EpubContentNcx = quick_xml::de::from_str(text)
 		.map_err(|e| anyhow!("Failed parse ncx: {}", e.to_string()))?;
-	let ncx = doc.root_element();
-	let nav_map = get_child(ncx, "navMap")
-		.ok_or_else(|| anyhow!("Missing navMap"))?;
+
 	let mut nav_points = vec![];
-	parse_nav_points(nav_map, 1, &mut nav_points, cwd);
+	setup_nav_points(&ncx.nav_map.nav_points, 1, &mut nav_points, cwd);
 	if nav_points.len() == 0 {
-		Err(anyhow!("Could not parse NavPoints"))
+		Err(anyhow!("No NavPoints found"))
 	} else {
 		Ok(nav_points)
 	}
 }
 
-/// parse Navigation document
-/// according to https://www.w3.org/publishing/epub3/epub-packages.html#sec-package-nav-def
 fn parse_nav_doc(text: &str, cwd: &PathBuf) -> Result<Vec<NavPoint>>
 {
-	fn search_nav<'a, 'i>(element: Node<'a, 'i>, type_name: ExpandedName) -> Option<Node<'a, 'i>>
+	fn process(ol: EpubContentNcxNavOl, toc: &mut Vec<NavPoint>, level: usize, cwd: &PathBuf) -> Result<()>
 	{
-		for child in element.children() {
-			if child.is_element() {
-				if child.has_tag_name("nav") && child.attribute(type_name).map_or(false, |t| t == "toc") {
-					return Some(child);
-				}
-				let option = search_nav(child, type_name);
-				if option.is_some() {
-					return option;
-				}
+		for li in ol.lis {
+			// li
+			//     In this order:
+			//         (span or a) [exactly 1]
+			//         ol [conditionally required]
+			let tag = if let Some(a) = li.a {
+				a
+			} else if let Some(span) = li.span {
+				span
+			} else {
+				bail!("Navigation document entry with no text");
+			};
+			let label = if let Some(l) = tag.title {
+				l.to_string()
+			} else {
+				tag.text
+			};
+			if label.len() == 0 {
+				bail!("Navigation document entry with empty text");
 			}
-		}
-		None
-	}
-	fn process(children: Children, toc: &mut Vec<NavPoint>, level: usize, cwd: &PathBuf) -> Result<()>
-	{
-		for child in children {
-			if child.has_tag_name("li") {
-				let mut children = child.children();
-				// li
-				//     In this order:
-				//         (span or a) [exactly 1]
-				//         ol [conditionally required]
-				let a = children.next().ok_or(anyhow!("Invalid entry in Navigation document"))?;
-				if !a.is_element() {
-					bail!("Invalid entry node in Navigation document");
-				}
-				let label = match a.attribute("title") {
-					Some(title) => title,
-					None => a.text()
-						.ok_or(anyhow!("Navigation document entry with no text"))?
-				};
-				if label.len() == 0 {
-					bail!("Navigation document entry with empty text");
-				}
-				let (src_file, src_anchor) = if let Some(href) = a.attribute("href") {
-					// In the case of the toc nav, landmarks nav and page-list nav, it MUST resolve to an Top-level Content Document or fragment therein.
-					let mut parts = href.split('#');
-					let src_file = parts.next()
-						.map(|a| a.to_string())
-						.ok_or(anyhow!("Navigation document entry href not resolve to an Top-level Content Document or fragment therein"))?;
-					let src_file = concat_path_str(cwd.clone(), &src_file);
-					let src_anchor = parts.next().map(|a| a.to_string());
-					(src_file, src_anchor)
-				} else {
-					(None, None)
-				};
+			let (src_file, src_anchor) = if let Some(href) = tag.href {
+				// In the case of the toc nav, landmarks nav and page-list nav, it MUST resolve to an Top-level Content Document or fragment therein.
+				let mut parts = href.split('#');
+				let src_file = parts.next()
+					.map(|a| a.to_string())
+					.ok_or(anyhow!("Navigation document entry href not resolve to an Top-level Content Document or fragment therein"))?;
+				let src_file = concat_path_str(cwd.clone(), &src_file);
+				let src_anchor = parts.next().map(|a| a.to_string());
+				(src_file, src_anchor)
+			} else {
+				(None, None)
+			};
 
-				toc.push(NavPoint {
-					id: None,
-					label: Some(label.to_owned()),
-					play_order: None,
-					level,
-					src_file,
-					src_anchor,
-					first_chapter_index: 0,
-				});
-				if let Some(node) = children.next() {
-					if node.has_tag_name("ol") {
-						process(node.children(), toc, level + 1, cwd)?;
-					}
-				}
+			toc.push(NavPoint {
+				id: None,
+				label: Some(label),
+				play_order: None,
+				level,
+				src_file,
+				src_anchor,
+				first_chapter_index: 0,
+			});
+			if let Some(ol) = li.ol {
+				process(ol, toc, level + 1, cwd)?;
 			}
 		}
 		Ok(())
 	}
-	let doc = parse_xml(text)
+	let doc: Epub3NavDoc = quick_xml::de::from_str(text)
 		.map_err(|_e| anyhow!("Failed parse Navigation document"))?;
-	let root = doc.root_element();
-	let body = get_child(root, "body").ok_or(anyhow!("Navigation document without body"))?;
-	let namespace = root.lookup_namespace_uri(Some("epub"))
-		.ok_or(anyhow!("Navigation document without epub namespace"))?;
-	let epub_type_name = ExpandedName::from((namespace, "type"));
-	let nav = search_nav(body, epub_type_name).ok_or(anyhow!("Navigation document without nav of toc"))?;
 	let mut toc = vec![];
-	for child in nav.children() {
-		if child.has_tag_name("ol") {
-			process(child.children(), &mut toc, 1, cwd)?;
+	for nav in doc.body.navs {
+		if nav.nav_type == "toc" {
+			for ol in nav.ol {
+				process(ol, &mut toc, 1, cwd)?;
+			}
 			break;
 		}
 	}
@@ -803,73 +918,53 @@ fn parse_nav_doc(text: &str, cwd: &PathBuf) -> Result<Vec<NavPoint>>
 	}
 }
 
-fn parse_manifest(manifest: Node, path: &PathBuf) -> Manifest
+fn setup_manifest(manifest: EpubContentOpfManifest, path: &PathBuf) -> Manifest
 {
-	manifest
-		.children()
-		.filter_map(|node| {
-			if node.has_tag_name("item") {
-				let id = node.attribute("id")?.to_string();
-				let href = node.attribute("href")?;
-				let href = concat_path_str(path.clone(), href)?;
-				return Some((
-					id.clone(),
-					ManifestItem {
-						id,
-						href,
-						media_type: node.attribute("media-type")?.to_string(),
-						properties: node.attribute("properties").map(|s| s.to_string()),
-					},
-				));
-			}
-			None
-		})
-		.collect::<HashMap<ItemId, ManifestItem>>()
+	let mut map = HashMap::new();
+	for item in manifest.items {
+		if let Some(href) = concat_path_str(path.clone(), &item.href) {
+			let id = item.id.to_string();
+			map.insert(id.clone(), ManifestItem {
+				id,
+				href,
+				media_type: item.media_type.to_string(),
+				properties: item.properties.map(|p| p.to_string()),
+			});
+		}
+	}
+	map
 }
 
 #[inline]
-fn parse_spine(spine: Node, manifest: &Manifest, archive: &dyn EpubArchive) -> (Spine, Option<String>)
+fn setup_spine(spine: EpubContentOpfSpine, manifest: &Manifest, archive: &dyn EpubArchive) -> (Spine, Option<String>)
 {
-	let chapters = spine.children()
-		.filter_map(|node| {
-			if node.has_tag_name("itemref") {
-				let id = node.attribute("idref")?.to_string();
-				let item = manifest.get(&id)?;
-				if archive.exists(&item.href as &str) {
-					return Some(id);
-				}
+	let mut chapters = vec![];
+	for item in spine.itemrefs {
+		let id = item.idref.to_string();
+		if let Some(item) = manifest.get(&id) {
+			if archive.exists(&item.href as &str) {
+				chapters.push(id);
 			}
-			None
-		})
-		.collect();
-	let toc_id = spine.attribute("toc").map(|id| id.to_owned());
+		}
+	}
+	let toc_id = spine.toc.map(|toc| toc.to_string());
 	(chapters, toc_id)
 }
 
-fn parse_content_opf(text: &str, content_opf_dir: &PathBuf, archive: &dyn EpubArchive) -> Result<ContentOPF>
+fn setup_content_opf(opf: EpubContentOpf, content_opf_dir: &PathBuf, archive: &dyn EpubArchive) -> Result<ContentOPF>
 {
-	let doc = parse_xml(text)?;
-	let package = doc.root_element();
-	let metadata = get_child(package, "metadata")
-		.ok_or(anyhow!("No metadata node found in OPF"))?;
-	let manifest = get_child(package, "manifest")
-		.ok_or(anyhow!("No manifest node found in OPF"))?;
-	let spine = get_child(package, "spine")
-		.ok_or(anyhow!("No spine node found in OPF"))?;
-	let title = get_child(metadata, "title")
-		.ok_or(anyhow!("No title node found in OPF metadata"))?
-		.text()
-		.ok_or(anyhow!("No title node found in OPF metadata"))?
-		.to_string();
-	let author = get_child(metadata, "creator")
-		.map(|el| el.text())
-		.flatten()
-		.map(|s| s.to_owned());
-	let language = get_child(metadata, "language")
-		.map_or(String::new(), |e| e.text()
-			.map_or(String::new(), |s| s.to_owned()));
-	let manifest = parse_manifest(manifest, content_opf_dir);
-	let (spine, toc_id) = parse_spine(spine, &manifest, archive);
+	let title = opf.metadata
+		.title
+		.get(0)
+		.ok_or(anyhow!("No title defined"))?.to_string();
+	let author = opf.metadata
+		.creator
+		.get(0)
+		.map(|a| a.to_string());
+	let language = opf.metadata.language.unwrap_or(Cow::Borrowed("")).to_string();
+
+	let manifest = setup_manifest(opf.manifest, content_opf_dir);
+	let (spine, toc_id) = setup_spine(opf.spine, &manifest, archive);
 	Ok(ContentOPF {
 		title,
 		author,
@@ -912,7 +1007,7 @@ fn concat_path(mut path: PathBuf, mut sub_path: &str) -> PathBuf
 		sub_path = &sub_path[3..];
 	}
 	#[cfg(windows)]
-		let sub_path = &sub_path.replace("/", "\\");
+	let sub_path = &sub_path.replace("/", "\\");
 	path.push(sub_path);
 	path
 }
@@ -938,12 +1033,6 @@ fn path_cwd(path: &str) -> PathBuf
 	let mut cwd = PathBuf::from(path);
 	cwd.pop();
 	cwd
-}
-
-#[inline]
-fn get_child<'a, 'b>(node: Node<'a, 'b>, name: &str) -> Option<Node<'a, 'b>>
-{
-	node.children().find(|child| child.tag_name().name() == name)
 }
 
 #[inline]

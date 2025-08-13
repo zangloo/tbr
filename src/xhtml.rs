@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Result};
-use roxmltree::{Children, Node, NodeType};
-use crate::html_parser::parse_xml;
+use roxmltree::{Children, Document, Node, NodeType, ParsingOptions};
 
 /// referenced to xhtml_entities.md
 /// token from https://www.webstandards.org/learn/reference/charts/entities/named_entities/index.html
@@ -138,7 +137,13 @@ fn preprocess(xhtml: &str) -> String
 pub fn xhtml_to_html(xhtml: &str) -> Result<String>
 {
 	let text = preprocess(xhtml);
-	let doc = parse_xml(&text)?;
+	let options = ParsingOptions {
+		allow_dtd: true,
+		nodes_limit: u32::MAX,
+	};
+	let doc = Document::parse_with_options(&text, options)?;
+
+
 	let root = doc.root_element();
 	let html_node = if root.has_tag_name("html") {
 		root
