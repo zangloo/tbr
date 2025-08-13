@@ -1,6 +1,5 @@
 use anyhow::Result;
 use quick_xml::events::{BytesStart, Event};
-use quick_xml::Reader;
 
 /// referenced to xhtml_entities.md
 /// token from https://www.webstandards.org/learn/reference/charts/entities/named_entities/index.html
@@ -145,10 +144,10 @@ pub fn xhtml_to_html(xhtml: &str) -> Result<String>
 	loop {
 		match reader.read_event()? {
 			Event::Start(e) => if found {
-				write_start(&e, &mut html, &mut reader)?;
+				write_start(&e, &mut html)?;
 			} else if e.name().as_ref() == b"html" {
 				found = true;
-				write_start(&e, &mut html, &mut reader)?;
+				write_start(&e, &mut html)?;
 			}
 			Event::End(e) => if found {
 				write_end(e.name().as_ref(), &mut html);
@@ -157,7 +156,7 @@ pub fn xhtml_to_html(xhtml: &str) -> Result<String>
 				break;
 			}
 			Event::Empty(e) => if found {
-				write_start(&e, &mut html, &mut reader)?;
+				write_start(&e, &mut html)?;
 				write_end(e.name().as_ref(), &mut html);
 			}
 			Event::Text(e) => if found {
@@ -186,12 +185,12 @@ fn is_void_element(name: &[u8]) -> bool
 	VOID_ELEMENTS.binary_search(&name).is_ok()
 }
 
-fn write_start(start: &BytesStart, html: &mut String, reader: &mut Reader<&[u8]>) -> Result<()>
+fn write_start(start: &BytesStart, html: &mut String) -> Result<()>
 {
 	let tag_name = String::from_utf8_lossy(start.as_ref());
 	html.push('<');
 	html.push_str(&tag_name);
-	write_attrs(start, html, reader)?;
+	write_attrs(start, html)?;
 	html.push('>');
 	Ok(())
 }
@@ -207,7 +206,7 @@ fn write_end(name: &[u8], html: &mut String)
 }
 
 #[inline(always)]
-fn write_attrs(start: &BytesStart, html: &mut String, reader: &mut Reader<&[u8]>) -> Result<()>
+fn write_attrs(start: &BytesStart, html: &mut String) -> Result<()>
 {
 	for attr in start.attributes() {
 		let attr = attr?;
