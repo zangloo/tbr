@@ -150,20 +150,20 @@ pub fn xhtml_to_html(xhtml: &str) -> Result<String>
 				write_start(&e, &mut html)?;
 			}
 			Event::End(e) => if found {
-				write_end(e.name().as_ref(), &mut html);
+				write_end(e.name().as_ref(), &mut html)?;
 			} else if e.name().as_ref() == b"html" {
 				html.push_str("</html>");
 				break;
 			}
 			Event::Empty(e) => if found {
 				write_start(&e, &mut html)?;
-				write_end(e.name().as_ref(), &mut html);
+				write_end(e.name().as_ref(), &mut html)?;
 			}
 			Event::Text(e) => if found {
 				let cow = e.into_inner();
-				let text = String::from_utf8_lossy(cow.as_ref());
-				if text.len() > 0 {
-					html.push_str(&text);
+				let str = std::str::from_utf8(cow.as_ref())?;
+				if str.len() > 0 {
+					html.push_str(&str);
 				}
 			}
 			Event::CData(_) => {}
@@ -187,7 +187,7 @@ fn is_void_element(name: &[u8]) -> bool
 
 fn write_start(start: &BytesStart, html: &mut String) -> Result<()>
 {
-	let tag_name = String::from_utf8_lossy(start.as_ref());
+	let tag_name = std::str::from_utf8(start.as_ref())?;
 	html.push('<');
 	html.push_str(&tag_name);
 	write_attrs(start, html)?;
@@ -195,14 +195,14 @@ fn write_start(start: &BytesStart, html: &mut String) -> Result<()>
 	Ok(())
 }
 
-fn write_end(name: &[u8], html: &mut String)
+fn write_end(name: &[u8], html: &mut String) -> Result<()>
 {
-	if is_void_element(name) {
-		return;
+	if !is_void_element(name) {
+		html.push_str("</");
+		html.push_str(std::str::from_utf8(name)?);
+		html.push('>');
 	}
-	html.push_str("</");
-	html.push_str(&String::from_utf8_lossy(name));
-	html.push('>');
+	Ok(())
 }
 
 #[inline(always)]
@@ -215,15 +215,15 @@ fn write_attrs(start: &BytesStart, html: &mut String) -> Result<()>
 		// concat name
 		let name = attr.key;
 		if let Some(prefix) = name.prefix() {
-			let prefix = String::from_utf8_lossy(prefix.as_ref());
+			let prefix = std::str::from_utf8(prefix.as_ref())?;
 			html.push_str(&prefix);
 			html.push(':');
 		}
-		html.push_str(&String::from_utf8_lossy(name.local_name().as_ref()));
+		html.push_str(std::str::from_utf8(name.local_name().as_ref())?);
 
 		// concat value
 		html.push_str(r#"=""#);
-		html.push_str(&String::from_utf8_lossy(&attr.value));
+		html.push_str( std::str::from_utf8(&attr.value)?);
 		html.push('"');
 	}
 	Ok(())
