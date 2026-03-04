@@ -176,7 +176,7 @@ impl<C, R: Render<C> + ?Sized> Controller<C, R>
 		&self.search_pattern
 	}
 
-	pub fn status(&self) -> ReadingStatus
+	pub fn status(&self) -> ReadingStatus<'_>
 	{
 		let title = self.book
 			.title(self.reading.line, self.reading.position);

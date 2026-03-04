@@ -244,7 +244,7 @@ impl ChapterList {
 	}
 
 	#[inline]
-	fn ctrl(&self) -> Ref<GuiController>
+	fn ctrl(&self) -> Ref<'_, GuiController>
 	{
 		self.inner.ctrl.borrow()
 	}

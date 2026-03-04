@@ -50,7 +50,7 @@ impl ReadingInfo {
 	}
 
 	#[inline]
-	pub fn load_inner_book(&self, inner_book: usize) -> BookLoadingInfo
+	pub fn load_inner_book(&self, inner_book: usize) -> BookLoadingInfo<'_>
 	{
 		BookLoadingInfo::ChangeInnerBook(
 			&self.filename,

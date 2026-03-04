@@ -1364,7 +1364,7 @@ fn load_stylesheets<'d>(document: &'d Html, resolver: Option<&'d dyn HtmlResolve
 
 #[inline]
 #[allow(unused)]
-pub fn parse_stylesheet(css: &str, strict: bool) -> Result<StyleSheet>
+pub fn parse_stylesheet(css: &str, strict: bool) -> Result<StyleSheet<'_, '_>>
 {
 	let mut options = ParserOptions::default();
 	if !strict {

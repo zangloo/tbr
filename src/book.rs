@@ -306,7 +306,7 @@ impl Line {
 	}
 
 	#[inline]
-	pub fn iter(&self) -> Iter<char>
+	pub fn iter(&self) -> Iter<'_, char>
 	{
 		self.chars.iter()
 	}
@@ -372,7 +372,7 @@ impl Line {
 		None
 	}
 
-	pub fn link_at(&self, link_index: usize) -> Option<Link>
+	pub fn link_at(&self, link_index: usize) -> Option<Link<'_>>
 	{
 		if let Some((TextStyle::Link(target), range)) = self.styles.get(link_index) {
 			Some(Link {
@@ -425,7 +425,7 @@ impl Line {
 
 	#[cfg(feature = "gui")]
 	pub fn char_style_at(&self, char_index: usize, custom_color: bool,
-		colors: &Colors) -> CharStyle
+		colors: &Colors) -> CharStyle<'_>
 	{
 		let mut char_style = CharStyle {
 			font_scale: Default::default(),
@@ -593,7 +593,7 @@ pub trait Book {
 	#[inline]
 	fn toc_index(&self, _line: usize, _offset: usize) -> usize { 0 }
 	#[inline]
-	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=TocInfo> + '_>> { None }
+	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=TocInfo<'_>> + '_>> { None }
 	#[inline]
 	fn toc_position(&mut self, _toc_index: usize) -> Option<TraceInfo> { None }
 	fn lines(&self) -> &Vec<Line>;

@@ -64,7 +64,7 @@ impl I18n
 		Ok(I18n { bundles, locale: locale.to_string(), locale_list })
 	}
 
-	pub fn msg(&self, key: &str) -> Cow<str>
+	pub fn msg(&self, key: &str) -> Cow<'_, str>
 	{
 		let bundle = self.bundles.get(&self.locale).unwrap();
 		bundle_msg(bundle, key, None).expect(&format!("No {key} defined in {}", self.locale))

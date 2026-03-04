@@ -217,7 +217,7 @@ impl<R: Read + Seek + 'static> Book for HaodooBook<R> {
 		self.chapter_index
 	}
 
-	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=TocInfo> + '_>>
+	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=TocInfo<'_>> + '_>>
 	{
 		if matches!(self.book_type, PDBType::PalmDoc) {
 			return None;

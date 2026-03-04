@@ -1590,55 +1590,55 @@ impl GuiContext {
 	}
 
 	#[inline]
-	fn cfg(&self) -> Ref<Configuration>
+	fn cfg(&self) -> Ref<'_, Configuration>
 	{
 		self.cfg.borrow()
 	}
 
 	#[inline]
-	fn cfg_mut(&self) -> RefMut<Configuration>
+	fn cfg_mut(&self) -> RefMut<'_, Configuration>
 	{
 		self.cfg.borrow_mut()
 	}
 
 	#[inline]
-	fn ctrl(&self) -> Ref<GuiController>
+	fn ctrl(&self) -> Ref<'_, GuiController>
 	{
 		self.ctrl.borrow()
 	}
 
 	#[inline]
-	fn ctrl_mut(&self) -> RefMut<GuiController>
+	fn ctrl_mut(&self) -> RefMut<'_, GuiController>
 	{
 		self.ctrl.borrow_mut()
 	}
 
 	#[inline]
-	fn ctx(&self) -> Ref<RenderContext>
+	fn ctx(&self) -> Ref<'_, RenderContext>
 	{
 		self.ctx.borrow()
 	}
 
 	#[inline]
-	fn ctx_mut(&self) -> RefMut<RenderContext>
+	fn ctx_mut(&self) -> RefMut<'_, RenderContext>
 	{
 		self.ctx.borrow_mut()
 	}
 
 	#[inline]
-	fn opener(&self) -> RefMut<Opener>
+	fn opener(&self) -> RefMut<'_, Opener>
 	{
 		self.opener.borrow_mut()
 	}
 
 	#[inline]
-	fn dm(&self) -> Ref<DictionaryManager>
+	fn dm(&self) -> Ref<'_, DictionaryManager>
 	{
 		self.dm.borrow()
 	}
 
 	#[inline]
-	fn dm_mut(&self) -> RefMut<DictionaryManager>
+	fn dm_mut(&self) -> RefMut<'_, DictionaryManager>
 	{
 		self.dm.borrow_mut()
 	}

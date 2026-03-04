@@ -345,7 +345,7 @@ impl Book for EpubBook {
 			})
 	}
 
-	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=TocInfo> + '_>>
+	fn toc_iterator(&self) -> Option<Box<dyn Iterator<Item=TocInfo<'_>> + '_>>
 	{
 		let iter = ListIterator::new(|index| {
 			let toc = self.toc.get(index)?;
